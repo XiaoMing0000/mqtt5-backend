@@ -1,0 +1,41 @@
+{
+	"name": "server",
+	"version": "1.0.0",
+	"description": "后端服务",
+	"main": "index.js",
+	"scripts": {
+		"dev": "rimraf dist && tsx ./config/esbuild.dev.ts --watch",
+		"test": "supervisor -w ./dist -n error -s -- -r dotenv/config ./dist/index.js",
+		"debugger": "nodemon src/entry/index.ts",
+		"build:prod": "rimraf dist && tsx ./config/esbuild.prod.ts",
+		"prettier:all": "prettier --write ./src",
+		"lint": "eslint -f unix \"src/**/*.{ts,tsx}\""
+	},
+	"dependencies": {
+	},
+	"devDependencies": {
+		"@eslint/js": "^9.5.0",
+		"@types/node": "^20.10.4",
+		"@typescript-eslint/eslint-plugin": "^7.14.1",
+		"@typescript-eslint/parser": "^7.14.1",
+		"esbuild": "^0.19.9",
+		"eslint": "^8.57.0",
+		"prettier": "^3.3.2",
+		"rimraf": "^5.0.5",
+		"ts-node": "^10.9.2",
+		"tsx": "^4.6.2",
+		"typescript": "^5.3.3",
+		"typescript-eslint": "^7.13.1"
+	},
+	"keywords": [
+		"server",
+		"nodejs",
+		"router"
+	],
+	"author": "xiaoming0000",
+	"license": "ISC",
+	"repository": {
+		"type": "git",
+		"url": "git@github.com-XiaoMing0000/mqtt-backend.git"
+	}
+}
