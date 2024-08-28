@@ -1,4 +1,5 @@
 import * as net from 'net';
+import { parseProperties } from './property';
 
 // MQTT 报文类型
 enum PacketType {
@@ -95,7 +96,7 @@ function handlePublish(client: net.Socket, buffer: Buffer): void {
 }
 
 // 可变整数
-function variableByteInteger(buffer: Buffer, offset: number) {
+export function variableByteInteger(buffer: Buffer, offset: number) {
 	let index = offset;
 	let encodeByte;
 	let value = 0;
@@ -159,83 +160,14 @@ function parseConnect(buffer: Buffer) {
 	const propertyLength = variableByteInteger(buffer, index);
 	index = propertyLength.offset + propertyLength.value;
 	const propertiesBuffer = buffer.slice(propertyLength.offset, index);
-	const properties: {
-		sessionExpiryInterval?: number;
-		receiveMaximum?: number;
-		maximumPacketSize?: number;
-		topicAliasMaximum?: number;
-		requestResponseInformation?: string;
-		requestProblemInformation?: string;
-		clientIdentifier?: string;
-		userProperty?: string;
-		authenticationMethod?: string;
-		authenticationData?: string;
-		[key: string]: string | number | undefined;
-	} = {
-		sessionExpiryInterval: undefined,
-	};
-	if (propertiesBuffer.length) {
-		for (let i = 0; i < propertiesBuffer.length; i) {
-			switch (propertiesBuffer[i]) {
-				case 0x11:
-					if (properties.sessionExpiryInterval != undefined) {
-						throw new Error('It is a Protocol Error to include the Session Expiry Interval more than once.');
-					}
-					i++;
-					properties.sessionExpiryInterval = (propertiesBuffer[i++] << 24) | (propertiesBuffer[i++] << 16) | (propertiesBuffer[i++] << 8) | propertiesBuffer[i++];
-					break;
-				case 0x12:
-					i++;
-					const idLength = (propertiesBuffer[i++] << 8) | propertiesBuffer[i++];
-					properties.clientIdentifier = propertiesBuffer.slice(i, i + idLength).toString();
-					i += idLength;
-					break;
-				case 0x15:
-					i++;
-					break;
-				case 0x17:
-					i++;
-					break;
-				// 在客户端中使用
-				// case 0x19:
-				// 	i++;
-				// 	break;
-				case 0x21:
-					i++;
-					if (properties.receiveMaximum != undefined) {
-						throw new Error('It is a Protocol Error to include the Receive Maximum value more than once or for it to have the value 0.');
-					}
-					properties.receiveMaximum = (propertiesBuffer[i++] << 8) | propertiesBuffer[i++];
-					break;
-				case 0x22:
-					if (properties.receiveMaximum != undefined) {
-						throw new Error('t is a Protocol Error to include the Topic Alias Maximum value more than once.');
-					}
-					i++;
-					properties.topicAliasMaximum = (propertiesBuffer[i++] << 8) | propertiesBuffer[i++];
-					break;
-				case 0x26:
-					i++;
-					const keyLength = (propertiesBuffer[i++] << 8) | propertiesBuffer[i++];
-					const key = propertiesBuffer.slice(i, i + keyLength).toString();
-					i += keyLength;
-					const valueLength = (propertiesBuffer[i++] << 8) | propertiesBuffer[i++];
-					const value = propertiesBuffer.slice(i, i + valueLength).toString();
-					i += valueLength;
-					properties[key] = value;
-					break;
-				case 0x27:
-					if (properties.maximumPacketSize != undefined) {
-						throw new Error('It is a Protocol Error to include the Maximum Packet Size more than once, or for the value to be set to zero.');
-					}
-					i++;
-					properties.maximumPacketSize = (propertiesBuffer[i++] << 24) | (propertiesBuffer[i++] << 16) | (propertiesBuffer[i++] << 8) | propertiesBuffer[i++];
-					break;
-				default:
-					i = propertiesBuffer.length;
-					break;
-			}
-		}
+
+	const properties = parseProperties(propertiesBuffer);
+
+	let willPayload = '';
+	if (connectFlags.willFlag) {
+		const willPayloadLength = (buffer[index++] << 8) | buffer[index++];
+		willPayload = buffer.slice(index, index + willPayloadLength).toString();
+		index += willPayloadLength;
 	}
 
 	// 会话时间间隔
