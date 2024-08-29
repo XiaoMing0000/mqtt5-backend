@@ -96,7 +96,7 @@ function handlePublish(client: net.Socket, buffer: Buffer): void {
 }
 
 // 可变整数
-export function variableByteInteger(buffer: Buffer, offset: number) {
+export function variableByteInteger(buffer: Buffer, offset: number, length = 3) {
 	let index = offset;
 	let encodeByte;
 	let value = 0;
@@ -106,7 +106,7 @@ export function variableByteInteger(buffer: Buffer, offset: number) {
 		encodeByte = buffer[index++];
 		value += (encodeByte & 0x7f) << leftShift;
 		leftShift += 7;
-		if (leftShift > 21) {
+		if (leftShift > length * 7) {
 			throw new Error('Malformed Remaining Length');
 		}
 	} while (encodeByte & 0x80);

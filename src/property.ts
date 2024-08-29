@@ -19,15 +19,23 @@ interface IProperties {
 	willDelayLength?: number;
 	maximumQoS?: boolean;
 	retainAvailable?: boolean;
-
-	[key: string]: string | number | boolean | undefined;
+	reasonString?: string;
+	subscriptionIdentifier?: Array<number>;
+	serverKeepAlive?: number;
+	responseInformation?: string;
+	serverReference?: string;
+	topicAlias?: number;
+	wildcardSubscriptionAvailable?: boolean;
+	subscriptionIdentifierAvailable?: boolean;
+	sharedSubscriptionAvailable?: boolean;
+	[key: string]: any;
 }
 
 export function parseProperties(buffer: Buffer) {
 	const properties: IProperties = {};
 	for (let i = 0; i < buffer.length; i) {
 		switch (buffer[i]) {
-			case 0x1:
+			case 0x01:
 				i++;
 				if (properties.payloadFormatIndicator !== undefined) {
 					throw new Error('It is a Protocol Error to include the Payload Format Indicator more than once.');
@@ -65,6 +73,18 @@ export function parseProperties(buffer: Buffer) {
 
 			case 0x09:
 				i++;
+				const subscriptionIdLength = variableByteInteger(buffer, i, 4);
+				i = subscriptionIdLength.offset;
+				if (subscriptionIdLength.value == 0) {
+					throw new Error('It is a Protocol Error if the Subscription Identifier has a value of 0.');
+				}
+				if (properties.subscriptionIdentifier) {
+					properties.subscriptionIdentifier.push(subscriptionIdLength.value);
+				}
+				break;
+
+			case 0x0b:
+				i++;
 				const correlationDataLength = (buffer[i++] << 8) | buffer[i++];
 
 				properties.correlationData = buffer.slice(i, i + correlationDataLength).toString();
@@ -83,6 +103,13 @@ export function parseProperties(buffer: Buffer) {
 				const idLength = (buffer[i++] << 8) | buffer[i++];
 				properties.clientIdentifier = buffer.slice(i, i + idLength).toString();
 				i += idLength;
+				break;
+			case 0x13:
+				i++;
+				if (properties.sessionExpiryInterval != undefined) {
+					throw new Error('It is a Protocol Error to include the Server Keep Alive more than once.');
+				}
+				properties.serverKeepAlive = (buffer[i++] << 8) | buffer[i++];
 				break;
 			case 0x15:
 				i++;
@@ -125,9 +152,34 @@ export function parseProperties(buffer: Buffer) {
 				properties.requestResponseInformation = !!(buffer[i++] & 1);
 				break;
 
+			case 0x1a:
+				i++;
+				if (properties.responseInformation) {
+					throw new Error('It is a Protocol Error to include the Response Information more than once.');
+				}
+				const responseInformationLength = (buffer[i++] << 8) | buffer[i++];
+				properties.responseInformation = buffer.slice(i, i + responseInformationLength).toString();
+				i += responseInformationLength;
+				break;
+
+			case 0x1c:
+				i++;
+				if (properties.serverReference) {
+					throw new Error('It is a Protocol Error to include the Response Information more than once.');
+				}
+				const serverReferenceLength = (buffer[i++] << 8) | buffer[i++];
+				properties.serverReference = buffer.slice(i, i + serverReferenceLength).toString();
+				i += serverReferenceLength;
+				break;
 			case 0x1f:
 				i++;
-				// TODO 3.2.2.3.9 Reason String
+				if (properties.authenticationData) {
+					throw new Error('It is a Protocol Error to include Authentication Method more than once.');
+				}
+				const reasonStringLength = (buffer[i++] << 8) | buffer[i++];
+				properties.reasonString = buffer.slice(i, i + reasonStringLength).toString();
+				i += reasonStringLength;
+				break;
 				break;
 			case 0x21:
 				i++;
@@ -142,6 +194,13 @@ export function parseProperties(buffer: Buffer) {
 				}
 				i++;
 				properties.topicAliasMaximum = (buffer[i++] << 8) | buffer[i++];
+				break;
+			case 0x23:
+				i++;
+				if (properties.topicAlias != undefined) {
+					throw new Error('It is a Protocol Error to include the Topic Alias value more than once.');
+				}
+				properties.topicAlias = (buffer[i++] << 8) | buffer[i++];
 				break;
 			case 0x24:
 				i++;
@@ -173,6 +232,27 @@ export function parseProperties(buffer: Buffer) {
 				}
 				i++;
 				properties.maximumPacketSize = (buffer[i++] << 24) | (buffer[i++] << 16) | (buffer[i++] << 8) | buffer[i++];
+				break;
+			case 0x28:
+				i++;
+				if (properties.wildcardSubscriptionAvailable !== undefined || buffer[i] > 1) {
+					throw new Error('It is a Protocol Error to include the Wildcard Subscription Available more than once or to send a value other than 0 or 1.');
+				}
+				properties.wildcardSubscriptionAvailable = !!(buffer[i++] & 1);
+				break;
+			case 0x29:
+				i++;
+				if (properties.subscriptionIdentifierAvailable !== undefined || buffer[i] > 1) {
+					throw new Error('It is a Protocol Error to include the Subscription Identifier Available more than once, or to send a value other than 0 or 1.');
+				}
+				properties.subscriptionIdentifierAvailable = !!(buffer[i++] & 1);
+				break;
+			case 0x29:
+				i++;
+				if (properties.sharedSubscriptionAvailable !== undefined || buffer[i] > 1) {
+					throw new Error('It is a Protocol Error to include the Shared Subscription Available more than once or to send a value other than 0 or 1.');
+				}
+				properties.sharedSubscriptionAvailable = !!(buffer[i++] & 1);
 				break;
 			default:
 				i = buffer.length;
