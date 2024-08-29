@@ -1,24 +1,6 @@
 import * as net from 'net';
 import { parseProperties } from './property';
-
-// MQTT 报文类型
-enum PacketType {
-	CONNECT = 1,
-	CONNACK,
-	PUBLISH,
-	PUBACK,
-	PUBREC,
-	PUBREL,
-	PUBCOMP,
-	SUBSCRIBE,
-	SUBACK,
-	UNSUBSCRIBE,
-	UNSUBACK,
-	PINGREQ,
-	PINGRESP,
-	DISCONNECT,
-	AUTH,
-}
+import { IConnectFlags, PacketType } from './interface';
 
 // 解析 MQTT 5.0 报文中的可变头部属性长度
 function parseVariableHeaderProperties(buffer: Buffer, offset: number): { propertyLength: number; offset: number } {
@@ -96,34 +78,20 @@ function handlePublish(client: net.Socket, buffer: Buffer): void {
 }
 
 // 可变整数
-export function variableByteInteger(buffer: Buffer, offset: number, length = 3) {
-	let index = offset;
+export function variableByteInteger(data: { buffer: Buffer; index: number }, length = 3): number {
 	let encodeByte;
 	let value = 0;
 	let leftShift = 0;
 	// 计算剩余长度
 	do {
-		encodeByte = buffer[index++];
+		encodeByte = data.buffer[data.index++];
 		value += (encodeByte & 0x7f) << leftShift;
 		leftShift += 7;
 		if (leftShift > length * 7) {
 			throw new Error('Malformed Remaining Length');
 		}
 	} while (encodeByte & 0x80);
-	return {
-		offset: index,
-		value: value,
-	};
-}
-
-interface IConnectFlags {
-	username: boolean;
-	password: boolean;
-	willRetain: boolean;
-	qos: number;
-	willFlag: boolean;
-	cleanStart: boolean;
-	reserved: boolean;
+	return value;
 }
 
 // MQTT 5.0 协议中固定报头的解析
@@ -131,20 +99,19 @@ function parseConnect(buffer: Buffer) {
 	console.log(buffer.toString());
 	const packetType = (buffer[0] >> 4) as PacketType;
 	const packetFlags = buffer[0] & 0xf;
-	let index = 1;
+	// let index = 1;
+
+	const data = { buffer, index: 1 };
 	// 获取数据长度
-	const fixedHeader = variableByteInteger(buffer, index);
-	const remainingLength = fixedHeader.value;
-	index = fixedHeader.offset;
-	console.log(index);
+	const remainingLength = variableByteInteger(data);
 
 	// 获取协议名称
-	const protocolNameLength = buffer.readUint16BE(index);
-	const protocolName = buffer.slice(index + 2, index + 2 + protocolNameLength).toString();
-	index += 2 + protocolNameLength;
+	const protocolNameLength = data.buffer.readUint16BE(data.index);
+	const protocolName = buffer.slice(data.index + 2, data.index + 2 + protocolNameLength).toString();
+	data.index += 2 + protocolNameLength;
 
-	const protocolVersion = buffer[index++];
-	const connectFlagsValue = buffer[index++];
+	const protocolVersion = data.buffer[data.index++];
+	const connectFlagsValue = data.buffer[data.index++];
 	const connectFlags: IConnectFlags = {
 		username: !!((connectFlagsValue >> 7) & 1),
 		password: !!((connectFlagsValue >> 6) & 1),
@@ -154,41 +121,39 @@ function parseConnect(buffer: Buffer) {
 		cleanStart: !!((connectFlagsValue >> 1) & 1),
 		reserved: !!(connectFlagsValue & 1),
 	};
-	const keepAlive = (buffer[index++] << 8) | buffer[index++];
+	const keepAlive = (data.buffer[data.index++] << 8) | buffer[data.index++];
 
 	// 获取属性
-	const propertyLength = variableByteInteger(buffer, index);
-	index = propertyLength.offset + propertyLength.value;
-	const propertiesBuffer = buffer.slice(propertyLength.offset, index);
+	const propertyLength = variableByteInteger(data);
+	const propertiesBuffer = data.buffer.slice(data.index, data.index + propertyLength);
+	data.index += propertyLength;
 
 	const properties = parseProperties(propertiesBuffer);
 
 	let willPayload = '';
 	if (connectFlags.willFlag) {
-		const willPayloadLength = (buffer[index++] << 8) | buffer[index++];
-		willPayload = buffer.slice(index, index + willPayloadLength).toString();
-		index += willPayloadLength;
+		const willPayloadLength = (data.buffer[data.index++] << 8) | data.buffer[data.index++];
+		willPayload = data.buffer.slice(data.index, data.index + willPayloadLength).toString();
+		data.index += willPayloadLength;
 	}
 
 	// 会话时间间隔
-	const sessionLength = variableByteInteger(buffer, index);
-	const sessionExpiryInterval = sessionLength.value;
-	index = sessionLength.offset;
+	const sessionExpiryInterval = variableByteInteger(data);
 
 	// 客户端 id
-	const clientIdLength = variableByteInteger(buffer, index);
-	index = clientIdLength.offset + clientIdLength.value;
-	const clientId = buffer.slice(clientIdLength.offset, index).toString();
+	const clientIdLength = variableByteInteger(data);
+	const clientId = buffer.slice(data.index, data.index + clientIdLength).toString();
+	data.index = data.index + clientIdLength;
 
 	let username = '';
 	let password = '';
 	if (connectFlags.username && connectFlags.password) {
-		const usernameLength = (buffer[index++] << 8) | buffer[index++];
-		username = buffer.slice(index, index + usernameLength).toString();
-		index += usernameLength;
-		const passwordLength = (buffer[index++] << 8) | buffer[index++];
-		password = buffer.slice(index, index + passwordLength).toString();
-		index += passwordLength;
+		const usernameLength = (buffer[data.index++] << 8) | buffer[data.index++];
+		username = buffer.slice(data.index, data.index + usernameLength).toString();
+		data.index += usernameLength;
+		const passwordLength = (buffer[data.index++] << 8) | buffer[data.index++];
+		password = buffer.slice(data.index, data.index + passwordLength).toString();
+		data.index += passwordLength;
 	}
 
 	return {

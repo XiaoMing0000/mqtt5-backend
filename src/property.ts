@@ -1,36 +1,6 @@
 import { variableByteInteger } from '.';
 import { PropertyException } from './exception';
-
-interface IProperties {
-	payloadFormatIndicator?: number;
-	messageExpiryInterval?: number;
-	contentType?: string;
-	responseTopic?: string;
-	correlationData?: string;
-	sessionExpiryInterval?: number;
-	receiveMaximum?: number;
-	maximumPacketSize?: number;
-	topicAliasMaximum?: number;
-	requestResponseInformation?: boolean;
-	requestProblemInformation?: boolean;
-	clientIdentifier?: string;
-	userProperty?: string;
-	authenticationMethod?: string;
-	authenticationData?: string;
-	willDelayLength?: number;
-	maximumQoS?: boolean;
-	retainAvailable?: boolean;
-	reasonString?: string;
-	subscriptionIdentifier?: Array<number>;
-	serverKeepAlive?: number;
-	responseInformation?: string;
-	serverReference?: string;
-	topicAlias?: number;
-	wildcardSubscriptionAvailable?: boolean;
-	subscriptionIdentifierAvailable?: boolean;
-	sharedSubscriptionAvailable?: boolean;
-	[key: string]: any;
-}
+import { IProperties } from './interface';
 
 export function parseProperties(buffer: Buffer) {
 	const properties: IProperties = {};
@@ -74,13 +44,14 @@ export function parseProperties(buffer: Buffer) {
 
 			case 0x09:
 				i++;
-				const subscriptionIdLength = variableByteInteger(buffer, i, 4);
-				i = subscriptionIdLength.offset;
-				if (subscriptionIdLength.value == 0) {
+				const varData = { buffer, index: i };
+				const subscriptionIdLength = variableByteInteger(varData, 4);
+				i = varData.index;
+				if (subscriptionIdLength == 0) {
 					throw new PropertyException('It is a Protocol Error if the Subscription Identifier has a value of 0.', 0x09);
 				}
 				if (properties.subscriptionIdentifier) {
-					properties.subscriptionIdentifier.push(subscriptionIdLength.value);
+					properties.subscriptionIdentifier.push(subscriptionIdLength);
 				}
 				break;
 
