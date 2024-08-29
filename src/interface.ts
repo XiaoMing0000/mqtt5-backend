@@ -26,7 +26,7 @@ export interface IConnectFlags {
 	username: boolean;
 	password: boolean;
 	willRetain: boolean;
-	qos: number;
+	willQoS: number;
 	willFlag: boolean;
 	cleanStart: boolean;
 	reserved: boolean;
