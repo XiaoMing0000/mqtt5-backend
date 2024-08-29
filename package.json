@@ -11,21 +11,19 @@
 		"prettier:all": "prettier --write ./src",
 		"lint": "eslint -f unix \"src/**/*.{ts,tsx}\""
 	},
-	"dependencies": {
-	},
 	"devDependencies": {
-		"@eslint/js": "^9.5.0",
-		"@types/node": "^20.10.4",
-		"@typescript-eslint/eslint-plugin": "^7.14.1",
-		"@typescript-eslint/parser": "^7.14.1",
-		"esbuild": "^0.19.9",
-		"eslint": "^8.57.0",
-		"prettier": "^3.3.2",
-		"rimraf": "^5.0.5",
+		"@eslint/js": "^9.9.1",
+		"@types/node": "^22.5.1",
+		"@typescript-eslint/eslint-plugin": "^8.3.0",
+		"@typescript-eslint/parser": "^8.3.0",
+		"esbuild": "^0.23.1",
+		"eslint": "^9.9.1",
+		"prettier": "^3.3.3",
+		"rimraf": "^6.0.1",
 		"ts-node": "^10.9.2",
-		"tsx": "^4.6.2",
-		"typescript": "^5.3.3",
-		"typescript-eslint": "^7.13.1"
+		"tsx": "^4.19.0",
+		"typescript": "^5.5.4",
+		"typescript-eslint": "^8.3.0"
 	},
 	"keywords": [
 		"server",
