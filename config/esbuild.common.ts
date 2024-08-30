@@ -2,7 +2,7 @@ import { BuildOptions } from 'esbuild';
 
 export default {
 	entryPoints: {
-		index: './src/entry/index.ts',
+		index: './src/index.ts',
 	},
 	entryNames: '[name]',
 	assetNames: '[name]',
@@ -15,5 +15,4 @@ export default {
 	treeShaking: false,
 	ignoreAnnotations: true,
 	define: {},
-	external: ['skywalking-backend-js'],
 } as BuildOptions;
