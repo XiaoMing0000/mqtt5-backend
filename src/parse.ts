@@ -1,4 +1,5 @@
-import { BufferData } from './interface';
+import { BufferData, IConnectData, PacketType } from './interface';
+import { parseProperties } from './property';
 
 export const bits = oneByteInteger;
 /**
@@ -82,4 +83,74 @@ export function utf8StringPair(data: BufferData): { key: string; value: string }
 export function variableString(data: BufferData) {
 	const strLength = variableByteInteger(data);
 	return data.buffer.slice(data.index, (data.index += strLength)).toString();
+}
+
+/**
+ * 解析 connect 报文
+ * @param buffer
+ * @returns
+ */
+export function parseConnect(buffer: Buffer): IConnectData {
+	const connectedData: IConnectData = {
+		header: {
+			packetType: PacketType.RESERVED,
+			packetFlags: 0,
+			remainingLength: 0,
+			protocolName: '',
+			protocolVersion: 0,
+			keepAlive: 0,
+		},
+		connectFlags: {} as any,
+		properties: {},
+		payload: {
+			clientIdentifier: '',
+		},
+	};
+	connectedData.header.packetType = (buffer[0] >> 4) as PacketType;
+	connectedData.header.packetFlags = buffer[0] & 0xf;
+
+	const data = { buffer, index: 1 };
+	// 获取数据长度
+	connectedData.header.remainingLength = variableByteInteger(data);
+
+	connectedData.header.protocolName = utf8EncodedString(data);
+	connectedData.header.protocolVersion = oneByteInteger(data);
+
+	const connectFlagsValue = oneByteInteger(data);
+	connectedData.connectFlags = {
+		username: !!((connectFlagsValue >> 7) & 1),
+		password: !!((connectFlagsValue >> 6) & 1),
+		willRetain: !!((connectFlagsValue >> 5) & 1),
+		willQoS: (connectFlagsValue >> 3) & 3,
+		willFlag: !!((connectFlagsValue >> 2) & 1),
+		cleanStart: !!((connectFlagsValue >> 1) & 1),
+		reserved: !!(connectFlagsValue & 1),
+	};
+
+	connectedData.header.keepAlive = twoByteInteger(data);
+
+	// 获取属性
+	const propertyLength = variableByteInteger(data);
+	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+	connectedData.properties = parseProperties(propertiesBuffer);
+
+	// Connect Payload
+	// 客户端 id
+	connectedData.payload.clientIdentifier = utf8EncodedString(data);
+
+	if (connectedData.connectFlags.willFlag) {
+		const willPropertiesLength = variableByteInteger(data);
+		const willPropertiesBuffer = data.buffer.slice(data.index, (data.index += willPropertiesLength));
+		connectedData.payload.willProperties = parseProperties(willPropertiesBuffer);
+
+		connectedData.payload.willTopic = utf8EncodedString(data);
+		connectedData.payload.willPayload = utf8EncodedString(data);
+	}
+
+	if (connectedData.connectFlags.username && connectedData.connectFlags.password) {
+		connectedData.payload.username = utf8EncodedString(data);
+		connectedData.payload.password = utf8EncodedString(data);
+	}
+
+	return connectedData;
 }

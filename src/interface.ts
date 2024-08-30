@@ -1,5 +1,6 @@
 // MQTT 报文类型
 export enum PacketType {
+	RESERVED = 0,
 	CONNECT = 1,
 	CONNACK,
 	PUBLISH,
@@ -61,4 +62,25 @@ export interface IProperties {
 	subscriptionIdentifierAvailable?: boolean;
 	sharedSubscriptionAvailable?: boolean;
 	[key: string]: any;
+}
+
+export interface IConnectData {
+	header: {
+		packetType: PacketType;
+		packetFlags: number;
+		remainingLength: number;
+		protocolName: string;
+		protocolVersion: number;
+		keepAlive: number;
+	};
+	connectFlags: IConnectFlags;
+	properties: IProperties;
+	payload: {
+		clientIdentifier: string;
+		willProperties?: IProperties;
+		willTopic?: string;
+		willPayload?: string;
+		username?: string;
+		password?: string;
+	};
 }

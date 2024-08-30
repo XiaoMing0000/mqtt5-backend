@@ -40,20 +40,21 @@ export function parseProperties(buffer: Buffer, index?: number) {
 
 			case 0x09:
 				data.index++;
-				const subscriptionIdLength = variableByteInteger(data, 4);
-				if (subscriptionIdLength == 0) {
-					throw new PropertyException('It is a Protocol Error if the Subscription Identifier has a value of 0.', 0x09);
+				if (properties.correlationData) {
+					throw new PropertyException('It is a Protocol Error to include Correlation Data more than once.', 0x09);
 				}
-				if (properties.subscriptionIdentifier) {
-					properties.subscriptionIdentifier.push(subscriptionIdLength);
-				} else {
-					properties.subscriptionIdentifier = [subscriptionIdLength];
-				}
+				properties.correlationData = utf8EncodedString(data);
 				break;
 
 			case 0x0b:
 				data.index++;
-				properties.correlationData = utf8EncodedString(data);
+				if (properties.subscriptionIdLength) {
+					throw new PropertyException('It is a Protocol Error to include the Subscription Identifier more than once.', 0x0b);
+				}
+				properties.subscriptionIdLength = variableByteInteger(data, 4);
+				if (properties.subscriptionIdLength == 0) {
+					throw new PropertyException('It is a Protocol Error if the Subscription Identifier has a value of 0. ', 0x0b);
+				}
 				break;
 
 			case 0x11:
@@ -167,11 +168,12 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				}
 				properties.retainAvailable = !!oneByteInteger(data);
 				break;
-			case 0x26:
+			case 0x26: {
 				data.index++;
-				const pairData = utf8StringPair(data);
-				properties[pairData.key] = pairData.value;
+				const { key, value } = utf8StringPair(data);
+				properties[key] = value;
 				break;
+			}
 			case 0x27:
 				data.index++;
 				if (properties.maximumPacketSize != undefined) {

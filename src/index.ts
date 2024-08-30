@@ -1,7 +1,5 @@
 import * as net from 'net';
-import { parseProperties } from './property';
-import { IConnectFlags, IProperties, PacketType } from './interface';
-import { oneByteInteger, twoByteInteger, utf8EncodedString, variableByteInteger } from './parse';
+import { parseConnect } from './parse';
 
 // 解析 MQTT 5.0 报文中的可变头部属性长度
 function parseVariableHeaderProperties(buffer: Buffer, offset: number): { propertyLength: number; offset: number } {
@@ -76,74 +74,6 @@ function handlePublish(client: net.Socket, buffer: Buffer): void {
 	console.log(`Received message on topic '${topicName}': ${payload.toString()}`);
 
 	// TODO: 根据 QoS 级别发送相应的 PUBACK, PUBREC, PUBREL, PUBCOMP
-}
-
-// MQTT 5.0 协议中固定报头的解析
-function parseConnect(buffer: Buffer) {
-	const packetType = (buffer[0] >> 4) as PacketType;
-	const packetFlags = buffer[0] & 0xf;
-
-	const data = { buffer, index: 1 };
-	// 获取数据长度
-	const remainingLength = variableByteInteger(data);
-
-	const protocolName = utf8EncodedString(data);
-	const protocolVersion = oneByteInteger(data);
-
-	const connectFlagsValue = oneByteInteger(data);
-	const connectFlags: IConnectFlags = {
-		username: !!((connectFlagsValue >> 7) & 1),
-		password: !!((connectFlagsValue >> 6) & 1),
-		willRetain: !!((connectFlagsValue >> 5) & 1),
-		willQoS: (connectFlagsValue >> 3) & 3,
-		willFlag: !!((connectFlagsValue >> 2) & 1),
-		cleanStart: !!((connectFlagsValue >> 1) & 1),
-		reserved: !!(connectFlagsValue & 1),
-	};
-
-	const keepAlive = twoByteInteger(data);
-
-	// 获取属性
-	const propertyLength = variableByteInteger(data);
-	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
-	const properties = parseProperties(propertiesBuffer);
-
-	// Connect Payload
-	// 客户端 id
-	const clientId = utf8EncodedString(data);
-
-	let willProperties: IProperties = {};
-	let willTopic: string = '';
-	let willPayload: string = '';
-	if (connectFlags.willFlag) {
-		const willPropertiesLength = variableByteInteger(data);
-		const willPropertiesBuffer = data.buffer.slice(data.index, (data.index += willPropertiesLength));
-		willProperties = parseProperties(willPropertiesBuffer);
-
-		willTopic = utf8EncodedString(data);
-		willPayload = utf8EncodedString(data);
-	}
-
-	let username = '';
-	let password = '';
-	if (connectFlags.username && connectFlags.password) {
-		username = utf8EncodedString(data);
-		password = utf8EncodedString(data);
-	}
-
-	return {
-		packetType,
-		packetFlags,
-		remainingLength,
-		protocolName,
-		protocolVersion,
-		connectFlags,
-		keepAlive,
-		properties,
-		clientId,
-		username,
-		password,
-	};
 }
 
 // 创建 TCP 服务器
