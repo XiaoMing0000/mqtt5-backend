@@ -54,7 +54,7 @@ const server = net.createServer((client) => {
 
 	client.on('data', (data) => {
 		try {
-			throw new ConnectException('xxx', 0x82);
+			// throw new ConnectException('xxx', 0x82);
 			const connData = parseConnect(data);
 			console.log(connData);
 			switch (connData.header.packetType) {
@@ -90,3 +90,5 @@ const server = net.createServer((client) => {
 server.listen(1883, () => {
 	console.log('MQTT server listening on port 1883');
 });
+
+// TODO 3.2 CONNACK – Connect acknowledgement 下一步编写

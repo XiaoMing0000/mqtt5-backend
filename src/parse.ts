@@ -1,3 +1,4 @@
+import { ConnectException, ConnectReasonCode } from './exception';
 import { BufferData, IConnectData, PacketType } from './interface';
 import { parseProperties } from './property';
 
@@ -152,7 +153,7 @@ export function stringToVariableByteInteger(str: string) {
  * @returns
  */
 export function parseConnect(buffer: Buffer): IConnectData {
-	const connectedData: IConnectData = {
+	const connData: IConnectData = {
 		header: {
 			packetType: PacketType.RESERVED,
 			packetFlags: 0,
@@ -167,18 +168,21 @@ export function parseConnect(buffer: Buffer): IConnectData {
 			clientIdentifier: '',
 		},
 	};
-	connectedData.header.packetType = (buffer[0] >> 4) as PacketType;
-	connectedData.header.packetFlags = buffer[0] & 0xf;
+	connData.header.packetType = (buffer[0] >> 4) as PacketType;
+	connData.header.packetFlags = buffer[0] & 0xf;
 
 	const data = { buffer, index: 1 };
 	// 获取数据长度
-	connectedData.header.remainingLength = variableByteInteger(data);
+	connData.header.remainingLength = variableByteInteger(data);
 
-	connectedData.header.protocolName = utf8EncodedString(data);
-	connectedData.header.protocolVersion = oneByteInteger(data);
+	connData.header.protocolName = utf8EncodedString(data);
+	connData.header.protocolVersion = oneByteInteger(data);
+	if (connData.header.protocolName !== 'MQTT' || connData.header.protocolVersion !== 5) {
+		throw new ConnectException('Unsupported Protocol Version.', ConnectReasonCode.UnsupportedProtocolVersion);
+	}
 
 	const connectFlagsValue = oneByteInteger(data);
-	connectedData.connectFlags = {
+	connData.connectFlags = {
 		username: !!((connectFlagsValue >> 7) & 1),
 		password: !!((connectFlagsValue >> 6) & 1),
 		willRetain: !!((connectFlagsValue >> 5) & 1),
@@ -187,31 +191,39 @@ export function parseConnect(buffer: Buffer): IConnectData {
 		cleanStart: !!((connectFlagsValue >> 1) & 1),
 		reserved: !!(connectFlagsValue & 1),
 	};
-
-	connectedData.header.keepAlive = twoByteInteger(data);
+	if (connData.connectFlags.reserved || connData.connectFlags.willQoS >= 0x03 || (!connData.connectFlags.willFlag && connData.connectFlags.willRetain)) {
+		throw new ConnectException('If the reserved flag is not 0 it is a Malformed Packet.', ConnectReasonCode.MalformedPacket);
+	}
+	if (connData.connectFlags.cleanStart) {
+		// TODO 是否建立新的连接 3.1.24
+	}
+	connData.header.keepAlive = twoByteInteger(data);
 
 	// 获取属性
 	const propertyLength = variableByteInteger(data);
 	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
-	connectedData.properties = parseProperties(propertiesBuffer);
+	connData.properties = parseProperties(propertiesBuffer);
 
 	// Connect Payload
 	// 客户端 id
-	connectedData.payload.clientIdentifier = utf8EncodedString(data);
+	connData.payload.clientIdentifier = utf8EncodedString(data);
 
-	if (connectedData.connectFlags.willFlag) {
+	if (connData.connectFlags.willFlag) {
 		const willPropertiesLength = variableByteInteger(data);
 		const willPropertiesBuffer = data.buffer.slice(data.index, (data.index += willPropertiesLength));
-		connectedData.payload.willProperties = parseProperties(willPropertiesBuffer);
+		connData.payload.willProperties = parseProperties(willPropertiesBuffer);
 
-		connectedData.payload.willTopic = utf8EncodedString(data);
-		connectedData.payload.willPayload = utf8EncodedString(data);
+		connData.payload.willTopic = utf8EncodedString(data);
+		connData.payload.willPayload = utf8EncodedString(data);
 	}
 
-	if (connectedData.connectFlags.username && connectedData.connectFlags.password) {
-		connectedData.payload.username = utf8EncodedString(data);
-		connectedData.payload.password = utf8EncodedString(data);
+	if (connData.connectFlags.username && connData.connectFlags.password) {
+		connData.payload.username = utf8EncodedString(data);
+		connData.payload.password = utf8EncodedString(data);
+		if (!connData.payload.username || connData.payload.password) {
+			throw new ConnectException('Bad User Name or Password.', ConnectReasonCode.BadUserNameOrPassword);
+		}
 	}
 
-	return connectedData;
+	return connData;
 }

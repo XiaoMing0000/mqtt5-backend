@@ -20,6 +20,11 @@ export function handleConnAck(client: net.Socket, connData: IConnectData) {
 	const reasonCode = 0x00;
 	// 生成 CONNACK 报文
 	const connAckBuffer = Buffer.from([0x20, 0x02, 0x00, 0x00]); // CONNACK 报文
+
+	if (connData.properties.requestProblemInformation) {
+		// TODO 是否返回相应信息 3.1.2.11.6
+	}
+
 	client.write(connAckBuffer);
 }
 
