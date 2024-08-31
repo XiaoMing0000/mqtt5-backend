@@ -8,10 +8,23 @@ export function handleConnAck(client: net.Socket, connData: IConnectData) {
 		return;
 	}
 
+	// 固定包头
 	const fixedHeader = 0x20;
+	// 剩余长度字段
 	let remainningLength = 0x00;
 
+	const sessionPresent = 0x01;
+	// 1
+	const acknowledgeFlags = 0x00 | sessionPresent;
+
+	const reasonCode = 0x00;
 	// 生成 CONNACK 报文
 	const connAckBuffer = Buffer.from([0x20, 0x02, 0x00, 0x00]); // CONNACK 报文
 	client.write(connAckBuffer);
 }
+
+/*
+
+
+
+*/

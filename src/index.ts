@@ -2,6 +2,7 @@ import net from 'net';
 import { parseConnect, utf8decodedString } from './parse';
 import { PacketType } from './interface';
 import { handleConnAck } from './ack';
+import { PropertyException } from './exception';
 
 // 解析 MQTT 5.0 报文中的可变头部属性长度
 function parseVariableHeaderProperties(buffer: Buffer, offset: number): { propertyLength: number; offset: number } {
@@ -52,19 +53,29 @@ const server = net.createServer((client) => {
 	console.log('Client connected');
 
 	client.on('data', (data) => {
-		const connData = parseConnect(data);
-		console.log(connData);
-		switch (connData.header.packetType) {
-			case PacketType.CONNECT:
-				handleConnAck(client, connData);
-				break;
-			case PacketType.PUBLISH:
-				handlePublish(client, data.slice(2));
-				break;
-			default:
-				console.log('Unhandled packet type:', connData.header.packetType);
+		try {
+			throw new PropertyException('xxx', 0x82);
+			const connData = parseConnect(data);
+			console.log(connData);
+			switch (connData.header.packetType) {
+				case PacketType.CONNECT:
+					handleConnAck(client, connData);
+					break;
+				case PacketType.PUBLISH:
+					handlePublish(client, data.slice(2));
+					break;
+				default:
+					console.log('Unhandled packet type:', connData.header.packetType);
+			}
+			console.log('连接------------');
+		} catch (error) {
+			if (error instanceof PropertyException) {
+				const errorCode = error.code;
+				const connAckErrorBuffer = Buffer.from([0x20, 0x02, 0x00, errorCode]);
+				client.write(connAckErrorBuffer);
+				client.end();
+			}
 		}
-		console.log('连接------------');
 	});
 
 	client.on('end', () => {
