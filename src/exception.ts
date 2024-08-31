@@ -109,9 +109,17 @@ export enum AuthenticateReasonCode {
 	Reauthenticate = 0x19,
 }
 
-type TErrorCode = ConnectReasonCode | PubAckReasonCode | PubRecReasonCode | PubRelReasonCode | PubRelReasonCode;
+type TErrorCode =
+	| ConnectReasonCode
+	| DisconnectReasonCode
+	| SubscribeReasonCode
+	| PubAckReasonCode
+	| PubRecReasonCode
+	| PubRelReasonCode
+	| PubCompReasonCode
+	| AuthenticateReasonCode;
 
-export class PropertyException extends Error {
+export class MqttBasicException extends Error {
 	private _code: TErrorCode;
 	private _msg: string;
 	constructor(msg: string, code: TErrorCode = ConnectReasonCode.UnspecifiedError) {
@@ -126,5 +134,11 @@ export class PropertyException extends Error {
 
 	get msg() {
 		return this._msg;
+	}
+}
+
+export class ConnectException extends MqttBasicException {
+	constructor(msg: string, code: ConnectReasonCode = ConnectReasonCode.UnspecifiedError) {
+		super(msg, code);
 	}
 }

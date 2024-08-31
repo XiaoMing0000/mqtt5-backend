@@ -2,7 +2,7 @@ import net from 'net';
 import { parseConnect, utf8decodedString } from './parse';
 import { PacketType } from './interface';
 import { handleConnAck } from './ack';
-import { PropertyException } from './exception';
+import { ConnectException, MqttBasicException } from './exception';
 
 // 解析 MQTT 5.0 报文中的可变头部属性长度
 function parseVariableHeaderProperties(buffer: Buffer, offset: number): { propertyLength: number; offset: number } {
@@ -54,7 +54,7 @@ const server = net.createServer((client) => {
 
 	client.on('data', (data) => {
 		try {
-			throw new PropertyException('xxx', 0x82);
+			throw new ConnectException('xxx', 0x82);
 			const connData = parseConnect(data);
 			console.log(connData);
 			switch (connData.header.packetType) {
@@ -69,7 +69,7 @@ const server = net.createServer((client) => {
 			}
 			console.log('连接------------');
 		} catch (error) {
-			if (error instanceof PropertyException) {
+			if (error instanceof ConnectException) {
 				const errorCode = error.code;
 				const connAckErrorBuffer = Buffer.from([0x20, 0x02, 0x00, errorCode]);
 				client.write(connAckErrorBuffer);
