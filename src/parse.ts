@@ -99,6 +99,20 @@ export function integerToFourUint8(value: number): Array<number> {
 }
 
 /**
+ * 计算可变长数据所占字节数
+ * @param data
+ * @returns
+ */
+export function variableByteIntegerLength(data: number): number {
+	let length = 0;
+	do {
+		data >>= 7;
+		length++;
+	} while (data);
+	return length;
+}
+
+/**
  * 将 number 类型转换为可变长类型 buffer
  * @param value number
  * @returns
@@ -169,7 +183,7 @@ export function parseConnect(buffer: Buffer): IConnectData {
 
 	connData.header.protocolName = utf8DecodedString(data);
 	connData.header.protocolVersion = oneByteInteger(data);
-	if (connData.header.protocolName !== 'MQTT' || connData.header.protocolVersion !== 5) {
+	if (connData.header.protocolName !== 'MQTT' || connData.header.protocolVersion !== 4) {
 		throw new ConnectException('Unsupported Protocol Version.', ConnectReasonCode.UnsupportedProtocolVersion);
 	}
 
@@ -234,7 +248,10 @@ export class EncodedProperties {
 		return Buffer.from([...encodeVariableByteInteger(this.propertyLength), ...this.properties]);
 	}
 
+	/**
+	 * 计算当前属性字节长度 + 可变长度值字节长度
+	 */
 	get length() {
-		return this.propertyLength;
+		return this.propertyLength + variableByteIntegerLength(this.propertyLength);
 	}
 }
