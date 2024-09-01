@@ -9,7 +9,7 @@ import {
 	stringToVariableByteInteger,
 	twoByteInteger,
 	utf8decodedString,
-	utf8EncodedString,
+	utf8DecodedString,
 	utf8StringPair,
 	variableByteInteger,
 } from './parse';
@@ -38,21 +38,21 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				if (properties.contentType) {
 					throw new MqttBasicException('It is a Protocol Error to include the Content Type more than once.');
 				}
-				properties.contentType = utf8EncodedString(data);
+				properties.contentType = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.ResponseTopic:
 				data.index++;
 				if (properties.responseTopic) {
 					throw new MqttBasicException('It is a Protocol Error to include the Content Type more than once.');
 				}
-				properties.responseTopic = utf8EncodedString(data);
+				properties.responseTopic = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.CorrelationData:
 				data.index++;
 				if (properties.correlationData) {
 					throw new MqttBasicException('It is a Protocol Error to include Correlation Data more than once.');
 				}
-				properties.correlationData = utf8EncodedString(data);
+				properties.correlationData = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.SubscriptionIdentifier:
 				data.index++;
@@ -76,7 +76,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				if (properties.sessionExpiryInterval != undefined) {
 					throw new MqttBasicException('It is a Protocol Error to include the Assigned Client Identifier more than once.');
 				}
-				properties.clientIdentifier = utf8EncodedString(data);
+				properties.clientIdentifier = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.ServerKeepAlive:
 				data.index++;
@@ -90,14 +90,14 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				if (properties.AuthenticationMethod) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
-				properties.authenticationMethod = utf8EncodedString(data);
+				properties.authenticationMethod = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.AuthenticationData:
 				data.index++;
 				if (properties.authenticationData) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
-				properties.authenticationData = utf8EncodedString(data);
+				properties.authenticationData = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.RequestProblemInformation:
 				data.index++;
@@ -125,21 +125,21 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				if (properties.responseInformation) {
 					throw new MqttBasicException('It is a Protocol Error to include the Response Information more than once.');
 				}
-				properties.responseInformation = utf8EncodedString(data);
+				properties.responseInformation = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.ServerReference:
 				data.index++;
 				if (properties.serverReference) {
 					throw new MqttBasicException('It is a Protocol Error to include the Response Information more than once.');
 				}
-				properties.serverReference = utf8EncodedString(data);
+				properties.serverReference = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.ReasonString:
 				data.index++;
 				if (properties.reasonString) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
-				properties.reasonString = utf8EncodedString(data);
+				properties.reasonString = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.ReceiveMaximum:
 				data.index++;
@@ -235,14 +235,14 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
 				if (properties.AuthenticationMethod) {
 					throw new ConnectException('It is a Protocol Error to include Authentication Method more than once.', ConnectReasonCode.MalformedPacket);
 				}
-				properties.authenticationMethod = utf8EncodedString(data);
+				properties.authenticationMethod = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.AuthenticationData:
 				data.index++;
 				if (properties.authenticationData) {
 					throw new ConnectException('It is a Protocol Error to include Authentication Method more than once.', ConnectReasonCode.MalformedPacket);
 				}
-				properties.authenticationData = utf8EncodedString(data);
+				properties.authenticationData = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.RequestProblemInformation:
 				data.index++;
@@ -322,7 +322,7 @@ export function parseConnAckProperties(buffer: Buffer, index?: number) {
 				if (properties.sessionExpiryInterval != undefined) {
 					throw new MqttBasicException('It is a Protocol Error to include the Assigned Client Identifier more than once.');
 				}
-				properties.clientIdentifier = utf8EncodedString(data);
+				properties.clientIdentifier = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.ServerKeepAlive:
 				data.index++;
@@ -336,35 +336,35 @@ export function parseConnAckProperties(buffer: Buffer, index?: number) {
 				if (properties.AuthenticationMethod) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
-				properties.authenticationMethod = utf8EncodedString(data);
+				properties.authenticationMethod = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.AuthenticationData:
 				data.index++;
 				if (properties.authenticationData) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
-				properties.authenticationData = utf8EncodedString(data);
+				properties.authenticationData = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.ResponseInformation:
 				data.index++;
 				if (properties.responseInformation) {
 					throw new MqttBasicException('It is a Protocol Error to include the Response Information more than once.');
 				}
-				properties.responseInformation = utf8EncodedString(data);
+				properties.responseInformation = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.ServerReference:
 				data.index++;
 				if (properties.serverReference) {
 					throw new MqttBasicException('It is a Protocol Error to include the Response Information more than once.');
 				}
-				properties.serverReference = utf8EncodedString(data);
+				properties.serverReference = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.ReasonString:
 				data.index++;
 				if (properties.reasonString) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
-				properties.reasonString = utf8EncodedString(data);
+				properties.reasonString = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.ReceiveMaximum:
 				data.index++;
@@ -453,14 +453,14 @@ export function parseDisconnectProperties(buffer: Buffer, index?: number) {
 				if (properties.serverReference) {
 					throw new MqttBasicException('It is a Protocol Error to include the Response Information more than once.');
 				}
-				properties.serverReference = utf8EncodedString(data);
+				properties.serverReference = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.ReasonString:
 				data.index++;
 				if (properties.reasonString) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
-				properties.reasonString = utf8EncodedString(data);
+				properties.reasonString = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
@@ -515,7 +515,7 @@ export function parseSubAckProperties(buffer: Buffer, index?: number) {
 				if (properties.reasonString) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
-				properties.reasonString = utf8EncodedString(data);
+				properties.reasonString = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
@@ -560,7 +560,7 @@ export function parseUnsubscribeAckProperties(buffer: Buffer, index?: number) {
 				if (properties.reasonString) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
-				properties.reasonString = utf8EncodedString(data);
+				properties.reasonString = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
@@ -600,21 +600,21 @@ export function parsePublishProperties(buffer: Buffer, index?: number) {
 				if (properties.contentType) {
 					throw new MqttBasicException('It is a Protocol Error to include the Content Type more than once.');
 				}
-				properties.contentType = utf8EncodedString(data);
+				properties.contentType = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.ResponseTopic:
 				data.index++;
 				if (properties.responseTopic) {
 					throw new MqttBasicException('It is a Protocol Error to include the Content Type more than once.');
 				}
-				properties.responseTopic = utf8EncodedString(data);
+				properties.responseTopic = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.CorrelationData:
 				data.index++;
 				if (properties.correlationData) {
 					throw new MqttBasicException('It is a Protocol Error to include Correlation Data more than once.');
 				}
-				properties.correlationData = utf8EncodedString(data);
+				properties.correlationData = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.SubscriptionIdentifier:
 				data.index++;
@@ -657,7 +657,7 @@ export function parsePublishAckProperties(buffer: Buffer, index?: number) {
 				if (properties.reasonString) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
-				properties.reasonString = utf8EncodedString(data);
+				properties.reasonString = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
@@ -683,7 +683,7 @@ export function parsePubRecProperties(buffer: Buffer, index?: number) {
 				if (properties.reasonString) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
-				properties.reasonString = utf8EncodedString(data);
+				properties.reasonString = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
@@ -709,7 +709,7 @@ export function parsePubRelProperties(buffer: Buffer, index?: number) {
 				if (properties.reasonString) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
-				properties.reasonString = utf8EncodedString(data);
+				properties.reasonString = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
@@ -735,7 +735,7 @@ export function parsePubCompProperties(buffer: Buffer, index?: number) {
 				if (properties.reasonString) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
-				properties.reasonString = utf8EncodedString(data);
+				properties.reasonString = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
@@ -761,21 +761,21 @@ export function parseAuthProperties(buffer: Buffer, index?: number) {
 				if (properties.AuthenticationMethod) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
-				properties.authenticationMethod = utf8EncodedString(data);
+				properties.authenticationMethod = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.AuthenticationData:
 				data.index++;
 				if (properties.authenticationData) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
-				properties.authenticationData = utf8EncodedString(data);
+				properties.authenticationData = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.ReasonString:
 				data.index++;
 				if (properties.reasonString) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
-				properties.reasonString = utf8EncodedString(data);
+				properties.reasonString = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
@@ -815,14 +815,14 @@ export function parseWillProperties(buffer: Buffer, index?: number) {
 				if (properties.contentType) {
 					throw new MqttBasicException('It is a Protocol Error to include the Content Type more than once.');
 				}
-				properties.contentType = utf8EncodedString(data);
+				properties.contentType = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.ResponseTopic:
 				data.index++;
 				if (properties.responseTopic) {
 					throw new MqttBasicException('It is a Protocol Error to include the Content Type more than once.');
 				}
-				properties.responseTopic = utf8EncodedString(data);
+				properties.responseTopic = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.WillDelayInterval:
 				data.index++;

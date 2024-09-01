@@ -86,6 +86,7 @@ const server = net.createServer((client) => {
 
 	client.on('end', () => {
 		console.log('Client disconnected');
+		client.end();
 	});
 
 	client.on('error', (err) => {

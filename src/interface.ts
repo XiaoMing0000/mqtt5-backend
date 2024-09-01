@@ -51,7 +51,7 @@ export enum PropertyIdentifier {
 }
 
 export enum ConnAckPropertyIdentifier {
-	PayloadFormatIndicator = 0x01,
+	SessionExpiryInterval = 0x11,
 	ClientIdentifier = 0x12,
 	ServerKeepAlive = 0x13,
 	AuthenticationMethod = 0x15,

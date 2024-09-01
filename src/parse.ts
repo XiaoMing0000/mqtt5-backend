@@ -59,7 +59,7 @@ export function variableByteInteger(data: BufferData, length = 3): number {
  * @param data {@link BufferData}
  * @returns 长度 0 - 65535 字节的字符串
  */
-export function utf8EncodedString(data: BufferData): string {
+export function utf8DecodedString(data: BufferData): string {
 	const strLength = (data.buffer[data.index++] << 8) | data.buffer[data.index++];
 	return data.buffer.slice(data.index, (data.index += strLength)).toString();
 }
@@ -71,8 +71,8 @@ export function utf8EncodedString(data: BufferData): string {
  */
 export function utf8StringPair(data: BufferData): { key: string; value: string } {
 	return {
-		key: utf8EncodedString(data),
-		value: utf8EncodedString(data),
+		key: utf8DecodedString(data),
+		value: utf8DecodedString(data),
 	};
 }
 
@@ -103,7 +103,7 @@ export function integerToFourUint8(value: number): Array<number> {
  * @param value number
  * @returns
  */
-function encodeVariableByteInteger(value: number) {
+export function encodeVariableByteInteger(value: number) {
 	if (value < 0 || value > 268435455) {
 		throw new Error('Value out of range');
 	}
@@ -167,7 +167,7 @@ export function parseConnect(buffer: Buffer): IConnectData {
 	// 获取数据长度
 	connData.header.remainingLength = variableByteInteger(data);
 
-	connData.header.protocolName = utf8EncodedString(data);
+	connData.header.protocolName = utf8DecodedString(data);
 	connData.header.protocolVersion = oneByteInteger(data);
 	if (connData.header.protocolName !== 'MQTT' || connData.header.protocolVersion !== 5) {
 		throw new ConnectException('Unsupported Protocol Version.', ConnectReasonCode.UnsupportedProtocolVersion);
@@ -198,21 +198,21 @@ export function parseConnect(buffer: Buffer): IConnectData {
 
 	// Connect Payload
 	// 客户端 id
-	connData.payload.clientIdentifier = utf8EncodedString(data);
+	connData.payload.clientIdentifier = utf8DecodedString(data);
 
 	if (connData.connectFlags.willFlag) {
 		const willPropertiesLength = variableByteInteger(data);
 		const willPropertiesBuffer = data.buffer.slice(data.index, (data.index += willPropertiesLength));
 		connData.payload.willProperties = parseProperties(willPropertiesBuffer);
 
-		connData.payload.willTopic = utf8EncodedString(data);
-		connData.payload.willPayload = utf8EncodedString(data);
+		connData.payload.willTopic = utf8DecodedString(data);
+		connData.payload.willPayload = utf8DecodedString(data);
 	}
 
 	if (connData.connectFlags.username && connData.connectFlags.password) {
-		connData.payload.username = utf8EncodedString(data);
-		connData.payload.password = utf8EncodedString(data);
-		if (!connData.payload.username || connData.payload.password) {
+		connData.payload.username = utf8DecodedString(data);
+		connData.payload.password = utf8DecodedString(data);
+		if (connData.payload.username === undefined || connData.payload.password === undefined) {
 			throw new ConnectException('Bad User Name or Password.', ConnectReasonCode.BadUserNameOrPassword);
 		}
 	}
@@ -227,7 +227,7 @@ export class EncodedProperties<T extends TPropertyIdentifier = PropertyIdentifie
 	add(identifier: T, data: any) {
 		const list = encodedProperties(identifier, data);
 		this.properties.push(...list);
-		this.properties.length += list.length;
+		this.propertyLength += list.length;
 	}
 
 	getProperties() {

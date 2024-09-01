@@ -1,8 +1,7 @@
 import net from 'net';
 import { ConnectException, ConnectReasonCode } from './exception';
 import { ConnAckPropertyIdentifier, IConnectData, PacketType } from './interface';
-import { EncodedProperties, oneByteInteger, parseConnect, twoByteInteger, utf8EncodedString, variableByteInteger } from './parse';
-import { parseProperties } from './property';
+import { EncodedProperties, encodeVariableByteInteger, parseConnect } from './parse';
 
 export class MqttManager {
 	protected connData: IConnectData = {
@@ -34,10 +33,17 @@ export class MqttManager {
 			this.client.end();
 			return;
 		}
-		const connAckData = {
+		const connAckData: {
+			fixedHeader: number;
+			remainingLength: number;
+			acknowledgeFlags: number;
+			reasonCode: number;
+			properties: Array<number>;
+		} = {
 			fixedHeader: 0x20,
 			remainingLength: 0,
 			acknowledgeFlags: 0x00,
+			reasonCode: 0x00,
 			properties: [0x00],
 		};
 
@@ -52,19 +58,23 @@ export class MqttManager {
 			// 仅当 request problem information 为 0 时才能向用户发送 properties 3.1.2.11.7
 		}
 
-		const reasonCode = 0x00;
-		// 生成 CONNACK 报文
-		const connAckBuffer = Buffer.from([0x20, 0x02, 0x00, 0x00]); // CONNACK 报文
-
-		if (this.connData.properties.requestProblemInformation) {
+		if (!this.connData.properties.requestProblemInformation) {
 			// TODO 是否返回相应信息 3.1.2.11.6
 			const property = new EncodedProperties<ConnAckPropertyIdentifier>();
-			// property.add(ConnAckPropertyIdentifier)
+			property.add(ConnAckPropertyIdentifier.SessionExpiryInterval, 65535);
 
 			connAckData.properties = property.getProperties();
 		}
 
-		this.client.write(connAckBuffer);
+		connAckData.remainingLength = 2 + connAckData.properties.length;
+		const connPacket = Buffer.from([
+			connAckData.fixedHeader,
+			...encodeVariableByteInteger(connAckData.remainingLength),
+			connAckData.acknowledgeFlags,
+			connAckData.reasonCode,
+			...connAckData.properties,
+		]);
+		this.client.write(connPacket);
 	}
 
 	/**
@@ -74,6 +84,7 @@ export class MqttManager {
 	public connectHandle(buffer: Buffer) {
 		try {
 			this.connData = parseConnect(buffer);
+			console.log('connData: ', this.connData);
 			this.handleConnAck();
 		} catch (error) {
 			if (error instanceof ConnectException) {
