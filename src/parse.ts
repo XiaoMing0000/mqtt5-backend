@@ -1,5 +1,5 @@
 import { ConnectException, ConnectReasonCode } from './exception';
-import { BufferData, IConnectData, PacketType, PropertyIdentifier, TPropertyIdentifier } from './interface';
+import { BufferData, IConnectData, PacketType, PropertyDataMap, TPropertyIdentifier } from './interface';
 import { encodedProperties, parseProperties } from './property';
 
 export const bits = oneByteInteger;
@@ -220,17 +220,21 @@ export function parseConnect(buffer: Buffer): IConnectData {
 	return connData;
 }
 
-export class EncodedProperties<T extends TPropertyIdentifier = PropertyIdentifier> {
+export class EncodedProperties {
 	private propertyLength: number = 0;
 	private properties: Array<number> = [];
 
-	add(identifier: T, data: any) {
+	add<K extends TPropertyIdentifier>(identifier: K, data: PropertyDataMap[K]) {
 		const list = encodedProperties(identifier, data);
 		this.properties.push(...list);
 		this.propertyLength += list.length;
 	}
 
-	getProperties() {
-		return [...encodeVariableByteInteger(this.propertyLength), ...this.properties];
+	get buffer() {
+		return Buffer.from([...encodeVariableByteInteger(this.propertyLength), ...this.properties]);
+	}
+
+	get length() {
+		return this.propertyLength;
 	}
 }

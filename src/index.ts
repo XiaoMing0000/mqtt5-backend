@@ -1,9 +1,13 @@
 import net from 'net';
-import { ConnectException, ConnectReasonCode } from './exception';
+import { ConnectException } from './exception';
 import { ConnAckPropertyIdentifier, IConnectData, PacketType } from './interface';
 import { EncodedProperties, encodeVariableByteInteger, parseConnect } from './parse';
 
 export class MqttManager {
+	static defaultProperties = {
+		receiveMaximum: 32,
+	};
+
 	protected connData: IConnectData = {
 		header: {
 			packetType: PacketType.RESERVED,
@@ -38,13 +42,13 @@ export class MqttManager {
 			remainingLength: number;
 			acknowledgeFlags: number;
 			reasonCode: number;
-			properties: Array<number>;
+			properties: EncodedProperties;
 		} = {
 			fixedHeader: 0x20,
 			remainingLength: 0,
 			acknowledgeFlags: 0x00,
 			reasonCode: 0x00,
-			properties: [0x00],
+			properties: new EncodedProperties(),
 		};
 
 		if (this.connData.connectFlags.cleanStart) {
@@ -58,21 +62,18 @@ export class MqttManager {
 			// 仅当 request problem information 为 0 时才能向用户发送 properties 3.1.2.11.7
 		}
 
-		if (!this.connData.properties.requestProblemInformation) {
-			// TODO 是否返回相应信息 3.1.2.11.6
-			const property = new EncodedProperties<ConnAckPropertyIdentifier>();
-			property.add(ConnAckPropertyIdentifier.SessionExpiryInterval, 65535);
+		// 处理 property
+		connAckData.properties.add(ConnAckPropertyIdentifier.ReceiveMaximum, MqttManager.defaultProperties.receiveMaximum);
+		connAckData.properties.add(ConnAckPropertyIdentifier.RetainAvailable, 0);
 
-			connAckData.properties = property.getProperties();
-		}
-
+		// 报文编码
 		connAckData.remainingLength = 2 + connAckData.properties.length;
 		const connPacket = Buffer.from([
 			connAckData.fixedHeader,
 			...encodeVariableByteInteger(connAckData.remainingLength),
 			connAckData.acknowledgeFlags,
 			connAckData.reasonCode,
-			...connAckData.properties,
+			...connAckData.properties.buffer,
 		]);
 		this.client.write(connPacket);
 	}

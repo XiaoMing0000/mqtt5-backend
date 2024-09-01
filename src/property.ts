@@ -1,5 +1,5 @@
 import { ConnectException, ConnectReasonCode, MqttBasicException } from './exception';
-import { BufferData, ConnAckPropertyIdentifier, IProperties, PropertyIdentifier, TPropertyIdentifier } from './interface';
+import { BufferData, ConnAckPropertyIdentifier, IProperties, PropertyDataMap, PropertyIdentifier, TPropertyIdentifier } from './interface';
 import {
 	fourByteInteger,
 	integerToFourUint8,
@@ -845,62 +845,62 @@ export function parseWillProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
-export function encodedProperties(id: TPropertyIdentifier, data: any): Array<number> {
+export function encodedProperties<K extends keyof PropertyDataMap>(id: K, data: PropertyDataMap[K]): Array<number> {
 	switch (id) {
 		case PropertyIdentifier.PayloadFormatIndicator:
-			return [PropertyIdentifier.PayloadFormatIndicator, integerToOneUint8(data)];
+			return [PropertyIdentifier.PayloadFormatIndicator, integerToOneUint8(data as number)];
 		case PropertyIdentifier.MessageExpiryInterval:
-			return [PropertyIdentifier.MessageExpiryInterval, ...integerToFourUint8(data)];
+			return [PropertyIdentifier.MessageExpiryInterval, ...integerToFourUint8(data as number)];
 		case PropertyIdentifier.ContentType:
-			return [PropertyIdentifier.ContentType, ...utf8decodedString(data)];
+			return [PropertyIdentifier.ContentType, ...utf8decodedString(data as string)];
 		case PropertyIdentifier.ResponseTopic:
-			return [PropertyIdentifier.ResponseTopic, ...utf8decodedString(data)];
+			return [PropertyIdentifier.ResponseTopic, ...utf8decodedString(data as string)];
 		case PropertyIdentifier.CorrelationData:
-			return [PropertyIdentifier.CorrelationData, ...utf8decodedString(data)];
+			return [PropertyIdentifier.CorrelationData, ...utf8decodedString(data as string)];
 		case PropertyIdentifier.SubscriptionIdentifier:
-			return [PropertyIdentifier.SubscriptionIdentifier, ...stringToVariableByteInteger(data)];
+			return [PropertyIdentifier.SubscriptionIdentifier, ...stringToVariableByteInteger(data as string)];
 		case PropertyIdentifier.SessionExpiryInterval:
-			return [PropertyIdentifier.SessionExpiryInterval, ...integerToFourUint8(data)];
+			return [PropertyIdentifier.SessionExpiryInterval, ...integerToFourUint8(data as number)];
 		case PropertyIdentifier.ClientIdentifier:
-			return [PropertyIdentifier.ClientIdentifier, ...utf8decodedString(data)];
+			return [PropertyIdentifier.ClientIdentifier, ...utf8decodedString(data as string)];
 		case PropertyIdentifier.ServerKeepAlive:
-			return [PropertyIdentifier.ServerKeepAlive, ...integerToTwoUint8(data)];
+			return [PropertyIdentifier.ServerKeepAlive, ...integerToTwoUint8(data as number)];
 		case PropertyIdentifier.AuthenticationMethod:
-			return [PropertyIdentifier.AuthenticationMethod, ...utf8decodedString(data)];
+			return [PropertyIdentifier.AuthenticationMethod, ...utf8decodedString(data as string)];
 		case PropertyIdentifier.AuthenticationData:
-			return [PropertyIdentifier.AuthenticationData, ...utf8decodedString(data)];
+			return [PropertyIdentifier.AuthenticationData, ...utf8decodedString(data as string)];
 		case PropertyIdentifier.RequestProblemInformation:
-			return [PropertyIdentifier.RequestProblemInformation, integerToOneUint8(data)];
+			return [PropertyIdentifier.RequestProblemInformation, integerToOneUint8(data as number)];
 		case PropertyIdentifier.WillDelayInterval:
-			return [PropertyIdentifier.WillDelayInterval, ...integerToFourUint8(data)];
+			return [PropertyIdentifier.WillDelayInterval, ...integerToFourUint8(data as number)];
 		case PropertyIdentifier.RequestResponseInformation:
-			return [PropertyIdentifier.RequestResponseInformation, integerToOneUint8(data)];
+			return [PropertyIdentifier.RequestResponseInformation, integerToOneUint8(data as number)];
 		case PropertyIdentifier.ResponseInformation:
-			return [PropertyIdentifier.ResponseInformation, ...utf8decodedString(data)];
+			return [PropertyIdentifier.ResponseInformation, ...utf8decodedString(data as string)];
 		case PropertyIdentifier.ServerReference:
-			return [PropertyIdentifier.ServerReference, ...utf8decodedString(data)];
+			return [PropertyIdentifier.ServerReference, ...utf8decodedString(data as string)];
 		case PropertyIdentifier.ReasonString:
-			return [PropertyIdentifier.ReasonString, ...utf8decodedString(data)];
+			return [PropertyIdentifier.ReasonString, ...utf8decodedString(data as string)];
 		case PropertyIdentifier.ReceiveMaximum:
-			return [PropertyIdentifier.ReceiveMaximum, ...integerToTwoUint8(data)];
+			return [PropertyIdentifier.ReceiveMaximum, ...integerToTwoUint8(data as number)];
 		case PropertyIdentifier.TopicAliasMaximum:
-			return [PropertyIdentifier.TopicAliasMaximum, ...integerToTwoUint8(data)];
+			return [PropertyIdentifier.TopicAliasMaximum, ...integerToTwoUint8(data as number)];
 		case PropertyIdentifier.TopicAlias:
-			return [PropertyIdentifier.TopicAlias, ...integerToTwoUint8(data)];
+			return [PropertyIdentifier.TopicAlias, ...integerToTwoUint8(data as number)];
 		case PropertyIdentifier.MaximumQoS:
-			return [PropertyIdentifier.MaximumQoS, integerToOneUint8(data)];
+			return [PropertyIdentifier.MaximumQoS, integerToOneUint8(data as number)];
 		case PropertyIdentifier.RetainAvailable:
-			return [PropertyIdentifier.RetainAvailable, integerToOneUint8(data)];
+			return [PropertyIdentifier.RetainAvailable, integerToOneUint8(data as number)];
 		case PropertyIdentifier.UserProperty:
-			return [PropertyIdentifier.UserProperty, ...utf8decodedString(data.key), ...utf8decodedString(data.value)];
+			return [PropertyIdentifier.UserProperty, ...utf8decodedString((data as any).key), ...utf8decodedString((data as any).value)];
 		case PropertyIdentifier.MaximumPacketSize:
-			return [PropertyIdentifier.MaximumPacketSize, ...integerToFourUint8(data)];
+			return [PropertyIdentifier.MaximumPacketSize, ...integerToFourUint8(data as number)];
 		case PropertyIdentifier.WildcardSubscriptionAvailable:
-			return [PropertyIdentifier.WildcardSubscriptionAvailable, integerToOneUint8(data)];
+			return [PropertyIdentifier.WildcardSubscriptionAvailable, integerToOneUint8(data as number)];
 		case PropertyIdentifier.SubscriptionIdentifierAvailable:
-			return [PropertyIdentifier.SubscriptionIdentifierAvailable, integerToOneUint8(data)];
+			return [PropertyIdentifier.SubscriptionIdentifierAvailable, integerToOneUint8(data as number)];
 		case PropertyIdentifier.SharedSubscriptionAvailable:
-			return [PropertyIdentifier.SharedSubscriptionAvailable, integerToOneUint8(data)];
+			return [PropertyIdentifier.SharedSubscriptionAvailable, integerToOneUint8(data as number)];
 		default:
 			return [];
 	}

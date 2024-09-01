@@ -20,6 +20,36 @@ export enum PacketType {
 
 export type TPropertyIdentifier = PropertyIdentifier | ConnAckPropertyIdentifier;
 
+export type PropertyDataMap = {
+	[0x01]: number;
+	[0x02]: number;
+	[0x03]: string;
+	[0x08]: string;
+	[0x09]: string;
+	[0x0b]: number;
+	[0x11]: number;
+	[0x12]: string;
+	[0x13]: number;
+	[0x15]: string;
+	[0x16]: string;
+	[0x17]: number;
+	[0x18]: number;
+	[0x19]: number;
+	[0x1a]: string;
+	[0x1c]: string;
+	[0x1f]: string;
+	[0x21]: number;
+	[0x22]: number;
+	[0x23]: number;
+	[0x24]: number;
+	[0x25]: number;
+	[0x26]: { key: string; value: string };
+	[0x27]: number;
+	[0x28]: number;
+	[0x29]: number;
+	[0x2a]: number;
+};
+
 export enum PropertyIdentifier {
 	PayloadFormatIndicator = 0x01,
 	MessageExpiryInterval = 0x02,
