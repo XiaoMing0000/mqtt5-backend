@@ -2,6 +2,7 @@ import net from 'net';
 import { PacketType } from './interface';
 import { defaultAuthenticate, defaultAuthorizeForward, defaultAuthorizePublish, defaultAuthorizeSubscribe, defaultPreConnect, defaultPublished } from './auth';
 import { MqttManager } from '.';
+import { encodeVariableByteInteger, variableByteIntegerLength } from './parse';
 
 // 解析 MQTT 5.0 报文中的可变头部属性长度
 function parseVariableHeaderProperties(buffer: Buffer, offset: number): { propertyLength: number; offset: number } {

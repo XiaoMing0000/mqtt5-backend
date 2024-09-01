@@ -41,13 +41,13 @@ export type PropertyDataMap = {
 	[0x21]: number;
 	[0x22]: number;
 	[0x23]: number;
-	[0x24]: number;
-	[0x25]: number;
+	[0x24]: boolean;
+	[0x25]: boolean;
 	[0x26]: { key: string; value: string };
 	[0x27]: number;
-	[0x28]: number;
-	[0x29]: number;
-	[0x2a]: number;
+	[0x28]: boolean;
+	[0x29]: boolean;
+	[0x2a]: boolean;
 };
 
 export enum PropertyIdentifier {

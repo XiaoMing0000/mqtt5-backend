@@ -183,7 +183,7 @@ export function parseConnect(buffer: Buffer): IConnectData {
 
 	connData.header.protocolName = utf8DecodedString(data);
 	connData.header.protocolVersion = oneByteInteger(data);
-	if (connData.header.protocolName !== 'MQTT' || connData.header.protocolVersion !== 4) {
+	if (connData.header.protocolName !== 'MQTT' || connData.header.protocolVersion !== 5) {
 		throw new ConnectException('Unsupported Protocol Version.', ConnectReasonCode.UnsupportedProtocolVersion);
 	}
 

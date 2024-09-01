@@ -1,11 +1,14 @@
 import net from 'net';
 import { ConnectException } from './exception';
-import { ConnAckPropertyIdentifier, IConnectData, PacketType } from './interface';
+import { ConnAckPropertyIdentifier, IConnectData, IProperties, PacketType, PropertyIdentifier } from './interface';
 import { EncodedProperties, encodeVariableByteInteger, parseConnect } from './parse';
 
 export class MqttManager {
 	static defaultProperties = {
 		receiveMaximum: 32,
+		maximumPacketSize: 1 << 20,
+		topicAliasMaximum: 65535,
+		wildcardSubscriptionAvailable: false,
 	};
 
 	protected connData: IConnectData = {
@@ -32,11 +35,6 @@ export class MqttManager {
 	 * @returns
 	 */
 	private handleConnAck() {
-		if (this.connData.header.protocolName !== 'MQTT' || this.connData.header.protocolVersion !== 5) {
-			console.log('Unsupported protocol or version');
-			this.client.end();
-			return;
-		}
 		const connAckData: {
 			fixedHeader: number;
 			remainingLength: number;
@@ -64,7 +62,16 @@ export class MqttManager {
 
 		// 处理 property
 		connAckData.properties.add(ConnAckPropertyIdentifier.ReceiveMaximum, MqttManager.defaultProperties.receiveMaximum);
-		connAckData.properties.add(ConnAckPropertyIdentifier.RetainAvailable, 0);
+		// TODO 暂时不支持 QoS 1 2  3.2.2.3.4
+		connAckData.properties.add(ConnAckPropertyIdentifier.MaximumQoS, false);
+		connAckData.properties.add(ConnAckPropertyIdentifier.RetainAvailable, false);
+		connAckData.properties.add(ConnAckPropertyIdentifier.MaximumPacketSize, MqttManager.defaultProperties.maximumPacketSize);
+		connAckData.properties.add(ConnAckPropertyIdentifier.TopicAliasMaximum, MqttManager.defaultProperties.topicAliasMaximum);
+		// TODO 未作通配符
+		connAckData.properties.add(ConnAckPropertyIdentifier.WildcardSubscriptionAvailable, MqttManager.defaultProperties.wildcardSubscriptionAvailable);
+		// TODO 是否支持订阅，需要在 subscribe 报文中校验
+		connAckData.properties.add(ConnAckPropertyIdentifier.SubscriptionIdentifierAvailable, true);
+		connAckData.properties.add(ConnAckPropertyIdentifier.SharedSubscriptionAvailable, true);
 
 		// 报文编码
 		connAckData.remainingLength = 2 + connAckData.properties.length;
@@ -89,10 +96,10 @@ export class MqttManager {
 			this.handleConnAck();
 		} catch (error) {
 			if (error instanceof ConnectException) {
-				const errorCode = error.code;
-				const connAckErrorBuffer = Buffer.from([0x20, 0x02, 0x00, errorCode]);
-				this.client.write(connAckErrorBuffer);
-				this.client.end();
+				const properties = new EncodedProperties();
+				properties.add(PropertyIdentifier.ReasonString, error.msg);
+				const errorPacket = Buffer.from([0x20, ...encodeVariableByteInteger(2 + properties.length), 0x00, error.code, ...properties.buffer]);
+				this.client.end(errorPacket);
 			}
 		}
 	}
