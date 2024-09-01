@@ -1,6 +1,6 @@
 import { ConnectException, ConnectReasonCode } from './exception';
-import { BufferData, IConnectData, PacketType } from './interface';
-import { parseProperties } from './property';
+import { BufferData, IConnectData, PacketType, PropertyIdentifier, TPropertyIdentifier } from './interface';
+import { encodedProperties, parseProperties } from './property';
 
 export const bits = oneByteInteger;
 /**
@@ -86,24 +86,16 @@ export function variableString(data: BufferData) {
 	return data.buffer.slice(data.index, (data.index += strLength)).toString();
 }
 
-export function integerToOnUint8(value: number): Uint8Array {
-	const array = new Uint8Array(1);
-	array[0] = value & 0xff;
-	return array;
+export function integerToOneUint8(value: number): number {
+	return value & 0xff;
 }
-export function integerToTwoUint8(value: number): Uint8Array {
-	const array = new Uint8Array(2);
-	array[0] = (value >> 8) & 0xff;
-	array[1] = value & 0xff;
-	return array;
+
+export function integerToTwoUint8(value: number): Array<number> {
+	return [(value >> 8) & 0xff, value & 0xff];
 }
-export function integerToFourUint8(value: number): Uint8Array {
-	const array = new Uint8Array(4);
-	array[0] = (value >> 24) & 0xff;
-	array[1] = (value >> 16) & 0xff;
-	array[2] = (value >> 8) & 0xff;
-	array[3] = value & 0xff;
-	return array;
+
+export function integerToFourUint8(value: number): Array<number> {
+	return [(value >> 24) & 0xff, (value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff];
 }
 
 /**
@@ -126,18 +118,18 @@ function encodeVariableByteInteger(value: number) {
 		bytes.push(encodedByte);
 	} while (value > 0);
 
-	return new Uint8Array(bytes);
+	return bytes;
 }
 
-export function mergeUint8Arrays(array1: Uint8Array, array2: Uint8Array) {
-	const mergedArray = new Uint8Array(array1.length + array2.length);
-	mergedArray.set(array1, 0);
-	mergedArray.set(array2, array1.length);
-
-	return mergedArray;
+export function mergeUint8Arrays(...args: Array<Array<number> | Uint8Array>) {
+	const arrNumber = [];
+	for (const data of args) {
+		arrNumber.push(...data);
+	}
+	return arrNumber;
 }
 
-export function utf8decodedString(str: string): Uint8Array {
+export function utf8decodedString(str: string): Array<number> {
 	const strBuffer = new TextEncoder().encode(str);
 	return mergeUint8Arrays(integerToTwoUint8(strBuffer.length), strBuffer);
 }
@@ -226,4 +218,19 @@ export function parseConnect(buffer: Buffer): IConnectData {
 	}
 
 	return connData;
+}
+
+export class EncodedProperties<T extends TPropertyIdentifier = PropertyIdentifier> {
+	private propertyLength: number = 0;
+	private properties: Array<number> = [];
+
+	add(identifier: T, data: any) {
+		const list = encodedProperties(identifier, data);
+		this.properties.push(...list);
+		this.properties.length += list.length;
+	}
+
+	getProperties() {
+		return [...encodeVariableByteInteger(this.propertyLength), ...this.properties];
+	}
 }

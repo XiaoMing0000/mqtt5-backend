@@ -18,6 +18,8 @@ export enum PacketType {
 	AUTH,
 }
 
+export type TPropertyIdentifier = PropertyIdentifier | ConnAckPropertyIdentifier;
+
 export enum PropertyIdentifier {
 	PayloadFormatIndicator = 0x01,
 	MessageExpiryInterval = 0x02,

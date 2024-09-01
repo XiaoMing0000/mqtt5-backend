@@ -1,9 +1,7 @@
 import net from 'net';
-import { parseConnect, utf8decodedString } from './parse';
 import { PacketType } from './interface';
-import { handleConnAck } from './ack';
-import { ConnectException, MqttBasicException } from './exception';
 import { defaultAuthenticate, defaultAuthorizeForward, defaultAuthorizePublish, defaultAuthorizeSubscribe, defaultPreConnect, defaultPublished } from './auth';
+import { MqttManager } from '.';
 
 // 解析 MQTT 5.0 报文中的可变头部属性长度
 function parseVariableHeaderProperties(buffer: Buffer, offset: number): { propertyLength: number; offset: number } {
@@ -69,23 +67,14 @@ const server = net.createServer((client) => {
 		keepaliveLimit: 0,
 	};
 
+	const mqttManager = new MqttManager(client);
+
 	client.on('data', (data) => {
 		const packetType = (data[0] >> 4) as PacketType;
 
 		switch (packetType) {
 			case PacketType.CONNECT:
-				try {
-					const connData = parseConnect(data);
-					handleConnAck(client, connData);
-					console.log(connData);
-				} catch (error) {
-					if (error instanceof ConnectException) {
-						const errorCode = error.code;
-						const connAckErrorBuffer = Buffer.from([0x20, 0x02, 0x00, errorCode]);
-						client.write(connAckErrorBuffer);
-						client.end();
-					}
-				}
+				mqttManager.connectHandle(data);
 				break;
 			case PacketType.PUBLISH:
 				handlePublish(client, data.slice(2));
@@ -109,3 +98,6 @@ server.listen(1883, () => {
 });
 
 // TODO 3.2 CONNACK – Connect acknowledgement 下一步编写
+
+console.log(new Uint8Array([257]));
+console.log(Buffer.from([255, 1]).join(''));

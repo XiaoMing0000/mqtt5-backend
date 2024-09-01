@@ -1,8 +1,9 @@
 import { ConnectException, ConnectReasonCode, MqttBasicException } from './exception';
-import { BufferData, ConnAckPropertyIdentifier, IProperties, PropertyIdentifier } from './interface';
+import { BufferData, ConnAckPropertyIdentifier, IProperties, PropertyIdentifier, TPropertyIdentifier } from './interface';
 import {
 	fourByteInteger,
 	integerToFourUint8,
+	integerToOneUint8,
 	integerToTwoUint8,
 	oneByteInteger,
 	stringToVariableByteInteger,
@@ -844,104 +845,63 @@ export function parseWillProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
-export function encodedProperties(id: PropertyIdentifier, data: any): Buffer {
+export function encodedProperties(id: TPropertyIdentifier, data: any): Array<number> {
 	switch (id) {
 		case PropertyIdentifier.PayloadFormatIndicator:
-			return Buffer.from([PropertyIdentifier.PayloadFormatIndicator, data & 0xff]);
+			return [PropertyIdentifier.PayloadFormatIndicator, integerToOneUint8(data)];
 		case PropertyIdentifier.MessageExpiryInterval:
-			return Buffer.from([PropertyIdentifier.MessageExpiryInterval, ...integerToFourUint8(data)]);
+			return [PropertyIdentifier.MessageExpiryInterval, ...integerToFourUint8(data)];
 		case PropertyIdentifier.ContentType:
-			return Buffer.from([PropertyIdentifier.ContentType, ...utf8decodedString(data)]);
+			return [PropertyIdentifier.ContentType, ...utf8decodedString(data)];
 		case PropertyIdentifier.ResponseTopic:
-			return Buffer.from([PropertyIdentifier.ResponseTopic, ...utf8decodedString(data)]);
+			return [PropertyIdentifier.ResponseTopic, ...utf8decodedString(data)];
 		case PropertyIdentifier.CorrelationData:
-			return Buffer.from([PropertyIdentifier.CorrelationData, ...utf8decodedString(data)]);
+			return [PropertyIdentifier.CorrelationData, ...utf8decodedString(data)];
 		case PropertyIdentifier.SubscriptionIdentifier:
-			return Buffer.from([PropertyIdentifier.SubscriptionIdentifier, ...stringToVariableByteInteger(data)]);
+			return [PropertyIdentifier.SubscriptionIdentifier, ...stringToVariableByteInteger(data)];
 		case PropertyIdentifier.SessionExpiryInterval:
-			return Buffer.from([PropertyIdentifier.SessionExpiryInterval, ...integerToFourUint8(data)]);
+			return [PropertyIdentifier.SessionExpiryInterval, ...integerToFourUint8(data)];
 		case PropertyIdentifier.ClientIdentifier:
-			return Buffer.from([PropertyIdentifier.ClientIdentifier, ...utf8decodedString(data)]);
+			return [PropertyIdentifier.ClientIdentifier, ...utf8decodedString(data)];
 		case PropertyIdentifier.ServerKeepAlive:
-			return Buffer.from([PropertyIdentifier.ServerKeepAlive, ...integerToTwoUint8(data)]);
+			return [PropertyIdentifier.ServerKeepAlive, ...integerToTwoUint8(data)];
 		case PropertyIdentifier.AuthenticationMethod:
-			return Buffer.from([PropertyIdentifier.AuthenticationMethod, ...utf8decodedString(data)]);
+			return [PropertyIdentifier.AuthenticationMethod, ...utf8decodedString(data)];
 		case PropertyIdentifier.AuthenticationData:
-			return Buffer.from([PropertyIdentifier.AuthenticationData, ...utf8decodedString(data)]);
+			return [PropertyIdentifier.AuthenticationData, ...utf8decodedString(data)];
 		case PropertyIdentifier.RequestProblemInformation:
-			return Buffer.from([PropertyIdentifier.RequestProblemInformation, data & 0xff]);
+			return [PropertyIdentifier.RequestProblemInformation, integerToOneUint8(data)];
 		case PropertyIdentifier.WillDelayInterval:
-			return Buffer.from([PropertyIdentifier.WillDelayInterval, ...integerToFourUint8(data)]);
+			return [PropertyIdentifier.WillDelayInterval, ...integerToFourUint8(data)];
 		case PropertyIdentifier.RequestResponseInformation:
-			return Buffer.from([PropertyIdentifier.RequestResponseInformation, data & 0xff]);
+			return [PropertyIdentifier.RequestResponseInformation, integerToOneUint8(data)];
 		case PropertyIdentifier.ResponseInformation:
-			return Buffer.from([PropertyIdentifier.ResponseInformation, ...utf8decodedString(data)]);
+			return [PropertyIdentifier.ResponseInformation, ...utf8decodedString(data)];
 		case PropertyIdentifier.ServerReference:
-			return Buffer.from([PropertyIdentifier.ServerReference, ...utf8decodedString(data)]);
+			return [PropertyIdentifier.ServerReference, ...utf8decodedString(data)];
 		case PropertyIdentifier.ReasonString:
-			return Buffer.from([PropertyIdentifier.ReasonString, ...utf8decodedString(data)]);
+			return [PropertyIdentifier.ReasonString, ...utf8decodedString(data)];
 		case PropertyIdentifier.ReceiveMaximum:
-			return Buffer.from([PropertyIdentifier.ReceiveMaximum, ...integerToTwoUint8(data)]);
+			return [PropertyIdentifier.ReceiveMaximum, ...integerToTwoUint8(data)];
 		case PropertyIdentifier.TopicAliasMaximum:
-			return Buffer.from([PropertyIdentifier.TopicAliasMaximum, ...integerToTwoUint8(data)]);
+			return [PropertyIdentifier.TopicAliasMaximum, ...integerToTwoUint8(data)];
 		case PropertyIdentifier.TopicAlias:
-			return Buffer.from([PropertyIdentifier.TopicAlias, ...integerToTwoUint8(data)]);
+			return [PropertyIdentifier.TopicAlias, ...integerToTwoUint8(data)];
 		case PropertyIdentifier.MaximumQoS:
-			return Buffer.from([PropertyIdentifier.MaximumQoS, data & 0xff]);
+			return [PropertyIdentifier.MaximumQoS, integerToOneUint8(data)];
 		case PropertyIdentifier.RetainAvailable:
-			return Buffer.from([PropertyIdentifier.RetainAvailable, data & 0xff]);
+			return [PropertyIdentifier.RetainAvailable, integerToOneUint8(data)];
 		case PropertyIdentifier.UserProperty:
-			return Buffer.from([PropertyIdentifier.UserProperty, ...utf8decodedString(data.key), ...utf8decodedString(data.value)]);
+			return [PropertyIdentifier.UserProperty, ...utf8decodedString(data.key), ...utf8decodedString(data.value)];
 		case PropertyIdentifier.MaximumPacketSize:
-			return Buffer.from([PropertyIdentifier.MaximumPacketSize, ...integerToFourUint8(data)]);
+			return [PropertyIdentifier.MaximumPacketSize, ...integerToFourUint8(data)];
 		case PropertyIdentifier.WildcardSubscriptionAvailable:
-			return Buffer.from([PropertyIdentifier.WildcardSubscriptionAvailable, data & 0xff]);
+			return [PropertyIdentifier.WildcardSubscriptionAvailable, integerToOneUint8(data)];
 		case PropertyIdentifier.SubscriptionIdentifierAvailable:
-			return Buffer.from([PropertyIdentifier.SubscriptionIdentifierAvailable, data & 0xff]);
+			return [PropertyIdentifier.SubscriptionIdentifierAvailable, integerToOneUint8(data)];
 		case PropertyIdentifier.SharedSubscriptionAvailable:
-			return Buffer.from([PropertyIdentifier.SharedSubscriptionAvailable, data & 0xff]);
+			return [PropertyIdentifier.SharedSubscriptionAvailable, integerToOneUint8(data)];
 		default:
-			return Buffer.alloc(0);
-	}
-}
-
-export function encodedConnAckProperties(id: ConnAckPropertyIdentifier, data: any): Buffer {
-	switch (id) {
-		case ConnAckPropertyIdentifier.PayloadFormatIndicator:
-			return Buffer.from([ConnAckPropertyIdentifier.PayloadFormatIndicator, data & 0xff]);
-		case ConnAckPropertyIdentifier.ClientIdentifier:
-			return Buffer.from([ConnAckPropertyIdentifier.ClientIdentifier, ...utf8decodedString(data)]);
-		case ConnAckPropertyIdentifier.ServerKeepAlive:
-			return Buffer.from([ConnAckPropertyIdentifier.ServerKeepAlive, ...integerToTwoUint8(data)]);
-		case ConnAckPropertyIdentifier.AuthenticationMethod:
-			return Buffer.from([ConnAckPropertyIdentifier.AuthenticationMethod, ...utf8decodedString(data)]);
-		case ConnAckPropertyIdentifier.AuthenticationData:
-			return Buffer.from([ConnAckPropertyIdentifier.AuthenticationData, ...utf8decodedString(data)]);
-		case ConnAckPropertyIdentifier.ResponseInformation:
-			return Buffer.from([ConnAckPropertyIdentifier.ResponseInformation, ...utf8decodedString(data)]);
-		case ConnAckPropertyIdentifier.ServerReference:
-			return Buffer.from([ConnAckPropertyIdentifier.ServerReference, ...utf8decodedString(data)]);
-		case ConnAckPropertyIdentifier.ReasonString:
-			return Buffer.from([ConnAckPropertyIdentifier.ReasonString, ...utf8decodedString(data)]);
-		case ConnAckPropertyIdentifier.ReceiveMaximum:
-			return Buffer.from([ConnAckPropertyIdentifier.ReceiveMaximum, ...integerToTwoUint8(data)]);
-		case ConnAckPropertyIdentifier.TopicAliasMaximum:
-			return Buffer.from([ConnAckPropertyIdentifier.TopicAliasMaximum, ...integerToTwoUint8(data)]);
-		case ConnAckPropertyIdentifier.MaximumQoS:
-			return Buffer.from([ConnAckPropertyIdentifier.MaximumQoS, data & 0xff]);
-		case ConnAckPropertyIdentifier.RetainAvailable:
-			return Buffer.from([ConnAckPropertyIdentifier.RetainAvailable, data & 0xff]);
-		case ConnAckPropertyIdentifier.UserProperty:
-			return Buffer.from([ConnAckPropertyIdentifier.UserProperty, ...utf8decodedString(data.key), ...utf8decodedString(data.value)]);
-		case ConnAckPropertyIdentifier.MaximumPacketSize:
-			return Buffer.from([ConnAckPropertyIdentifier.MaximumPacketSize, ...integerToFourUint8(data)]);
-		case ConnAckPropertyIdentifier.WildcardSubscriptionAvailable:
-			return Buffer.from([ConnAckPropertyIdentifier.WildcardSubscriptionAvailable, data & 0xff]);
-		case ConnAckPropertyIdentifier.SubscriptionIdentifierAvailable:
-			return Buffer.from([ConnAckPropertyIdentifier.SubscriptionIdentifierAvailable, data & 0xff]);
-		case ConnAckPropertyIdentifier.SharedSubscriptionAvailable:
-			return Buffer.from([ConnAckPropertyIdentifier.SharedSubscriptionAvailable, data & 0xff]);
-		default:
-			return Buffer.alloc(0);
+			return [];
 	}
 }
