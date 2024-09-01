@@ -48,6 +48,26 @@ export enum PropertyIdentifier {
 	SharedSubscriptionAvailable = 0x2a,
 }
 
+export enum ConnAckPropertyIdentifier {
+	PayloadFormatIndicator = 0x01,
+	ClientIdentifier = 0x12,
+	ServerKeepAlive = 0x13,
+	AuthenticationMethod = 0x15,
+	AuthenticationData = 0x16,
+	ResponseInformation = 0x1a,
+	ServerReference = 0x1c,
+	ReasonString = 0x1f,
+	ReceiveMaximum = 0x21,
+	TopicAliasMaximum = 0x22,
+	MaximumQoS = 0x24,
+	RetainAvailable = 0x25,
+	UserProperty = 0x26,
+	MaximumPacketSize = 0x27,
+	WildcardSubscriptionAvailable = 0x28,
+	SubscriptionIdentifierAvailable = 0x29,
+	SharedSubscriptionAvailable = 0x2a,
+}
+
 export interface BufferData {
 	buffer: Buffer;
 	index: number;

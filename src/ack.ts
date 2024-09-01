@@ -7,15 +7,23 @@ export function handleConnAck(client: net.Socket, connData: IConnectData) {
 		client.end();
 		return;
 	}
+	const connAckData = {
+		fixedHeader: 0x20,
+		remainingLength: 0,
+		acknowledgeFlags: 0x00,
+		properties: [0x00],
+	};
 
-	// 固定包头
-	const fixedHeader = 0x20;
-	// 剩余长度字段
-	let remainningLength = 0x00;
+	if (connData.connectFlags.cleanStart) {
+		connAckData.acknowledgeFlags &= 0xfe;
+	} else {
+		// TODO 校验服务端是否已经保存了此客户端表示的 ClientID 的 会话状态 Session State
+		connAckData.acknowledgeFlags = 0x01;
+	}
 
-	const sessionPresent = 0x01;
-	// 1
-	const acknowledgeFlags = 0x00 | sessionPresent;
+	if (!connData.properties.requestProblemInformation) {
+		// 仅当 request problem information 为 0 时才能向用户发送 properties 3.1.2.11.7
+	}
 
 	const reasonCode = 0x00;
 	// 生成 CONNACK 报文

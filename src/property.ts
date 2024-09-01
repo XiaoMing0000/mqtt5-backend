@@ -1,5 +1,5 @@
 import { ConnectException, ConnectReasonCode, MqttBasicException } from './exception';
-import { BufferData, IProperties, PropertyIdentifier } from './interface';
+import { BufferData, ConnAckPropertyIdentifier, IProperties, PropertyIdentifier } from './interface';
 import {
 	fourByteInteger,
 	integerToFourUint8,
@@ -900,6 +900,47 @@ export function encodedProperties(id: PropertyIdentifier, data: any): Buffer {
 			return Buffer.from([PropertyIdentifier.SubscriptionIdentifierAvailable, data & 0xff]);
 		case PropertyIdentifier.SharedSubscriptionAvailable:
 			return Buffer.from([PropertyIdentifier.SharedSubscriptionAvailable, data & 0xff]);
+		default:
+			return Buffer.alloc(0);
+	}
+}
+
+export function encodedConnAckProperties(id: ConnAckPropertyIdentifier, data: any): Buffer {
+	switch (id) {
+		case ConnAckPropertyIdentifier.PayloadFormatIndicator:
+			return Buffer.from([ConnAckPropertyIdentifier.PayloadFormatIndicator, data & 0xff]);
+		case ConnAckPropertyIdentifier.ClientIdentifier:
+			return Buffer.from([ConnAckPropertyIdentifier.ClientIdentifier, ...utf8decodedString(data)]);
+		case ConnAckPropertyIdentifier.ServerKeepAlive:
+			return Buffer.from([ConnAckPropertyIdentifier.ServerKeepAlive, ...integerToTwoUint8(data)]);
+		case ConnAckPropertyIdentifier.AuthenticationMethod:
+			return Buffer.from([ConnAckPropertyIdentifier.AuthenticationMethod, ...utf8decodedString(data)]);
+		case ConnAckPropertyIdentifier.AuthenticationData:
+			return Buffer.from([ConnAckPropertyIdentifier.AuthenticationData, ...utf8decodedString(data)]);
+		case ConnAckPropertyIdentifier.ResponseInformation:
+			return Buffer.from([ConnAckPropertyIdentifier.ResponseInformation, ...utf8decodedString(data)]);
+		case ConnAckPropertyIdentifier.ServerReference:
+			return Buffer.from([ConnAckPropertyIdentifier.ServerReference, ...utf8decodedString(data)]);
+		case ConnAckPropertyIdentifier.ReasonString:
+			return Buffer.from([ConnAckPropertyIdentifier.ReasonString, ...utf8decodedString(data)]);
+		case ConnAckPropertyIdentifier.ReceiveMaximum:
+			return Buffer.from([ConnAckPropertyIdentifier.ReceiveMaximum, ...integerToTwoUint8(data)]);
+		case ConnAckPropertyIdentifier.TopicAliasMaximum:
+			return Buffer.from([ConnAckPropertyIdentifier.TopicAliasMaximum, ...integerToTwoUint8(data)]);
+		case ConnAckPropertyIdentifier.MaximumQoS:
+			return Buffer.from([ConnAckPropertyIdentifier.MaximumQoS, data & 0xff]);
+		case ConnAckPropertyIdentifier.RetainAvailable:
+			return Buffer.from([ConnAckPropertyIdentifier.RetainAvailable, data & 0xff]);
+		case ConnAckPropertyIdentifier.UserProperty:
+			return Buffer.from([ConnAckPropertyIdentifier.UserProperty, ...utf8decodedString(data.key), ...utf8decodedString(data.value)]);
+		case ConnAckPropertyIdentifier.MaximumPacketSize:
+			return Buffer.from([ConnAckPropertyIdentifier.MaximumPacketSize, ...integerToFourUint8(data)]);
+		case ConnAckPropertyIdentifier.WildcardSubscriptionAvailable:
+			return Buffer.from([ConnAckPropertyIdentifier.WildcardSubscriptionAvailable, data & 0xff]);
+		case ConnAckPropertyIdentifier.SubscriptionIdentifierAvailable:
+			return Buffer.from([ConnAckPropertyIdentifier.SubscriptionIdentifierAvailable, data & 0xff]);
+		case ConnAckPropertyIdentifier.SharedSubscriptionAvailable:
+			return Buffer.from([ConnAckPropertyIdentifier.SharedSubscriptionAvailable, data & 0xff]);
 		default:
 			return Buffer.alloc(0);
 	}

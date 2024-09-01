@@ -6,7 +6,7 @@
 	"scripts": {
 		"dev": "rimraf dist && tsx ./config/esbuild.dev.ts --watch",
 		"test": "supervisor -w ./dist -n error -s -- -r dotenv/config ./dist/index.js",
-		"debugger": "nodemon src/index.ts",
+		"debugger": "nodemon src/test.ts",
 		"build:prod": "rimraf dist && tsx ./config/esbuild.prod.ts",
 		"prettier:all": "prettier --write ./src",
 		"lint": "eslint -f unix \"src/**/*.{ts,tsx}\""
