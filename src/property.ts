@@ -1,5 +1,5 @@
-import { ConnectException, ConnectReasonCode, MqttBasicException } from './exception';
-import { BufferData, ConnAckPropertyIdentifier, IProperties, PropertyDataMap, PropertyIdentifier, TPropertyIdentifier } from './interface';
+import { ConnectException, ConnectReasonCode, MqttBasicException, PubAckException, PubAckReasonCode } from './exception';
+import { BufferData, IProperties, PropertyDataMap, PropertyIdentifier, TPropertyIdentifier } from './interface';
 import {
 	fourByteInteger,
 	integerToFourUint8,
@@ -584,52 +584,59 @@ export function parsePublishProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.PayloadFormatIndicator:
 				data.index++;
 				if (properties.payloadFormatIndicator !== undefined) {
-					throw new MqttBasicException('It is a Protocol Error to include the Payload Format Indicator more than once.', ConnectReasonCode.PayloadFormatInvalid);
+					throw new PubAckException('It is a Protocol Error to include the Payload Format Indicator more than once.', PubAckReasonCode.PayloadFormatInvalid);
 				}
 				properties.payloadFormatIndicator = oneByteInteger(data);
+
+				if (properties.payloadFormatIndicator !== undefined) {
+					throw new PubAckException('It is a Protocol Error to include the Payload Format Indicator more than once.', PubAckReasonCode.PayloadFormatInvalid);
+				}
 				break;
 			case PropertyIdentifier.MessageExpiryInterval:
 				data.index++;
 				if (properties.messageExpiryInterval != undefined) {
-					throw new MqttBasicException('It is a Protocol Error to include the Payload Format Indicator more than once.', ConnectReasonCode.UnspecifiedError);
+					throw new PubAckException('It is a Protocol Error to include the Payload Format Indicator more than once.', PubAckReasonCode.UnspecifiedError);
 				}
 				properties.messageExpiryInterval = fourByteInteger(data);
 				break;
 			case PropertyIdentifier.ContentType:
 				data.index++;
 				if (properties.contentType) {
-					throw new MqttBasicException('It is a Protocol Error to include the Content Type more than once.');
+					throw new PubAckException('It is a Protocol Error to include the Content Type more than once.', PubAckReasonCode.UnspecifiedError);
 				}
 				properties.contentType = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.ResponseTopic:
 				data.index++;
 				if (properties.responseTopic) {
-					throw new MqttBasicException('It is a Protocol Error to include the Content Type more than once.');
+					throw new PubAckException('It is a Protocol Error to include the Content Type more than once.', PubAckReasonCode.UnspecifiedError);
 				}
 				properties.responseTopic = utf8DecodedString(data);
+				if (/[#+$]/.test(properties.responseTopic)) {
+					throw new PubAckException('The Response Topic MUST NOT contain wildcard characters.', PubAckReasonCode.TopicNameInvalid);
+				}
 				break;
 			case PropertyIdentifier.CorrelationData:
 				data.index++;
 				if (properties.correlationData) {
-					throw new MqttBasicException('It is a Protocol Error to include Correlation Data more than once.');
+					throw new PubAckException('It is a Protocol Error to include Correlation Data more than once.', PubAckReasonCode.UnspecifiedError);
 				}
 				properties.correlationData = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.SubscriptionIdentifier:
 				data.index++;
 				if (properties.subscriptionIdentifier) {
-					throw new MqttBasicException('It is a Protocol Error to include the Subscription Identifier more than once.');
+					throw new PubAckException('It is a Protocol Error to include the Subscription Identifier more than once.', PubAckReasonCode.UnspecifiedError);
 				}
 				properties.subscriptionIdentifier = variableByteInteger(data, 4);
 				if (properties.subscriptionIdentifier == 0) {
-					throw new MqttBasicException('It is a Protocol Error if the Subscription Identifier has a value of 0. ');
+					throw new PubAckException('It is a Protocol Error if the Subscription Identifier has a value of 0. ', PubAckReasonCode.TopicNameInvalid);
 				}
 				break;
 			case PropertyIdentifier.TopicAlias:
 				data.index++;
 				if (properties.topicAlias != undefined) {
-					throw new MqttBasicException('It is a Protocol Error to include the Topic Alias value more than once.');
+					throw new PubAckException('It is a Protocol Error to include the Topic Alias value more than once.', PubAckReasonCode.TopicNameInvalid);
 				}
 				properties.topicAlias = twoByteInteger(data);
 				break;

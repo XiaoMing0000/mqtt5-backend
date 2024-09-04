@@ -117,7 +117,8 @@ type TErrorCode =
 	| PubRecReasonCode
 	| PubRelReasonCode
 	| PubCompReasonCode
-	| AuthenticateReasonCode;
+	| AuthenticateReasonCode
+	| PubAckReasonCode;
 
 export class MqttBasicException extends Error {
 	private _code: TErrorCode;
@@ -139,6 +140,12 @@ export class MqttBasicException extends Error {
 
 export class ConnectException extends MqttBasicException {
 	constructor(msg: string, code: ConnectReasonCode = ConnectReasonCode.UnspecifiedError) {
+		super(msg, code);
+	}
+}
+
+export class PubAckException extends MqttBasicException {
+	constructor(msg: string, code: PubAckReasonCode = PubAckReasonCode.UnspecifiedError) {
 		super(msg, code);
 	}
 }

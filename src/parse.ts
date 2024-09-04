@@ -1,6 +1,6 @@
-import { ConnectException, ConnectReasonCode } from './exception';
-import { BufferData, IConnectData, PacketType, PropertyDataMap, TPropertyIdentifier } from './interface';
-import { encodedProperties, parseProperties } from './property';
+import { ConnectException, ConnectReasonCode, PubAckReasonCode, PubAckException } from './exception';
+import { BufferData, IConnectData, IPublishData, PacketType, PropertyDataMap, TPropertyIdentifier } from './interface';
+import { encodedProperties, parseConnectProperties, parseProperties, parsePublishProperties } from './property';
 
 export const bits = oneByteInteger;
 /**
@@ -208,7 +208,7 @@ export function parseConnect(buffer: Buffer): IConnectData {
 	// 获取属性
 	const propertyLength = variableByteInteger(data);
 	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
-	connData.properties = parseProperties(propertiesBuffer);
+	connData.properties = parseConnectProperties(propertiesBuffer);
 
 	// Connect Payload
 	// 客户端 id
@@ -254,4 +254,32 @@ export class EncodedProperties {
 	get length() {
 		return this.propertyLength + variableByteIntegerLength(this.propertyLength);
 	}
+}
+
+export function parsePublish(buffer: Buffer, pubData: IPublishData) {
+	pubData.header.packetType = (buffer[0] >> 4) as PacketType;
+	pubData.header.udpFlag = !!(buffer[0] >> 3);
+	pubData.header.qosLevel = (buffer[0] >> 1) & 0x3;
+	pubData.header.retain = !!(buffer[0] & 0x1);
+
+	const data = { buffer, index: 1 };
+	// 获取数据长度
+	pubData.header.remainingLength = variableByteInteger(data);
+
+	pubData.header.topicName = utf8DecodedString(data);
+	if (/[#+$]/.test(pubData.header.topicName)) {
+		throw new PubAckException('The Will Topic Name is not malformed, but is not accepted by this Server.', PubAckReasonCode.TopicNameInvalid);
+	}
+
+	if (pubData.header.qosLevel > 0) {
+		pubData.header.packetIdentifier = twoByteInteger(data);
+	}
+
+	// 获取属性
+	const propertyLength = variableByteInteger(data);
+	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+	pubData.properties = parsePublishProperties(propertiesBuffer);
+	pubData.payload = data.buffer.slice(data.index).toString();
+
+	return pubData;
 }

@@ -1,7 +1,7 @@
 import net from 'net';
-import { ConnectException } from './exception';
-import { ConnAckPropertyIdentifier, IConnectData, IProperties, PacketType, PropertyIdentifier } from './interface';
-import { EncodedProperties, encodeVariableByteInteger, parseConnect } from './parse';
+import { ConnectException, PubAckException } from './exception';
+import { ConnAckPropertyIdentifier, IConnectData, IPublishData, PacketType, PropertyIdentifier } from './interface';
+import { EncodedProperties, encodeVariableByteInteger, integerToTwoUint8, parseConnect, parsePublish } from './parse';
 
 export class MqttManager {
 	static defaultProperties = {
@@ -103,4 +103,50 @@ export class MqttManager {
 			}
 		}
 	}
+
+	public publishHandle(buffer: Buffer) {
+		const pubData: IPublishData = {
+			header: {
+				packetType: PacketType.RESERVED,
+				udpFlag: false,
+				qosLevel: 0,
+				retain: false,
+				remainingLength: 0,
+				topicName: '',
+			},
+			properties: {},
+			payload: '',
+		};
+		try {
+			parsePublish(buffer, pubData);
+			console.log('pubData: ', pubData);
+
+			// TODO 缺少向每个订阅者发布消息
+
+			this.handlePubAck();
+			// throw new PubAckException('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', PubAckReasonCode.TopicNameInvalid);
+		} catch (error) {
+			if (error instanceof PubAckException) {
+				if (error instanceof PubAckException) {
+					if (pubData.header.qosLevel > 0 && pubData.header.packetIdentifier) {
+						const packetIdentifier = pubData.header.packetIdentifier;
+
+						const properties = new EncodedProperties();
+						properties.add(PropertyIdentifier.ReasonString, error.msg);
+						const errorPacket = Buffer.from([
+							0x40,
+							...encodeVariableByteInteger(3 + properties.length),
+							...integerToTwoUint8(packetIdentifier),
+							error.code,
+							...properties.buffer,
+						]);
+						console.log([0x40, ...encodeVariableByteInteger(3 + properties.length), ...integerToTwoUint8(packetIdentifier), error.code, ...properties.buffer]);
+						this.client.write(errorPacket);
+					}
+				}
+			}
+		}
+	}
+
+	handlePubAck() {}
 }

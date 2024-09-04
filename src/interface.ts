@@ -166,3 +166,17 @@ export interface IConnectData {
 		password?: string;
 	};
 }
+
+export interface IPublishData {
+	header: {
+		packetType: PacketType;
+		udpFlag: boolean;
+		qosLevel: number;
+		retain: boolean;
+		remainingLength: number;
+		packetIdentifier?: number;
+		topicName: string;
+	};
+	properties: IProperties;
+	payload: string;
+}
