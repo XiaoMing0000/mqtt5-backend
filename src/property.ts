@@ -1,4 +1,4 @@
-import { ConnectException, ConnectReasonCode, DisconnectException, MqttBasicException, PubAckException, PubAckReasonCode, SubscribeException } from './exception';
+import { ConnectException, ConnectReasonCode, DisconnectException, MqttBasicException, PubAckException, PubAckReasonCode, PubRelException, SubscribeException } from './exception';
 import { BufferData, IProperties, PropertyDataMap, PropertyIdentifier } from './interface';
 import {
 	fourByteInteger,
@@ -714,7 +714,7 @@ export function parsePubRelProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.ReasonString:
 				data.index++;
 				if (properties.reasonString) {
-					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
+					throw new PubRelException('It is a Protocol Error to include Authentication Method more than once.');
 				}
 				properties.reasonString = utf8DecodedString(data);
 				break;

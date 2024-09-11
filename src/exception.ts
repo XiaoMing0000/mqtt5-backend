@@ -161,3 +161,9 @@ export class DisconnectException extends MqttBasicException {
 		super(msg, code);
 	}
 }
+
+export class PubRelException extends MqttBasicException {
+	constructor(msg: string, code: PubRelReasonCode = PubRelReasonCode.PacketIdentifierNotFound) {
+		super(msg, code);
+	}
+}

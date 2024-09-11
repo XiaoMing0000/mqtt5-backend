@@ -1,6 +1,14 @@
-import { ConnectException, ConnectReasonCode, PubAckReasonCode, PubAckException, SubscribeException } from './exception';
-import { BufferData, IConnectData, IDisconnectData, IPublishData, ISubscribeData, PacketType, PropertyDataMap, TPropertyIdentifier } from './interface';
-import { encodedProperties, parseConnectProperties, parseDisconnectProperties, parseProperties, parsePublishProperties } from './property';
+import { ConnectException, ConnectReasonCode, PubAckReasonCode, PubAckException, SubscribeException, PubRelReasonCode } from './exception';
+import { BufferData, IConnectData, IDisconnectData, IPublishData, IPubRelData, ISubscribeData, PacketType, PropertyDataMap, TPropertyIdentifier } from './interface';
+import {
+	encodedProperties,
+	parseConnectProperties,
+	parseDisconnectProperties,
+	parseProperties,
+	parsePublishProperties,
+	parsePubRelProperties,
+	parseSubscribeProperties,
+} from './property';
 
 export const bits = oneByteInteger;
 /**
@@ -284,6 +292,21 @@ export function parsePublish(buffer: Buffer, pubData: IPublishData) {
 	return pubData;
 }
 
+export function parsePubRel(buffer: Buffer, pubRelData: IPubRelData) {
+	pubRelData.header.packetType = (buffer[0] >> 4) as PacketType;
+	pubRelData.header.received = buffer[0] & 0xf;
+
+	const data = { buffer, index: 1 };
+	// 获取数据长度
+	pubRelData.header.remainingLength = variableByteInteger(data);
+	pubRelData.header.packetIdentifier = twoByteInteger(data);
+	pubRelData.header.reasonCode = oneByteInteger(data) ?? PubRelReasonCode.Success;
+	// 获取属性
+	const propertyLength = variableByteInteger(data);
+	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+	pubRelData.properties = parsePubRelProperties(propertiesBuffer);
+}
+
 export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
 	subData.header.packetType = (buffer[0] >> 4) as PacketType;
 	subData.header.received = buffer[0] & 0xf;
@@ -299,7 +322,7 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
 	// 获取属性
 	const propertyLength = variableByteInteger(data);
 	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
-	subData.properties = parsePublishProperties(propertiesBuffer);
+	subData.properties = parseSubscribeProperties(propertiesBuffer);
 }
 
 export function parseDisconnect(buffer: Buffer, disconnectData: IDisconnectData) {

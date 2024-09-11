@@ -3,6 +3,9 @@ import { PacketType } from './interface';
 import { defaultAuthenticate, defaultAuthorizeForward, defaultAuthorizePublish, defaultAuthorizeSubscribe, defaultPreConnect, defaultPublished } from './auth';
 import { MqttManager } from '.';
 
+// 本地缓存，用来记录连接的client
+const allClient = new Set<net.Socket>();
+
 // 创建 TCP 服务器
 const server = net.createServer((client) => {
 	const defaultOption = {
@@ -23,8 +26,9 @@ const server = net.createServer((client) => {
 		keepaliveLimit: 0,
 	};
 
-	const mqttManager = new MqttManager(client);
+	allClient.add(client);
 
+	const mqttManager = new MqttManager(client, allClient);
 	client.on('data', (data) => {
 		const packetType = (data[0] >> 4) as PacketType;
 
@@ -35,8 +39,10 @@ const server = net.createServer((client) => {
 			case PacketType.PUBLISH:
 				mqttManager.publishHandle(data);
 				break;
+			case PacketType.PUBREL:
+				mqttManager.pubRelHandle(data);
+				break;
 			case PacketType.SUBSCRIBE:
-				console.log('subscribe');
 				mqttManager.subscribeHandle(data);
 				break;
 			case PacketType.UNSUBSCRIBE:
@@ -64,6 +70,7 @@ const server = net.createServer((client) => {
 	});
 
 	client.on('close', (hadError: boolean) => {
+		allClient.delete(client);
 		if (hadError) {
 			console.log('Connection closed due to error!');
 		} else {

@@ -18,7 +18,13 @@ export enum PacketType {
 	AUTH,
 }
 
-export type TPropertyIdentifier = PropertyIdentifier | ConnAckPropertyIdentifier;
+export enum QoSType {
+	QoS0 = 0,
+	QoS1,
+	QoS2,
+}
+
+export type TPropertyIdentifier = PropertyIdentifier | ConnAckPropertyIdentifier | PubCompPropertyIdentifier | PubAckPropertyIdentifier;
 
 export type PropertyDataMap = {
 	[0x01]: number;
@@ -98,6 +104,16 @@ export enum ConnAckPropertyIdentifier {
 	WildcardSubscriptionAvailable = 0x28,
 	SubscriptionIdentifierAvailable = 0x29,
 	SharedSubscriptionAvailable = 0x2a,
+}
+
+export enum PubCompPropertyIdentifier {
+	ReasonString = 0x1f,
+	UserProperty = 0x26,
+}
+
+export enum PubAckPropertyIdentifier {
+	ReasonString = 0x1f,
+	UserProperty = 0x26,
 }
 
 export interface BufferData {
@@ -197,6 +213,17 @@ export interface IDisconnectData {
 		packetType: PacketType;
 		received: number;
 		remainingLength: number;
+		reasonCode: number;
+	};
+	properties: IProperties;
+}
+
+export interface IPubRelData {
+	header: {
+		packetType: PacketType;
+		received: number;
+		remainingLength: number;
+		packetIdentifier: number;
 		reasonCode: number;
 	};
 	properties: IProperties;
