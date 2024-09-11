@@ -180,3 +180,24 @@ export interface IPublishData {
 	properties: IProperties;
 	payload: string;
 }
+
+export interface ISubscribeData {
+	header: {
+		packetType: PacketType;
+		received: number;
+		remainingLength: number;
+		packetIdentifier: number;
+	};
+	properties: IProperties;
+	payload: string;
+}
+
+export interface IDisconnectData {
+	header: {
+		packetType: PacketType;
+		received: number;
+		remainingLength: number;
+		reasonCode: number;
+	};
+	properties: IProperties;
+}

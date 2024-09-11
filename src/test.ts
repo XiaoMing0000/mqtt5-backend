@@ -35,6 +35,20 @@ const server = net.createServer((client) => {
 			case PacketType.PUBLISH:
 				mqttManager.publishHandle(data);
 				break;
+			case PacketType.SUBSCRIBE:
+				console.log('subscribe');
+				mqttManager.subscribeHandle(data);
+				break;
+			case PacketType.UNSUBSCRIBE:
+				console.log('unsubscribe');
+				break;
+			case PacketType.PINGREQ:
+				mqttManager.pingReqHandle();
+				break;
+
+			case PacketType.DISCONNECT:
+				mqttManager.disconnectHandle(data);
+				break;
 			default:
 				console.log('Unhandled packet type:', packetType);
 		}
@@ -47,6 +61,14 @@ const server = net.createServer((client) => {
 
 	client.on('error', (err) => {
 		console.error('Client error:', err);
+	});
+
+	client.on('close', (hadError: boolean) => {
+		if (hadError) {
+			console.log('Connection closed due to error!');
+		} else {
+			console.log('The connection was closed properly!');
+		}
 	});
 });
 

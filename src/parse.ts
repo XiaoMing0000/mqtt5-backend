@@ -1,6 +1,6 @@
-import { ConnectException, ConnectReasonCode, PubAckReasonCode, PubAckException } from './exception';
-import { BufferData, IConnectData, IPublishData, PacketType, PropertyDataMap, TPropertyIdentifier } from './interface';
-import { encodedProperties, parseConnectProperties, parseProperties, parsePublishProperties } from './property';
+import { ConnectException, ConnectReasonCode, PubAckReasonCode, PubAckException, SubscribeException } from './exception';
+import { BufferData, IConnectData, IDisconnectData, IPublishData, ISubscribeData, PacketType, PropertyDataMap, TPropertyIdentifier } from './interface';
+import { encodedProperties, parseConnectProperties, parseDisconnectProperties, parseProperties, parsePublishProperties } from './property';
 
 export const bits = oneByteInteger;
 /**
@@ -282,4 +282,36 @@ export function parsePublish(buffer: Buffer, pubData: IPublishData) {
 	pubData.payload = data.buffer.slice(data.index).toString();
 
 	return pubData;
+}
+
+export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
+	subData.header.packetType = (buffer[0] >> 4) as PacketType;
+	subData.header.received = buffer[0] & 0xf;
+
+	if (subData.header.received !== 0x02) {
+		new SubscribeException('Bits 3,2,1 and 0 of the Fixed Header of the SUBSCRIBE packet are reserved and MUST be set to 0,0,1 and 0 respectively. ');
+	}
+
+	const data = { buffer, index: 1 };
+	// 获取数据长度
+	subData.header.remainingLength = variableByteInteger(data);
+	subData.header.packetIdentifier = twoByteInteger(data);
+	// 获取属性
+	const propertyLength = variableByteInteger(data);
+	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+	subData.properties = parsePublishProperties(propertiesBuffer);
+}
+
+export function parseDisconnect(buffer: Buffer, disconnectData: IDisconnectData) {
+	disconnectData.header.packetType = buffer[0] >> 4;
+	disconnectData.header.received = buffer[0] & 0xf;
+
+	const data = { buffer, index: 1 };
+	disconnectData.header.remainingLength = variableByteInteger(data);
+	disconnectData.header.reasonCode = oneByteInteger(data);
+
+	// 获取属性
+	const propertyLength = variableByteInteger(data);
+	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+	disconnectData.properties = parseDisconnectProperties(propertiesBuffer);
 }

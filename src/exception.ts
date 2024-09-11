@@ -149,3 +149,15 @@ export class PubAckException extends MqttBasicException {
 		super(msg, code);
 	}
 }
+
+export class SubscribeException extends MqttBasicException {
+	constructor(msg: string, code: SubscribeReasonCode = SubscribeReasonCode.UnspecifiedError) {
+		super(msg, code);
+	}
+}
+
+export class DisconnectException extends MqttBasicException {
+	constructor(msg: string, code: DisconnectReasonCode = DisconnectReasonCode.UnspecifiedError) {
+		super(msg, code);
+	}
+}

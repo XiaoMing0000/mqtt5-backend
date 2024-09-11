@@ -1,7 +1,7 @@
 import net from 'net';
 import { ConnectException, PubAckException } from './exception';
-import { ConnAckPropertyIdentifier, IConnectData, IPublishData, PacketType, PropertyIdentifier } from './interface';
-import { EncodedProperties, encodeVariableByteInteger, integerToTwoUint8, parseConnect, parsePublish } from './parse';
+import { ConnAckPropertyIdentifier, IConnectData, IDisconnectData, IPublishData, ISubscribeData, PacketType, PropertyIdentifier } from './interface';
+import { EncodedProperties, encodeVariableByteInteger, integerToTwoUint8, parseConnect, parseDisconnect, parsePublish, parseSubscribe } from './parse';
 
 export class MqttManager {
 	static defaultProperties = {
@@ -99,9 +99,32 @@ export class MqttManager {
 				const properties = new EncodedProperties();
 				properties.add(PropertyIdentifier.ReasonString, error.msg);
 				const errorPacket = Buffer.from([0x20, ...encodeVariableByteInteger(2 + properties.length), 0x00, error.code, ...properties.buffer]);
-				this.client.end(errorPacket);
+				this.client.write(errorPacket);
+				this.client.end();
 			}
 		}
+	}
+
+	public disconnectHandle(buffer: Buffer) {
+		const disconnectData: IDisconnectData = {
+			header: {
+				packetType: PacketType.DISCONNECT,
+				received: 0,
+				remainingLength: 0,
+				reasonCode: 0x00,
+			},
+			properties: {},
+		};
+		try {
+			parseDisconnect(buffer, disconnectData);
+		} catch (err) {
+			console.error(err);
+			this.client.end();
+		}
+	}
+
+	public pingReqHandle() {
+		this.client.write(Buffer.from([PacketType.PINGRESP << 4, 0]));
 	}
 
 	public publishHandle(buffer: Buffer) {
@@ -123,7 +146,9 @@ export class MqttManager {
 
 			// TODO 缺少向每个订阅者发布消息
 
-			this.handlePubAck();
+			if (pubData.header.qosLevel > 0) {
+				this.handlePubAck(pubData);
+			}
 			// throw new PubAckException('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', PubAckReasonCode.TopicNameInvalid);
 		} catch (error) {
 			if (error instanceof PubAckException) {
@@ -140,7 +165,6 @@ export class MqttManager {
 							error.code,
 							...properties.buffer,
 						]);
-						console.log([0x40, ...encodeVariableByteInteger(3 + properties.length), ...integerToTwoUint8(packetIdentifier), error.code, ...properties.buffer]);
 						this.client.write(errorPacket);
 					}
 				}
@@ -148,5 +172,27 @@ export class MqttManager {
 		}
 	}
 
-	handlePubAck() {}
+	handlePubAck(pubData: IPublishData) {
+		const packetIdentifier = pubData.header.packetIdentifier ?? 1;
+
+		const properties = new EncodedProperties();
+		const errorPacket = Buffer.from([0x40, ...encodeVariableByteInteger(3 + properties.length), ...integerToTwoUint8(packetIdentifier), 0x00, ...properties.buffer]);
+		this.client.write(errorPacket);
+	}
+
+	public subscribeHandle(buffer: Buffer) {
+		const subData: ISubscribeData = {
+			header: {
+				packetType: PacketType.RESERVED,
+				received: 0x02,
+				remainingLength: 0,
+				packetIdentifier: 0,
+			},
+			properties: {},
+			payload: '',
+		};
+		parseSubscribe(buffer, subData);
+
+		console.log(subData);
+	}
 }

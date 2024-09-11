@@ -1,5 +1,5 @@
-import { ConnectException, ConnectReasonCode, MqttBasicException, PubAckException, PubAckReasonCode } from './exception';
-import { BufferData, IProperties, PropertyDataMap, PropertyIdentifier, TPropertyIdentifier } from './interface';
+import { ConnectException, ConnectReasonCode, DisconnectException, MqttBasicException, PubAckException, PubAckReasonCode, SubscribeException } from './exception';
+import { BufferData, IProperties, PropertyDataMap, PropertyIdentifier } from './interface';
 import {
 	fourByteInteger,
 	integerToFourUint8,
@@ -444,21 +444,21 @@ export function parseDisconnectProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.SessionExpiryInterval:
 				data.index++;
 				if (properties.sessionExpiryInterval != undefined) {
-					throw new MqttBasicException('It is a Protocol Error to include the Session Expiry Interval more than once.');
+					throw new DisconnectException('It is a Protocol Error to include the Session Expiry Interval more than once.');
 				}
 				properties.sessionExpiryInterval = fourByteInteger(data);
 				break;
 			case PropertyIdentifier.ServerReference:
 				data.index++;
 				if (properties.serverReference) {
-					throw new MqttBasicException('It is a Protocol Error to include the Response Information more than once.');
+					throw new DisconnectException('It is a Protocol Error to include the Response Information more than once.');
 				}
 				properties.serverReference = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.ReasonString:
 				data.index++;
 				if (properties.reasonString) {
-					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
+					throw new DisconnectException('It is a Protocol Error to include Authentication Method more than once.');
 				}
 				properties.reasonString = utf8DecodedString(data);
 				break;
@@ -484,11 +484,11 @@ export function parseSubscribeProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.SubscriptionIdentifier:
 				data.index++;
 				if (properties.subscriptionIdentifier) {
-					throw new MqttBasicException('It is a Protocol Error to include the Subscription Identifier more than once.');
+					throw new SubscribeException('It is a Protocol Error to include the Subscription Identifier more than once.');
 				}
 				properties.subscriptionIdentifier = variableByteInteger(data, 4);
 				if (properties.subscriptionIdentifier == 0) {
-					throw new MqttBasicException('It is a Protocol Error if the Subscription Identifier has a value of 0. ');
+					throw new SubscribeException('It is a Protocol Error if the Subscription Identifier has a value of 0. ');
 				}
 				break;
 			case PropertyIdentifier.UserProperty: {
