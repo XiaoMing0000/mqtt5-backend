@@ -83,7 +83,7 @@ server.listen(1883, () => {
 	console.log('MQTT server listening on port 1883');
 });
 
-// TODO 3.2 CONNACK – Connect acknowledgement 下一步编写
+// TODO 下一步进行解析 unsubscribe
 
 console.log(new Uint8Array([257]));
 console.log(Buffer.from([255, 1]).join(''));

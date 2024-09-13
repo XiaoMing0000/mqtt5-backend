@@ -206,6 +206,7 @@ export interface ISubscribeData {
 	};
 	properties: IProperties;
 	payload: string;
+	qos: QoSType;
 }
 
 export interface IDisconnectData {

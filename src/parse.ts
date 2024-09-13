@@ -323,6 +323,9 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
 	const propertyLength = variableByteInteger(data);
 	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
 	subData.properties = parseSubscribeProperties(propertiesBuffer);
+
+	subData.payload = utf8DecodedString(data);
+	subData.qos = oneByteInteger(data);
 }
 
 export function parseDisconnect(buffer: Buffer, disconnectData: IDisconnectData) {
