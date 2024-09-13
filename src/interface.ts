@@ -24,7 +24,7 @@ export enum QoSType {
 	QoS2,
 }
 
-export type TPropertyIdentifier = PropertyIdentifier | ConnAckPropertyIdentifier | PubCompPropertyIdentifier | PubAckPropertyIdentifier;
+export type TPropertyIdentifier = PropertyIdentifier | ConnAckPropertyIdentifier | PubCompPropertyIdentifier | PubAckPropertyIdentifier | SubAckPropertyIdentifier;
 
 export type PropertyDataMap = {
 	[0x01]: number;
@@ -112,6 +112,11 @@ export enum PubCompPropertyIdentifier {
 }
 
 export enum PubAckPropertyIdentifier {
+	ReasonString = 0x1f,
+	UserProperty = 0x26,
+}
+
+export enum SubAckPropertyIdentifier {
 	ReasonString = 0x1f,
 	UserProperty = 0x26,
 }

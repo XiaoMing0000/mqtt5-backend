@@ -57,7 +57,7 @@ export enum DisconnectReasonCode {
 export enum SubscribeReasonCode {
 	GrantedQoS0 = 0x00,
 	GrantedQoS1 = 0x01,
-	GrantedQoS = 0x02,
+	GrantedQoS2 = 0x02,
 	UnspecifiedError = 0x80,
 	ImplementationSpecificError = 0x83,
 	NotAuthorized = 0x87,

@@ -1,6 +1,17 @@
 import net from 'net';
-import { ConnectException, PubAckException, PubCompReasonCode } from './exception';
-import { ConnAckPropertyIdentifier, IConnectData, IDisconnectData, IPublishData, IPubRelData, ISubscribeData, PacketType, PropertyIdentifier, QoSType } from './interface';
+import { ConnectException, PubAckException, PubCompReasonCode, SubscribeReasonCode } from './exception';
+import {
+	ConnAckPropertyIdentifier,
+	IConnectData,
+	IDisconnectData,
+	IPublishData,
+	IPubRelData,
+	ISubscribeData,
+	PacketType,
+	PropertyIdentifier,
+	QoSType,
+	SubAckPropertyIdentifier,
+} from './interface';
 import { EncodedProperties, encodeVariableByteInteger, integerToTwoUint8, parseConnect, parseDisconnect, parsePublish, parsePubRel, parseSubscribe, twoByteInteger } from './parse';
 export class MqttManager {
 	static defaultProperties = {
@@ -244,21 +255,29 @@ export class MqttManager {
 			payload: '',
 			qos: QoSType.QoS0,
 		};
-		parseSubscribe(buffer, subData);
-		console.log('subData: ', subData);
+		try {
+			parseSubscribe(buffer, subData);
+			console.log('subData: ', subData);
+		} catch (error) {
+			// TODO 订阅异常处理
+		}
 
 		this.handleSubAck(subData);
 	}
 
 	private handleSubAck(subData: ISubscribeData) {
+		let remainingLength = 1;
 		const properties = new EncodedProperties();
+		properties.add(SubAckPropertyIdentifier.UserProperty, { key: 'key', value: 'aaaaaa' });
+		remainingLength += properties.length + 2;
 		const compPacket = Buffer.from([
 			PacketType.SUBACK << 4,
-			...encodeVariableByteInteger(properties.length + 2),
+			...encodeVariableByteInteger(remainingLength),
 			...integerToTwoUint8(subData.header.packetIdentifier),
 			...properties.buffer,
+			SubscribeReasonCode.GrantedQoS1,
 		]);
-		console.log('compPacket: ', compPacket);
+		console.log(compPacket);
 		this.client.write(compPacket);
 	}
 }
