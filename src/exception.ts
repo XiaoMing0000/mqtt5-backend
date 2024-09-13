@@ -54,7 +54,7 @@ export enum DisconnectReasonCode {
 	WildcardSubscriptionsNotSupported = 0xa2,
 }
 
-export enum SubscribeReasonCode {
+export enum SubscribeAckReasonCode {
 	GrantedQoS0 = 0x00,
 	GrantedQoS1 = 0x01,
 	GrantedQoS2 = 0x02,
@@ -67,6 +67,16 @@ export enum SubscribeReasonCode {
 	SharedSubscriptionsNotSupported = 0x9e,
 	SubscriptionIdentifiersNotSupported = 0xa1,
 	WildcardSubscriptionsNotSupported = 0xa2,
+}
+
+export enum UnsubscribeAckReasonCode {
+	Success = 0x00,
+	NoSubscriptionFound = 0x11,
+	UnspecifiedError = 0x80,
+	ImplementationSpecificError = 0x83,
+	NotAuthorized = 0x87,
+	TopicFilterInvalid = 0x8f,
+	PacketIdentifierInUse = 0x91,
 }
 
 export enum PubAckReasonCode {
@@ -112,7 +122,8 @@ export enum AuthenticateReasonCode {
 type TErrorCode =
 	| ConnectReasonCode
 	| DisconnectReasonCode
-	| SubscribeReasonCode
+	| SubscribeAckReasonCode
+	| UnsubscribeAckReasonCode
 	| PubAckReasonCode
 	| PubRecReasonCode
 	| PubRelReasonCode
@@ -150,8 +161,14 @@ export class PubAckException extends MqttBasicException {
 	}
 }
 
-export class SubscribeException extends MqttBasicException {
-	constructor(msg: string, code: SubscribeReasonCode = SubscribeReasonCode.UnspecifiedError) {
+export class SubscribeAckException extends MqttBasicException {
+	constructor(msg: string, code: SubscribeAckReasonCode = SubscribeAckReasonCode.UnspecifiedError) {
+		super(msg, code);
+	}
+}
+
+export class UnsubscribeAckException extends MqttBasicException {
+	constructor(msg: string, code: UnsubscribeAckReasonCode = UnsubscribeAckReasonCode.UnspecifiedError) {
 		super(msg, code);
 	}
 }

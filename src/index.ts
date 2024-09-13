@@ -1,5 +1,5 @@
 import net from 'net';
-import { ConnectException, PubAckException, PubCompReasonCode, SubscribeReasonCode } from './exception';
+import { ConnectException, PubAckException, PubCompReasonCode, SubscribeAckReasonCode } from './exception';
 import {
 	ConnAckPropertyIdentifier,
 	IConnectData,
@@ -7,12 +7,24 @@ import {
 	IPublishData,
 	IPubRelData,
 	ISubscribeData,
+	IUnsubscribeData,
 	PacketType,
 	PropertyIdentifier,
 	QoSType,
 	SubAckPropertyIdentifier,
 } from './interface';
-import { EncodedProperties, encodeVariableByteInteger, integerToTwoUint8, parseConnect, parseDisconnect, parsePublish, parsePubRel, parseSubscribe, twoByteInteger } from './parse';
+import {
+	EncodedProperties,
+	encodeVariableByteInteger,
+	integerToTwoUint8,
+	parseConnect,
+	parseDisconnect,
+	parsePublish,
+	parsePubRel,
+	parseSubscribe,
+	parseUnsubscribe,
+	twoByteInteger,
+} from './parse';
 export class MqttManager {
 	static defaultProperties = {
 		receiveMaximum: 32,
@@ -258,7 +270,7 @@ export class MqttManager {
 		try {
 			parseSubscribe(buffer, subData);
 			console.log('subData: ', subData);
-		} catch (error) {
+		} catch {
 			// TODO 订阅异常处理
 		}
 
@@ -268,16 +280,48 @@ export class MqttManager {
 	private handleSubAck(subData: ISubscribeData) {
 		let remainingLength = 1;
 		const properties = new EncodedProperties();
-		properties.add(SubAckPropertyIdentifier.UserProperty, { key: 'key', value: 'aaaaaa' });
 		remainingLength += properties.length + 2;
-		const compPacket = Buffer.from([
+		const subAckPacket = Buffer.from([
 			PacketType.SUBACK << 4,
 			...encodeVariableByteInteger(remainingLength),
 			...integerToTwoUint8(subData.header.packetIdentifier),
 			...properties.buffer,
-			SubscribeReasonCode.GrantedQoS1,
+			SubscribeAckReasonCode.GrantedQoS1,
 		]);
-		console.log(compPacket);
-		this.client.write(compPacket);
+		this.client.write(subAckPacket);
+	}
+
+	public unsubscribeHandle(buffer: Buffer) {
+		const unsubscribeData: IUnsubscribeData = {
+			header: {
+				packetType: PacketType.RESERVED,
+				received: 0x02,
+				remainingLength: 0,
+				packetIdentifier: 0,
+			},
+			properties: {},
+			payload: '',
+		};
+		try {
+			parseUnsubscribe(buffer, unsubscribeData);
+			console.log('unsubscribeData: ', unsubscribeData);
+		} catch {
+			// TODO 订阅异常处理
+		}
+
+		this.handleUnsubscribeAck(unsubscribeData);
+	}
+
+	private handleUnsubscribeAck(unsubscribeData: IUnsubscribeData) {
+		let remainingLength = 1;
+		const properties = new EncodedProperties();
+		remainingLength += properties.length + 2;
+		const unsubscribePacket = Buffer.from([
+			PacketType.UNSUBACK << 4,
+			...encodeVariableByteInteger(remainingLength),
+			...integerToTwoUint8(unsubscribeData.header.packetIdentifier),
+			...properties.buffer,
+		]);
+		this.client.write(unsubscribePacket);
 	}
 }

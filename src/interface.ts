@@ -214,6 +214,17 @@ export interface ISubscribeData {
 	qos: QoSType;
 }
 
+export interface IUnsubscribeData {
+	header: {
+		packetType: PacketType;
+		received: number;
+		remainingLength: number;
+		packetIdentifier: number;
+	};
+	properties: IProperties;
+	payload: string;
+}
+
 export interface IDisconnectData {
 	header: {
 		packetType: PacketType;

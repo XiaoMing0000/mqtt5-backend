@@ -46,7 +46,7 @@ const server = net.createServer((client) => {
 				mqttManager.subscribeHandle(data);
 				break;
 			case PacketType.UNSUBSCRIBE:
-				console.log('unsubscribe');
+				mqttManager.unsubscribeHandle(data);
 				break;
 			case PacketType.PINGREQ:
 				mqttManager.pingReqHandle();

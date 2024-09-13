@@ -1,5 +1,16 @@
-import { ConnectException, ConnectReasonCode, PubAckReasonCode, PubAckException, SubscribeException, PubRelReasonCode } from './exception';
-import { BufferData, IConnectData, IDisconnectData, IPublishData, IPubRelData, ISubscribeData, PacketType, PropertyDataMap, TPropertyIdentifier } from './interface';
+import { ConnectException, ConnectReasonCode, PubAckReasonCode, PubAckException, PubRelReasonCode, SubscribeAckException } from './exception';
+import {
+	BufferData,
+	IConnectData,
+	IDisconnectData,
+	IPublishData,
+	IPubRelData,
+	ISubscribeData,
+	IUnsubscribeData,
+	PacketType,
+	PropertyDataMap,
+	TPropertyIdentifier,
+} from './interface';
 import {
 	encodedProperties,
 	parseConnectProperties,
@@ -312,7 +323,7 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
 	subData.header.received = buffer[0] & 0xf;
 
 	if (subData.header.received !== 0x02) {
-		new SubscribeException('Bits 3,2,1 and 0 of the Fixed Header of the SUBSCRIBE packet are reserved and MUST be set to 0,0,1 and 0 respectively. ');
+		new SubscribeAckException('Bits 3,2,1 and 0 of the Fixed Header of the SUBSCRIBE packet are reserved and MUST be set to 0,0,1 and 0 respectively. ');
 	}
 
 	const data = { buffer, index: 1 };
@@ -326,6 +337,26 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
 
 	subData.payload = utf8DecodedString(data);
 	subData.qos = oneByteInteger(data);
+}
+
+export function parseUnsubscribe(buffer: Buffer, unsubscribeData: IUnsubscribeData) {
+	unsubscribeData.header.packetType = (buffer[0] >> 4) as PacketType;
+	unsubscribeData.header.received = buffer[0] & 0xf;
+
+	if (unsubscribeData.header.received !== 0x02) {
+		new SubscribeAckException('Bits 3,2,1 and 0 of the Fixed Header of the UNSUBSCRIBE packet are reserved and MUST be set to 0,0,1 and 0 respectively.');
+	}
+
+	const data = { buffer, index: 1 };
+	// 获取数据长度
+	unsubscribeData.header.remainingLength = variableByteInteger(data);
+	unsubscribeData.header.packetIdentifier = twoByteInteger(data);
+	// 获取属性
+	const propertyLength = variableByteInteger(data);
+	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+	unsubscribeData.properties = parseSubscribeProperties(propertiesBuffer);
+
+	unsubscribeData.payload = utf8DecodedString(data);
 }
 
 export function parseDisconnect(buffer: Buffer, disconnectData: IDisconnectData) {

@@ -1,4 +1,13 @@
-import { ConnectException, ConnectReasonCode, DisconnectException, MqttBasicException, PubAckException, PubAckReasonCode, PubRelException, SubscribeException } from './exception';
+import {
+	ConnectException,
+	ConnectReasonCode,
+	DisconnectException,
+	MqttBasicException,
+	PubAckException,
+	PubAckReasonCode,
+	PubRelException,
+	SubscribeAckException,
+} from './exception';
 import { BufferData, IProperties, PropertyDataMap, PropertyIdentifier } from './interface';
 import {
 	fourByteInteger,
@@ -484,11 +493,11 @@ export function parseSubscribeProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.SubscriptionIdentifier:
 				data.index++;
 				if (properties.subscriptionIdentifier) {
-					throw new SubscribeException('It is a Protocol Error to include the Subscription Identifier more than once.');
+					throw new SubscribeAckException('It is a Protocol Error to include the Subscription Identifier more than once.');
 				}
 				properties.subscriptionIdentifier = variableByteInteger(data, 4);
 				if (properties.subscriptionIdentifier == 0) {
-					throw new SubscribeException('It is a Protocol Error if the Subscription Identifier has a value of 0. ');
+					throw new SubscribeAckException('It is a Protocol Error if the Subscription Identifier has a value of 0. ');
 				}
 				break;
 			case PropertyIdentifier.UserProperty: {
@@ -555,13 +564,6 @@ export function parseUnsubscribeAckProperties(buffer: Buffer, index?: number) {
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {
-			case PropertyIdentifier.ReasonString:
-				data.index++;
-				if (properties.reasonString) {
-					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
-				}
-				properties.reasonString = utf8DecodedString(data);
-				break;
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
 				const { key, value } = utf8StringPair(data);
