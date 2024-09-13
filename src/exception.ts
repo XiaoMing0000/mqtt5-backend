@@ -1,4 +1,4 @@
-export enum ConnectReasonCode {
+export enum ConnectAckReasonCode {
 	Success = 0x00,
 	UnspecifiedError = 0x80,
 	MalformedPacket = 0x81,
@@ -120,7 +120,7 @@ export enum AuthenticateReasonCode {
 }
 
 type TErrorCode =
-	| ConnectReasonCode
+	| ConnectAckReasonCode
 	| DisconnectReasonCode
 	| SubscribeAckReasonCode
 	| UnsubscribeAckReasonCode
@@ -128,13 +128,12 @@ type TErrorCode =
 	| PubRecReasonCode
 	| PubRelReasonCode
 	| PubCompReasonCode
-	| AuthenticateReasonCode
-	| PubAckReasonCode;
+	| AuthenticateReasonCode;
 
 export class MqttBasicException extends Error {
 	private _code: TErrorCode;
 	private _msg: string;
-	constructor(msg: string, code: TErrorCode = ConnectReasonCode.UnspecifiedError) {
+	constructor(msg: string, code: TErrorCode = ConnectAckReasonCode.UnspecifiedError) {
 		super();
 		this._code = code;
 		this._msg = msg;
@@ -149,8 +148,8 @@ export class MqttBasicException extends Error {
 	}
 }
 
-export class ConnectException extends MqttBasicException {
-	constructor(msg: string, code: ConnectReasonCode = ConnectReasonCode.UnspecifiedError) {
+export class ConnectAckException extends MqttBasicException {
+	constructor(msg: string, code: ConnectAckReasonCode = ConnectAckReasonCode.UnspecifiedError) {
 		super(msg, code);
 	}
 }

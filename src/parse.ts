@@ -1,4 +1,4 @@
-import { ConnectException, ConnectReasonCode, PubAckReasonCode, PubAckException, PubRelReasonCode, SubscribeAckException } from './exception';
+import { ConnectAckException, ConnectAckReasonCode, PubAckReasonCode, PubAckException, PubRelReasonCode, SubscribeAckException } from './exception';
 import {
 	BufferData,
 	IConnectData,
@@ -203,7 +203,7 @@ export function parseConnect(buffer: Buffer): IConnectData {
 	connData.header.protocolName = utf8DecodedString(data);
 	connData.header.protocolVersion = oneByteInteger(data);
 	if (connData.header.protocolName !== 'MQTT' || connData.header.protocolVersion !== 5) {
-		throw new ConnectException('Unsupported Protocol Version.', ConnectReasonCode.UnsupportedProtocolVersion);
+		throw new ConnectAckException('Unsupported Protocol Version.', ConnectAckReasonCode.UnsupportedProtocolVersion);
 	}
 
 	const connectFlagsValue = oneByteInteger(data);
@@ -217,7 +217,7 @@ export function parseConnect(buffer: Buffer): IConnectData {
 		reserved: !!(connectFlagsValue & 1),
 	};
 	if (connData.connectFlags.reserved || connData.connectFlags.willQoS >= 0x03 || (!connData.connectFlags.willFlag && connData.connectFlags.willRetain)) {
-		throw new ConnectException('If the reserved flag is not 0 it is a Malformed Packet.', ConnectReasonCode.MalformedPacket);
+		throw new ConnectAckException('If the reserved flag is not 0 it is a Malformed Packet.', ConnectAckReasonCode.MalformedPacket);
 	}
 	if (connData.connectFlags.cleanStart) {
 		// TODO 是否建立新的连接 3.1.24
@@ -246,7 +246,7 @@ export function parseConnect(buffer: Buffer): IConnectData {
 		connData.payload.username = utf8DecodedString(data);
 		connData.payload.password = utf8DecodedString(data);
 		if (connData.payload.username === undefined || connData.payload.password === undefined) {
-			throw new ConnectException('Bad User Name or Password.', ConnectReasonCode.BadUserNameOrPassword);
+			throw new ConnectAckException('Bad User Name or Password.', ConnectAckReasonCode.BadUserNameOrPassword);
 		}
 	}
 

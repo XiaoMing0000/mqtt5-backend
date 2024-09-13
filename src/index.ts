@@ -1,5 +1,5 @@
 import net from 'net';
-import { ConnectException, PubAckException, PubCompReasonCode, SubscribeAckReasonCode } from './exception';
+import { ConnectAckException, PubAckException, PubCompReasonCode, SubscribeAckReasonCode } from './exception';
 import {
 	ConnAckPropertyIdentifier,
 	IConnectData,
@@ -121,7 +121,7 @@ export class MqttManager {
 			console.log('connData: ', this.connData);
 			this.handleConnAck();
 		} catch (error) {
-			if (error instanceof ConnectException) {
+			if (error instanceof ConnectAckException) {
 				const properties = new EncodedProperties();
 				properties.add(PropertyIdentifier.ReasonString, error.msg);
 				const errorPacket = Buffer.from([0x20, ...encodeVariableByteInteger(2 + properties.length), 0x00, error.code, ...properties.buffer]);

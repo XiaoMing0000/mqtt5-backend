@@ -1,6 +1,6 @@
 import {
-	ConnectException,
-	ConnectReasonCode,
+	ConnectAckException,
+	ConnectAckReasonCode,
 	DisconnectException,
 	MqttBasicException,
 	PubAckException,
@@ -235,30 +235,30 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.SessionExpiryInterval:
 				data.index++;
 				if (properties.sessionExpiryInterval != undefined) {
-					throw new ConnectException('It is a Protocol Error to include the Session Expiry Interval more than once.', ConnectReasonCode.MalformedPacket);
+					throw new ConnectAckException('It is a Protocol Error to include the Session Expiry Interval more than once.', ConnectAckReasonCode.MalformedPacket);
 				}
 				properties.sessionExpiryInterval = fourByteInteger(data);
 				break;
 			case PropertyIdentifier.AuthenticationMethod:
 				data.index++;
 				if (properties.AuthenticationMethod) {
-					throw new ConnectException('It is a Protocol Error to include Authentication Method more than once.', ConnectReasonCode.MalformedPacket);
+					throw new ConnectAckException('It is a Protocol Error to include Authentication Method more than once.', ConnectAckReasonCode.MalformedPacket);
 				}
 				properties.authenticationMethod = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.AuthenticationData:
 				data.index++;
 				if (properties.authenticationData) {
-					throw new ConnectException('It is a Protocol Error to include Authentication Method more than once.', ConnectReasonCode.MalformedPacket);
+					throw new ConnectAckException('It is a Protocol Error to include Authentication Method more than once.', ConnectAckReasonCode.MalformedPacket);
 				}
 				properties.authenticationData = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.RequestProblemInformation:
 				data.index++;
 				if (properties.requestProblemInformation !== undefined || data.buffer[data.index] > 1) {
-					throw new ConnectException(
+					throw new ConnectAckException(
 						'It is a Protocol Error to include Request Problem Information more than once, or to have a value other than 0 or 1.',
-						ConnectReasonCode.MalformedPacket,
+						ConnectAckReasonCode.MalformedPacket,
 					);
 				}
 				properties.requestProblemInformation = !!oneByteInteger(data);
@@ -266,9 +266,9 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.RequestResponseInformation:
 				data.index++;
 				if (properties.requestResponseInformation !== undefined || data.buffer[data.index] > 1) {
-					throw new ConnectException(
+					throw new ConnectAckException(
 						'It is Protocol Error to include the Request Response Information more than once, or to have a value other than 0 or 1.',
-						ConnectReasonCode.MalformedPacket,
+						ConnectAckReasonCode.MalformedPacket,
 					);
 				}
 				properties.requestResponseInformation = !!oneByteInteger(data);
@@ -276,9 +276,9 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.ReceiveMaximum:
 				data.index++;
 				if (properties.receiveMaximum != undefined) {
-					throw new ConnectException(
+					throw new ConnectAckException(
 						'It is a Protocol Error to include the Receive Maximum value more than once or for it to have the value 0.',
-						ConnectReasonCode.MalformedPacket,
+						ConnectAckReasonCode.MalformedPacket,
 					);
 				}
 				properties.receiveMaximum = twoByteInteger(data);
@@ -286,7 +286,7 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.TopicAliasMaximum:
 				data.index++;
 				if (properties.topicAliasMaximum != undefined) {
-					throw new ConnectException('t is a Protocol Error to include the Topic Alias Maximum value more than once.', ConnectReasonCode.MalformedPacket);
+					throw new ConnectAckException('t is a Protocol Error to include the Topic Alias Maximum value more than once.', ConnectAckReasonCode.MalformedPacket);
 				}
 				properties.topicAliasMaximum = twoByteInteger(data);
 				break;
@@ -299,9 +299,9 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.MaximumPacketSize:
 				data.index++;
 				if (properties.maximumPacketSize != undefined) {
-					throw new ConnectException(
+					throw new ConnectAckException(
 						'It is a Protocol Error to include the Maximum Packet Size more than once, or for the value to be set to zero.',
-						ConnectReasonCode.MalformedPacket,
+						ConnectAckReasonCode.MalformedPacket,
 					);
 				}
 				properties.maximumPacketSize = fourByteInteger(data);
@@ -808,14 +808,14 @@ export function parseWillProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.PayloadFormatIndicator:
 				data.index++;
 				if (properties.payloadFormatIndicator !== undefined) {
-					throw new MqttBasicException('It is a Protocol Error to include the Payload Format Indicator more than once.', ConnectReasonCode.PayloadFormatInvalid);
+					throw new MqttBasicException('It is a Protocol Error to include the Payload Format Indicator more than once.', ConnectAckReasonCode.PayloadFormatInvalid);
 				}
 				properties.payloadFormatIndicator = oneByteInteger(data);
 				break;
 			case PropertyIdentifier.MessageExpiryInterval:
 				data.index++;
 				if (properties.messageExpiryInterval != undefined) {
-					throw new MqttBasicException('It is a Protocol Error to include the Payload Format Indicator more than once.', ConnectReasonCode.UnspecifiedError);
+					throw new MqttBasicException('It is a Protocol Error to include the Payload Format Indicator more than once.', ConnectAckReasonCode.UnspecifiedError);
 				}
 				properties.messageExpiryInterval = fourByteInteger(data);
 				break;
