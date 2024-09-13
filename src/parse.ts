@@ -1,4 +1,4 @@
-import { ConnectAckException, ConnectAckReasonCode, PubAckReasonCode, PubAckException, PubRelReasonCode, SubscribeAckException } from './exception';
+import { PubAckReasonCode, PubAckException, PubRelReasonCode, SubscribeAckException, ConnectAckException, ConnectAckReasonCode } from './exception';
 import {
 	BufferData,
 	IConnectData,
@@ -173,6 +173,39 @@ export function stringToVariableByteInteger(str: string) {
 }
 
 /**
+ * 对属性进行编码
+ */
+export class EncodedProperties {
+	private propertyLength: number = 0;
+	private properties: Array<number> = [];
+
+	/**
+	 * 添加属性
+	 * @param identifier 属性 id
+	 * @param data 属性值
+	 */
+	add<K extends TPropertyIdentifier>(identifier: K, data: PropertyDataMap[K]) {
+		const list = encodedProperties(identifier, data);
+		this.properties.push(...list);
+		this.propertyLength += list.length;
+	}
+
+	/**
+	 * 获取属性 buffer
+	 */
+	get buffer() {
+		return Buffer.from([...encodeVariableByteInteger(this.propertyLength), ...this.properties]);
+	}
+
+	/**
+	 * 计算当前属性字节长度 + 可变长度值字节长度
+	 */
+	get length() {
+		return this.propertyLength + variableByteIntegerLength(this.propertyLength);
+	}
+}
+
+/**
  * 解析 connect 报文
  * @param buffer
  * @returns
@@ -251,28 +284,6 @@ export function parseConnect(buffer: Buffer): IConnectData {
 	}
 
 	return connData;
-}
-
-export class EncodedProperties {
-	private propertyLength: number = 0;
-	private properties: Array<number> = [];
-
-	add<K extends TPropertyIdentifier>(identifier: K, data: PropertyDataMap[K]) {
-		const list = encodedProperties(identifier, data);
-		this.properties.push(...list);
-		this.propertyLength += list.length;
-	}
-
-	get buffer() {
-		return Buffer.from([...encodeVariableByteInteger(this.propertyLength), ...this.properties]);
-	}
-
-	/**
-	 * 计算当前属性字节长度 + 可变长度值字节长度
-	 */
-	get length() {
-		return this.propertyLength + variableByteIntegerLength(this.propertyLength);
-	}
 }
 
 export function parsePublish(buffer: Buffer, pubData: IPublishData) {

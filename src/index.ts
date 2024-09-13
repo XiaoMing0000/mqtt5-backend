@@ -11,7 +11,6 @@ import {
 	PacketType,
 	PropertyIdentifier,
 	QoSType,
-	SubAckPropertyIdentifier,
 } from './interface';
 import {
 	EncodedProperties,
@@ -23,7 +22,6 @@ import {
 	parsePubRel,
 	parseSubscribe,
 	parseUnsubscribe,
-	twoByteInteger,
 } from './parse';
 export class MqttManager {
 	static defaultProperties = {

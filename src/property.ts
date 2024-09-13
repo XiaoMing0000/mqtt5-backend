@@ -314,6 +314,12 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
+/**
+ * 客户端应用
+ * @param buffer
+ * @param index
+ * @returns
+ */
 export function parseConnAckProperties(buffer: Buffer, index?: number) {
 	const properties: IProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
@@ -514,6 +520,12 @@ export function parseSubscribeProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
+/**
+ * 客户端应用
+ * @param buffer
+ * @param index
+ * @returns
+ */
 export function parseSubAckProperties(buffer: Buffer, index?: number) {
 	const properties: IProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
@@ -559,6 +571,12 @@ export function parseUnsubscribeProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
+/**
+ * 客户端应用
+ * @param buffer
+ * @param index
+ * @returns
+ */
 export function parseUnsubscribeAckProperties(buffer: Buffer, index?: number) {
 	const properties: IProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
@@ -656,6 +674,12 @@ export function parsePublishProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
+/**
+ * 客户端应用
+ * @param buffer
+ * @param index
+ * @returns
+ */
 export function parsePublishAckProperties(buffer: Buffer, index?: number) {
 	const properties: IProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
