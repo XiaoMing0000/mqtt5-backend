@@ -1,5 +1,5 @@
 import net from 'net';
-import { ConnectAckException, PubAckException, PubCompReasonCode, SubscribeAckReasonCode } from './exception';
+import { ConnectAckException, PubAckException, PubCompReasonCode, SubscribeAckReasonCode, UnsubscribeAckReasonCode } from './exception';
 import {
 	ConnAckPropertyIdentifier,
 	IConnectData,
@@ -87,7 +87,7 @@ export class MqttManager {
 		// 处理 property
 		connAckData.properties.add(ConnAckPropertyIdentifier.ReceiveMaximum, MqttManager.defaultProperties.receiveMaximum);
 		// TODO 暂时不支持 QoS 1 2  3.2.2.3.4
-		connAckData.properties.add(ConnAckPropertyIdentifier.MaximumQoS, false);
+		// connAckData.properties.add(ConnAckPropertyIdentifier.MaximumQoS, true);
 		connAckData.properties.add(ConnAckPropertyIdentifier.RetainAvailable, false);
 		connAckData.properties.add(ConnAckPropertyIdentifier.MaximumPacketSize, MqttManager.defaultProperties.maximumPacketSize);
 		connAckData.properties.add(ConnAckPropertyIdentifier.TopicAliasMaximum, MqttManager.defaultProperties.topicAliasMaximum);
@@ -169,6 +169,12 @@ export class MqttManager {
 			console.log('pubData: ', pubData);
 
 			// TODO 缺少向每个订阅者发布消息
+			this.clients.forEach((client) => {
+				// if (this.client === client) {
+				// 	return;
+				// }
+				client.write(buffer);
+			});
 
 			if (pubData.header.qosLevel === QoSType.QoS1) {
 				this.handlePubAck(pubData);
@@ -319,6 +325,7 @@ export class MqttManager {
 			...encodeVariableByteInteger(remainingLength),
 			...integerToTwoUint8(unsubscribeData.header.packetIdentifier),
 			...properties.buffer,
+			UnsubscribeAckReasonCode.Success,
 		]);
 		this.client.write(unsubscribePacket);
 	}
