@@ -17,7 +17,7 @@ import {
 	oneByteInteger,
 	stringToVariableByteInteger,
 	twoByteInteger,
-	utf8decodedString,
+	utf8decodeString,
 	utf8DecodedString,
 	utf8StringPair,
 	variableByteInteger,
@@ -968,30 +968,30 @@ export function parseWillProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
-export function encodedProperties<K extends keyof PropertyDataMap>(id: K, data: PropertyDataMap[K]): Array<number> {
+export function encodeProperties<K extends keyof PropertyDataMap>(id: K, data: PropertyDataMap[K]): Array<number> {
 	switch (id) {
 		case PropertyIdentifier.PayloadFormatIndicator:
 			return [PropertyIdentifier.PayloadFormatIndicator, integerToOneUint8(data as number)];
 		case PropertyIdentifier.MessageExpiryInterval:
 			return [PropertyIdentifier.MessageExpiryInterval, ...integerToFourUint8(data as number)];
 		case PropertyIdentifier.ContentType:
-			return [PropertyIdentifier.ContentType, ...utf8decodedString(data as string)];
+			return [PropertyIdentifier.ContentType, ...utf8decodeString(data as string)];
 		case PropertyIdentifier.ResponseTopic:
-			return [PropertyIdentifier.ResponseTopic, ...utf8decodedString(data as string)];
+			return [PropertyIdentifier.ResponseTopic, ...utf8decodeString(data as string)];
 		case PropertyIdentifier.CorrelationData:
-			return [PropertyIdentifier.CorrelationData, ...utf8decodedString(data as string)];
+			return [PropertyIdentifier.CorrelationData, ...utf8decodeString(data as string)];
 		case PropertyIdentifier.SubscriptionIdentifier:
 			return [PropertyIdentifier.SubscriptionIdentifier, ...stringToVariableByteInteger(data as string)];
 		case PropertyIdentifier.SessionExpiryInterval:
 			return [PropertyIdentifier.SessionExpiryInterval, ...integerToFourUint8(data as number)];
 		case PropertyIdentifier.ClientIdentifier:
-			return [PropertyIdentifier.ClientIdentifier, ...utf8decodedString(data as string)];
+			return [PropertyIdentifier.ClientIdentifier, ...utf8decodeString(data as string)];
 		case PropertyIdentifier.ServerKeepAlive:
 			return [PropertyIdentifier.ServerKeepAlive, ...integerToTwoUint8(data as number)];
 		case PropertyIdentifier.AuthenticationMethod:
-			return [PropertyIdentifier.AuthenticationMethod, ...utf8decodedString(data as string)];
+			return [PropertyIdentifier.AuthenticationMethod, ...utf8decodeString(data as string)];
 		case PropertyIdentifier.AuthenticationData:
-			return [PropertyIdentifier.AuthenticationData, ...utf8decodedString(data as string)];
+			return [PropertyIdentifier.AuthenticationData, ...utf8decodeString(data as string)];
 		case PropertyIdentifier.RequestProblemInformation:
 			return [PropertyIdentifier.RequestProblemInformation, integerToOneUint8(data as number)];
 		case PropertyIdentifier.WillDelayInterval:
@@ -999,11 +999,11 @@ export function encodedProperties<K extends keyof PropertyDataMap>(id: K, data: 
 		case PropertyIdentifier.RequestResponseInformation:
 			return [PropertyIdentifier.RequestResponseInformation, integerToOneUint8(data as number)];
 		case PropertyIdentifier.ResponseInformation:
-			return [PropertyIdentifier.ResponseInformation, ...utf8decodedString(data as string)];
+			return [PropertyIdentifier.ResponseInformation, ...utf8decodeString(data as string)];
 		case PropertyIdentifier.ServerReference:
-			return [PropertyIdentifier.ServerReference, ...utf8decodedString(data as string)];
+			return [PropertyIdentifier.ServerReference, ...utf8decodeString(data as string)];
 		case PropertyIdentifier.ReasonString:
-			return [PropertyIdentifier.ReasonString, ...utf8decodedString(data as string)];
+			return [PropertyIdentifier.ReasonString, ...utf8decodeString(data as string)];
 		case PropertyIdentifier.ReceiveMaximum:
 			return [PropertyIdentifier.ReceiveMaximum, ...integerToTwoUint8(data as number)];
 		case PropertyIdentifier.TopicAliasMaximum:
@@ -1018,7 +1018,7 @@ export function encodedProperties<K extends keyof PropertyDataMap>(id: K, data: 
 			const buffer: Array<number> = [];
 			const userPropertyData = data as IProperties['userProperty'];
 			for (const key in userPropertyData) {
-				buffer.push(...[PropertyIdentifier.UserProperty, ...utf8decodedString(key), ...utf8decodedString(userPropertyData[key])]);
+				buffer.push(...[PropertyIdentifier.UserProperty, ...utf8decodeString(key), ...utf8decodeString(userPropertyData[key])]);
 			}
 			return buffer;
 		}

@@ -13,7 +13,7 @@ import {
 	QoSType,
 } from './interface';
 import {
-	EncodedProperties,
+	EncoderProperties,
 	encodeVariableByteInteger,
 	integerToTwoUint8,
 	parseConnect,
@@ -64,13 +64,13 @@ export class MqttManager {
 			remainingLength: number;
 			acknowledgeFlags: number;
 			reasonCode: number;
-			properties: EncodedProperties;
+			properties: EncoderProperties;
 		} = {
 			fixedHeader: 0x20,
 			remainingLength: 0,
 			acknowledgeFlags: 0x00,
 			reasonCode: 0x00,
-			properties: new EncodedProperties(),
+			properties: new EncoderProperties(),
 		};
 
 		if (this.connData.connectFlags.cleanStart) {
@@ -120,7 +120,7 @@ export class MqttManager {
 			this.handleConnAck();
 		} catch (error) {
 			if (error instanceof ConnectAckException) {
-				const properties = new EncodedProperties();
+				const properties = new EncoderProperties();
 				properties.add(PropertyIdentifier.ReasonString, error.msg);
 				const errorPacket = Buffer.from([0x20, ...encodeVariableByteInteger(2 + properties.length), 0x00, error.code, ...properties.buffer]);
 				this.client.write(errorPacket);
@@ -188,7 +188,7 @@ export class MqttManager {
 					if (pubData.header.qosLevel > 0 && pubData.header.packetIdentifier) {
 						const packetIdentifier = pubData.header.packetIdentifier;
 
-						const properties = new EncodedProperties();
+						const properties = new EncoderProperties();
 						properties.add(PropertyIdentifier.ReasonString, error.msg);
 						const errorPacket = Buffer.from([
 							0x40,
@@ -206,7 +206,7 @@ export class MqttManager {
 	private handlePubAck(pubData: IPublishData) {
 		const packetIdentifier = pubData.header.packetIdentifier ?? 1;
 
-		const properties = new EncodedProperties();
+		const properties = new EncoderProperties();
 		const errorPacket = Buffer.from([
 			PacketType.PUBACK << 4,
 			...encodeVariableByteInteger(3 + properties.length),
@@ -220,7 +220,7 @@ export class MqttManager {
 	private handlePubRec(pubData: IPublishData) {
 		const packetIdentifier = pubData.header.packetIdentifier ?? 1;
 
-		const properties = new EncodedProperties();
+		const properties = new EncoderProperties();
 		const errorPacket = Buffer.from([
 			PacketType.PUBREC << 4,
 			...encodeVariableByteInteger(3 + properties.length),
@@ -248,7 +248,7 @@ export class MqttManager {
 	}
 
 	private handlePubComp(pubRelData: IPubRelData) {
-		const properties = new EncodedProperties();
+		const properties = new EncoderProperties();
 		const compPacket = Buffer.from([
 			PacketType.PUBCOMP << 4,
 			...encodeVariableByteInteger(3 + properties.length),
@@ -283,7 +283,7 @@ export class MqttManager {
 
 	private handleSubAck(subData: ISubscribeData) {
 		let remainingLength = 1;
-		const properties = new EncodedProperties();
+		const properties = new EncoderProperties();
 		remainingLength += properties.length + 2;
 		const subAckPacket = Buffer.from([
 			PacketType.SUBACK << 4,
@@ -318,7 +318,7 @@ export class MqttManager {
 
 	private handleUnsubscribeAck(unsubscribeData: IUnsubscribeData) {
 		let remainingLength = 1;
-		const properties = new EncodedProperties();
+		const properties = new EncoderProperties();
 		remainingLength += properties.length + 2;
 		const unsubscribePacket = Buffer.from([
 			PacketType.UNSUBACK << 4,

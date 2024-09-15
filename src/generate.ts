@@ -1,5 +1,5 @@
 import { IPublishData, PropertyIdentifier } from './interface';
-import { EncodedProperties, encodeVariableByteInteger, integerToTwoUint8 } from './parse';
+import { EncoderProperties, encodeVariableByteInteger, integerToTwoUint8 } from './parse';
 
 export function encodePublishPacket(pubData: IPublishData) {
 	const fixedHeader = (pubData.header.packetType << 4) | ((pubData.header.udpFlag ? 1 : 0) << 3) | (pubData.header.qosLevel << 1) | (pubData.header.retain ? 1 : 0);
@@ -14,7 +14,7 @@ export function encodePublishPacket(pubData: IPublishData) {
 		remainingLength += packetIdentifierBuffer.length;
 	}
 
-	const properties = new EncodedProperties();
+	const properties = new EncoderProperties();
 	properties.add(PropertyIdentifier.UserProperty, pubData.properties);
 	// for (const key in pubData.properties) {
 	// 	properties.add(PropertyIdentifier[key as keyof typeof PropertyIdentifier], pubData.properties[key as keyof IProperties] as any);

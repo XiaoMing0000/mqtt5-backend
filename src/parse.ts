@@ -12,7 +12,7 @@ import {
 	TPropertyIdentifier,
 } from './interface';
 import {
-	encodedProperties,
+	encodeProperties,
 	parseConnectProperties,
 	parseDisconnectProperties,
 	parseProperties,
@@ -162,7 +162,7 @@ export function mergeUint8Arrays(...args: Array<Array<number> | Uint8Array>) {
 	return arrNumber;
 }
 
-export function utf8decodedString(str: string): Array<number> {
+export function utf8decodeString(str: string): Array<number> {
 	const strBuffer = new TextEncoder().encode(str);
 	return mergeUint8Arrays(integerToTwoUint8(strBuffer.length), strBuffer);
 }
@@ -175,7 +175,7 @@ export function stringToVariableByteInteger(str: string) {
 /**
  * 对属性进行编码
  */
-export class EncodedProperties {
+export class EncoderProperties {
 	private propertyLength: number = 0;
 	private properties: Array<number> = [];
 
@@ -185,7 +185,7 @@ export class EncodedProperties {
 	 * @param data 属性值
 	 */
 	add<K extends TPropertyIdentifier>(identifier: K, data: PropertyDataMap[K]) {
-		const list = encodedProperties(identifier, data);
+		const list = encodeProperties(identifier, data);
 		this.properties.push(...list);
 		this.propertyLength += list.length;
 	}
