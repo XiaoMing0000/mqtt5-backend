@@ -288,7 +288,7 @@ export function parseConnect(buffer: Buffer): IConnectData {
 
 export function parsePublish(buffer: Buffer, pubData: IPublishData) {
 	pubData.header.packetType = (buffer[0] >> 4) as PacketType;
-	pubData.header.udpFlag = !!(buffer[0] >> 3);
+	pubData.header.udpFlag = !!(buffer[0] & 0x8);
 	pubData.header.qosLevel = (buffer[0] >> 1) & 0x3;
 	pubData.header.retain = !!(buffer[0] & 0x1);
 
