@@ -3,12 +3,14 @@ import {
 	BufferData,
 	IConnectData,
 	IDisconnectData,
+	IProperties,
 	IPublishData,
 	IPubRelData,
 	ISubscribeData,
 	IUnsubscribeData,
 	PacketType,
 	PropertyDataMap,
+	PropertyIdentifier,
 	TPropertyIdentifier,
 } from './interface';
 import {
@@ -162,7 +164,7 @@ export function mergeUint8Arrays(...args: Array<Array<number> | Uint8Array>) {
 	return arrNumber;
 }
 
-export function utf8decodeString(str: string): Array<number> {
+export function encodeUTF8String(str: string): Array<number> {
 	const strBuffer = new TextEncoder().encode(str);
 	return mergeUint8Arrays(integerToTwoUint8(strBuffer.length), strBuffer);
 }
@@ -188,6 +190,16 @@ export class EncoderProperties {
 		const list = encodeProperties(identifier, data);
 		this.properties.push(...list);
 		this.propertyLength += list.length;
+	}
+
+	/**
+	 * 批量添加属性
+	 * @param properties
+	 */
+	push(properties: IProperties) {
+		for (const key in properties) {
+			this.add(PropertyIdentifier[key as keyof typeof PropertyIdentifier], properties[key as keyof IProperties] as any);
+		}
 	}
 
 	/**
@@ -382,4 +394,23 @@ export function parseDisconnect(buffer: Buffer, disconnectData: IDisconnectData)
 	const propertyLength = variableByteInteger(data);
 	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
 	disconnectData.properties = parseDisconnectProperties(propertiesBuffer);
+}
+
+export function encodePublishPacket(pubData: IPublishData) {
+	const fixedHeader = (pubData.header.packetType << 4) | ((pubData.header.udpFlag ? 1 : 0) << 3) | (pubData.header.qosLevel << 1) | (pubData.header.retain ? 1 : 0);
+
+	const topicNameBuffer = encodeUTF8String(pubData.header.topicName);
+
+	let packetIdentifierBuffer: Array<number> = [];
+	if (pubData.header.qosLevel > 0 && pubData.header.packetIdentifier !== undefined) {
+		packetIdentifierBuffer = integerToTwoUint8(pubData.header.packetIdentifier);
+	}
+
+	const properties = new EncoderProperties();
+	properties.push(pubData.properties);
+
+	const remainingBuffer = [...topicNameBuffer, ...packetIdentifierBuffer, ...properties.buffer, ...Buffer.from(pubData.payload)];
+	const publishedPacket = Buffer.from([fixedHeader, ...encodeVariableByteInteger(remainingBuffer.length), ...remainingBuffer]);
+
+	return publishedPacket;
 }

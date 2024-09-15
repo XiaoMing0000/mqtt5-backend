@@ -13,6 +13,7 @@ import {
 	QoSType,
 } from './interface';
 import {
+	encodePublishPacket,
 	EncoderProperties,
 	encodeVariableByteInteger,
 	integerToTwoUint8,
@@ -173,6 +174,9 @@ export class MqttManager {
 				// if (this.client === client) {
 				// 	return;
 				// }
+				const edcodedPublishPacket = encodePublishPacket(pubData);
+				console.log('pubData0:', buffer);
+				console.log('pubData0:', edcodedPublishPacket);
 				client.write(buffer);
 			});
 

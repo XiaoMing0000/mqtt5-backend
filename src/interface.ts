@@ -152,7 +152,7 @@ export interface IProperties {
 	userProperty?: { [key: string]: any };
 	authenticationMethod?: string;
 	authenticationData?: string;
-	WillDelayInterval?: number;
+	willDelayInterval?: number;
 	maximumQoS?: boolean;
 	retainAvailable?: boolean;
 	reasonString?: string;
@@ -166,6 +166,122 @@ export interface IProperties {
 	sharedSubscriptionAvailable?: boolean;
 }
 
+export interface IConnectProperties {
+	sessionExpiryInterval?: number;
+	authenticationMethod?: string;
+	authenticationData?: string;
+	requestProblemInformation?: boolean;
+	requestResponseInformation?: boolean;
+	receiveMaximum?: number;
+	topicAliasMaximum?: number;
+	userProperty?: { [key: string]: any };
+	maximumPacketSize?: number;
+}
+
+export interface IConnAckProperties {
+	sessionExpiryInterval?: number;
+	clientIdentifier?: string;
+	serverKeepAlive?: number;
+	authenticationMethod?: string;
+	authenticationData?: string;
+	responseInformation?: string;
+	serverReference?: string;
+	reasonString?: string;
+	receiveMaximum?: number;
+	topicAliasMaximum?: number;
+	maximumQoS?: boolean;
+	retainAvailable?: boolean;
+	userProperty?: { [key: string]: any };
+	maximumPacketSize?: number;
+	wildcardSubscriptionAvailable?: boolean;
+	subscriptionIdentifierAvailable?: boolean;
+	sharedSubscriptionAvailable?: boolean;
+}
+
+export interface IPublishProperties {
+	payloadFormatIndicator?: number;
+	messageExpiryInterval?: number;
+	contentType?: string;
+	responseTopic?: string;
+	correlationData?: string;
+	subscriptionIdentifier?: number;
+	topicAliasMaximum?: number;
+	userProperty?: { [key: string]: any };
+	topicAlias?: number;
+}
+
+export interface IDisconnectProperties {
+	sessionExpiryInterval?: number;
+	serverReference?: string;
+	reasonString?: string;
+	userProperty?: { [key: string]: any };
+}
+
+export interface ISubscribeProperties {
+	subscriptionIdentifier?: number;
+	userProperty?: { [key: string]: any };
+}
+
+export interface ISubAckProperties {
+	reasonString?: string;
+	userProperty?: { [key: string]: any };
+}
+
+export interface IUnsubscribeProperties {
+	userProperty?: { [key: string]: any };
+}
+
+export interface IUnsubscribeAckProperties {
+	userProperty?: { [key: string]: any };
+}
+
+export interface IPublishProperties {
+	payloadFormatIndicator?: number;
+	messageExpiryInterval?: number;
+	contentType?: string;
+	responseTopic?: string;
+	correlationData?: string;
+	subscriptionIdentifier?: number;
+	topicAlias?: number;
+	userProperty?: { [key: string]: any };
+}
+
+export interface IPublishAckProperties {
+	reasonString?: string;
+	userProperty?: { [key: string]: any };
+}
+
+export interface IPubRecProperties {
+	reasonString?: string;
+	userProperty?: { [key: string]: any };
+}
+
+export interface IPubRelProperties {
+	reasonString?: string;
+	userProperty?: { [key: string]: any };
+}
+
+export interface IPPubCompProperties {
+	reasonString?: string;
+	userProperty?: { [key: string]: any };
+}
+
+export interface IAuthProperties {
+	authenticationMethod?: string;
+	authenticationData?: string;
+	reasonString?: string;
+	userProperty?: { [key: string]: any };
+}
+
+export interface IWillProperties {
+	payloadFormatIndicator?: number;
+	messageExpiryInterval?: number;
+	contentType?: string;
+	responseTopic?: string;
+	willDelayInterval?: number;
+	userProperty?: { [key: string]: any };
+}
+
 export interface IConnectData {
 	header: {
 		packetType: PacketType;
@@ -176,7 +292,7 @@ export interface IConnectData {
 		keepAlive: number;
 	};
 	connectFlags: IConnectFlags;
-	properties: IProperties;
+	properties: IConnectProperties;
 	payload: {
 		clientIdentifier: string;
 		willProperties?: IProperties;
@@ -197,7 +313,7 @@ export interface IPublishData {
 		packetIdentifier?: number;
 		topicName: string;
 	};
-	properties: IProperties;
+	properties: IPublishProperties;
 	payload: string;
 }
 
@@ -208,7 +324,7 @@ export interface ISubscribeData {
 		remainingLength: number;
 		packetIdentifier: number;
 	};
-	properties: IProperties;
+	properties: ISubscribeProperties;
 	payload: string;
 	qos: QoSType;
 }
@@ -220,7 +336,7 @@ export interface IUnsubscribeData {
 		remainingLength: number;
 		packetIdentifier: number;
 	};
-	properties: IProperties;
+	properties: IUnsubscribeProperties;
 	payload: string;
 }
 
@@ -231,7 +347,7 @@ export interface IDisconnectData {
 		remainingLength: number;
 		reasonCode: number;
 	};
-	properties: IProperties;
+	properties: IDisconnectProperties;
 }
 
 export interface IPubRelData {
@@ -242,5 +358,5 @@ export interface IPubRelData {
 		packetIdentifier: number;
 		reasonCode: number;
 	};
-	properties: IProperties;
+	properties: IDisconnectProperties;
 }

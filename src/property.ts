@@ -8,7 +8,26 @@ import {
 	PubRelException,
 	SubscribeAckException,
 } from './exception';
-import { BufferData, IProperties, PropertyDataMap, PropertyIdentifier } from './interface';
+import {
+	BufferData,
+	IAuthProperties,
+	IConnAckProperties,
+	IConnectProperties,
+	IDisconnectProperties,
+	IPPubCompProperties,
+	IProperties,
+	IPublishAckProperties,
+	IPublishProperties,
+	IPubRecProperties,
+	IPubRelProperties,
+	ISubAckProperties,
+	ISubscribeProperties,
+	IUnsubscribeAckProperties,
+	IUnsubscribeProperties,
+	IWillProperties,
+	PropertyDataMap,
+	PropertyIdentifier,
+} from './interface';
 import {
 	fourByteInteger,
 	integerToFourUint8,
@@ -17,7 +36,7 @@ import {
 	oneByteInteger,
 	stringToVariableByteInteger,
 	twoByteInteger,
-	utf8decodeString,
+	encodeUTF8String,
 	utf8DecodedString,
 	utf8StringPair,
 	variableByteInteger,
@@ -117,10 +136,10 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				break;
 			case PropertyIdentifier.WillDelayInterval:
 				data.index++;
-				if (properties.WillDelayInterval !== undefined) {
+				if (properties.willDelayInterval !== undefined) {
 					throw new MqttBasicException('It is a Protocol Error to include the Will Delay Interval more than once. ');
 				}
-				properties.WillDelayInterval = fourByteInteger(data);
+				properties.willDelayInterval = fourByteInteger(data);
 				break;
 			case PropertyIdentifier.RequestResponseInformation:
 				data.index++;
@@ -234,7 +253,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
 }
 
 export function parseConnectProperties(buffer: Buffer, index?: number) {
-	const properties: IProperties = {};
+	const properties: IConnectProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {
@@ -333,7 +352,7 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
  * @returns
  */
 export function parseConnAckProperties(buffer: Buffer, index?: number) {
-	const properties: IProperties = {};
+	const properties: IConnAckProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {
@@ -470,7 +489,7 @@ export function parseConnAckProperties(buffer: Buffer, index?: number) {
 }
 
 export function parseDisconnectProperties(buffer: Buffer, index?: number) {
-	const properties: IProperties = {};
+	const properties: IDisconnectProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {
@@ -516,7 +535,7 @@ export function parseDisconnectProperties(buffer: Buffer, index?: number) {
 }
 
 export function parseSubscribeProperties(buffer: Buffer, index?: number) {
-	const properties: IProperties = {};
+	const properties: ISubscribeProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {
@@ -557,7 +576,7 @@ export function parseSubscribeProperties(buffer: Buffer, index?: number) {
  * @returns
  */
 export function parseSubAckProperties(buffer: Buffer, index?: number) {
-	const properties: IProperties = {};
+	const properties: ISubAckProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {
@@ -589,7 +608,7 @@ export function parseSubAckProperties(buffer: Buffer, index?: number) {
 }
 
 export function parseUnsubscribeProperties(buffer: Buffer, index?: number) {
-	const properties: IProperties = {};
+	const properties: IUnsubscribeProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {
@@ -620,7 +639,7 @@ export function parseUnsubscribeProperties(buffer: Buffer, index?: number) {
  * @returns
  */
 export function parseUnsubscribeAckProperties(buffer: Buffer, index?: number) {
-	const properties: IProperties = {};
+	const properties: IUnsubscribeAckProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {
@@ -645,7 +664,7 @@ export function parseUnsubscribeAckProperties(buffer: Buffer, index?: number) {
 }
 
 export function parsePublishProperties(buffer: Buffer, index?: number) {
-	const properties: IProperties = {};
+	const properties: IPublishProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {
@@ -735,7 +754,7 @@ export function parsePublishProperties(buffer: Buffer, index?: number) {
  * @returns
  */
 export function parsePublishAckProperties(buffer: Buffer, index?: number) {
-	const properties: IProperties = {};
+	const properties: IPublishAckProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {
@@ -767,7 +786,7 @@ export function parsePublishAckProperties(buffer: Buffer, index?: number) {
 }
 
 export function parsePubRecProperties(buffer: Buffer, index?: number) {
-	const properties: IProperties = {};
+	const properties: IPubRecProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {
@@ -799,7 +818,7 @@ export function parsePubRecProperties(buffer: Buffer, index?: number) {
 }
 
 export function parsePubRelProperties(buffer: Buffer, index?: number) {
-	const properties: IProperties = {};
+	const properties: IPubRelProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {
@@ -831,7 +850,7 @@ export function parsePubRelProperties(buffer: Buffer, index?: number) {
 }
 
 export function parsePubCompProperties(buffer: Buffer, index?: number) {
-	const properties: IProperties = {};
+	const properties: IPPubCompProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {
@@ -863,7 +882,7 @@ export function parsePubCompProperties(buffer: Buffer, index?: number) {
 }
 
 export function parseAuthProperties(buffer: Buffer, index?: number) {
-	const properties: IProperties = {};
+	const properties: IAuthProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {
@@ -909,7 +928,7 @@ export function parseAuthProperties(buffer: Buffer, index?: number) {
 }
 
 export function parseWillProperties(buffer: Buffer, index?: number) {
-	const properties: IProperties = {};
+	const properties: IWillProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {
@@ -943,10 +962,10 @@ export function parseWillProperties(buffer: Buffer, index?: number) {
 				break;
 			case PropertyIdentifier.WillDelayInterval:
 				data.index++;
-				if (properties.WillDelayInterval !== undefined) {
+				if (properties.willDelayInterval !== undefined) {
 					throw new MqttBasicException('It is a Protocol Error to include the Will Delay Interval more than once. ');
 				}
-				properties.WillDelayInterval = fourByteInteger(data);
+				properties.willDelayInterval = fourByteInteger(data);
 				break;
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
@@ -975,23 +994,23 @@ export function encodeProperties<K extends keyof PropertyDataMap>(id: K, data: P
 		case PropertyIdentifier.MessageExpiryInterval:
 			return [PropertyIdentifier.MessageExpiryInterval, ...integerToFourUint8(data as number)];
 		case PropertyIdentifier.ContentType:
-			return [PropertyIdentifier.ContentType, ...utf8decodeString(data as string)];
+			return [PropertyIdentifier.ContentType, ...encodeUTF8String(data as string)];
 		case PropertyIdentifier.ResponseTopic:
-			return [PropertyIdentifier.ResponseTopic, ...utf8decodeString(data as string)];
+			return [PropertyIdentifier.ResponseTopic, ...encodeUTF8String(data as string)];
 		case PropertyIdentifier.CorrelationData:
-			return [PropertyIdentifier.CorrelationData, ...utf8decodeString(data as string)];
+			return [PropertyIdentifier.CorrelationData, ...encodeUTF8String(data as string)];
 		case PropertyIdentifier.SubscriptionIdentifier:
 			return [PropertyIdentifier.SubscriptionIdentifier, ...stringToVariableByteInteger(data as string)];
 		case PropertyIdentifier.SessionExpiryInterval:
 			return [PropertyIdentifier.SessionExpiryInterval, ...integerToFourUint8(data as number)];
 		case PropertyIdentifier.ClientIdentifier:
-			return [PropertyIdentifier.ClientIdentifier, ...utf8decodeString(data as string)];
+			return [PropertyIdentifier.ClientIdentifier, ...encodeUTF8String(data as string)];
 		case PropertyIdentifier.ServerKeepAlive:
 			return [PropertyIdentifier.ServerKeepAlive, ...integerToTwoUint8(data as number)];
 		case PropertyIdentifier.AuthenticationMethod:
-			return [PropertyIdentifier.AuthenticationMethod, ...utf8decodeString(data as string)];
+			return [PropertyIdentifier.AuthenticationMethod, ...encodeUTF8String(data as string)];
 		case PropertyIdentifier.AuthenticationData:
-			return [PropertyIdentifier.AuthenticationData, ...utf8decodeString(data as string)];
+			return [PropertyIdentifier.AuthenticationData, ...encodeUTF8String(data as string)];
 		case PropertyIdentifier.RequestProblemInformation:
 			return [PropertyIdentifier.RequestProblemInformation, integerToOneUint8(data as number)];
 		case PropertyIdentifier.WillDelayInterval:
@@ -999,11 +1018,11 @@ export function encodeProperties<K extends keyof PropertyDataMap>(id: K, data: P
 		case PropertyIdentifier.RequestResponseInformation:
 			return [PropertyIdentifier.RequestResponseInformation, integerToOneUint8(data as number)];
 		case PropertyIdentifier.ResponseInformation:
-			return [PropertyIdentifier.ResponseInformation, ...utf8decodeString(data as string)];
+			return [PropertyIdentifier.ResponseInformation, ...encodeUTF8String(data as string)];
 		case PropertyIdentifier.ServerReference:
-			return [PropertyIdentifier.ServerReference, ...utf8decodeString(data as string)];
+			return [PropertyIdentifier.ServerReference, ...encodeUTF8String(data as string)];
 		case PropertyIdentifier.ReasonString:
-			return [PropertyIdentifier.ReasonString, ...utf8decodeString(data as string)];
+			return [PropertyIdentifier.ReasonString, ...encodeUTF8String(data as string)];
 		case PropertyIdentifier.ReceiveMaximum:
 			return [PropertyIdentifier.ReceiveMaximum, ...integerToTwoUint8(data as number)];
 		case PropertyIdentifier.TopicAliasMaximum:
@@ -1018,7 +1037,7 @@ export function encodeProperties<K extends keyof PropertyDataMap>(id: K, data: P
 			const buffer: Array<number> = [];
 			const userPropertyData = data as IProperties['userProperty'];
 			for (const key in userPropertyData) {
-				buffer.push(...[PropertyIdentifier.UserProperty, ...utf8decodeString(key), ...utf8decodeString(userPropertyData[key])]);
+				buffer.push(...[PropertyIdentifier.UserProperty, ...encodeUTF8String(key), ...encodeUTF8String(userPropertyData[key])]);
 			}
 			return buffer;
 		}
