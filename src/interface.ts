@@ -49,7 +49,7 @@ export type PropertyDataMap = {
 	[0x23]: number;
 	[0x24]: boolean;
 	[0x25]: boolean;
-	[0x26]: { key: string; value: string };
+	[0x26]: { [key: string]: any };
 	[0x27]: number;
 	[0x28]: boolean;
 	[0x29]: boolean;
@@ -149,7 +149,7 @@ export interface IProperties {
 	requestResponseInformation?: boolean;
 	requestProblemInformation?: boolean;
 	clientIdentifier?: string;
-	userProperty?: string;
+	userProperty?: { [key: string]: any };
 	authenticationMethod?: string;
 	authenticationData?: string;
 	WillDelayInterval?: number;
@@ -164,7 +164,6 @@ export interface IProperties {
 	wildcardSubscriptionAvailable?: boolean;
 	subscriptionIdentifierAvailable?: boolean;
 	sharedSubscriptionAvailable?: boolean;
-	[key: string]: any;
 }
 
 export interface IConnectData {

@@ -96,7 +96,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				break;
 			case PropertyIdentifier.AuthenticationMethod:
 				data.index++;
-				if (properties.AuthenticationMethod) {
+				if (properties.authenticationMethod) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
 				properties.authenticationMethod = utf8DecodedString(data);
@@ -188,7 +188,13 @@ export function parseProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
 				const { key, value } = utf8StringPair(data);
-				properties[key] = value;
+				if (!properties.userProperty) {
+					properties.userProperty = {
+						key: value,
+					};
+				} else {
+					properties.userProperty[key] = value;
+				}
 				break;
 			}
 			case PropertyIdentifier.MaximumPacketSize:
@@ -241,7 +247,7 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
 				break;
 			case PropertyIdentifier.AuthenticationMethod:
 				data.index++;
-				if (properties.AuthenticationMethod) {
+				if (properties.authenticationMethod) {
 					throw new ConnectAckException('It is a Protocol Error to include Authentication Method more than once.', ConnectAckReasonCode.MalformedPacket);
 				}
 				properties.authenticationMethod = utf8DecodedString(data);
@@ -293,7 +299,13 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
 				const { key, value } = utf8StringPair(data);
-				properties[key] = value;
+				if (!properties.userProperty) {
+					properties.userProperty = {
+						key: value,
+					};
+				} else {
+					properties.userProperty[key] = value;
+				}
 				break;
 			}
 			case PropertyIdentifier.MaximumPacketSize:
@@ -348,7 +360,7 @@ export function parseConnAckProperties(buffer: Buffer, index?: number) {
 				break;
 			case PropertyIdentifier.AuthenticationMethod:
 				data.index++;
-				if (properties.AuthenticationMethod) {
+				if (properties.authenticationMethod) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
 				properties.authenticationMethod = utf8DecodedString(data);
@@ -412,7 +424,13 @@ export function parseConnAckProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
 				const { key, value } = utf8StringPair(data);
-				properties[key] = value;
+				if (!properties.userProperty) {
+					properties.userProperty = {
+						key: value,
+					};
+				} else {
+					properties.userProperty[key] = value;
+				}
 				break;
 			}
 			case PropertyIdentifier.MaximumPacketSize:
@@ -480,7 +498,13 @@ export function parseDisconnectProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
 				const { key, value } = utf8StringPair(data);
-				properties[key] = value;
+				if (!properties.userProperty) {
+					properties.userProperty = {
+						key: value,
+					};
+				} else {
+					properties.userProperty[key] = value;
+				}
 				break;
 			}
 			default:
@@ -509,7 +533,13 @@ export function parseSubscribeProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
 				const { key, value } = utf8StringPair(data);
-				properties[key] = value;
+				if (!properties.userProperty) {
+					properties.userProperty = {
+						key: value,
+					};
+				} else {
+					properties.userProperty[key] = value;
+				}
 				break;
 			}
 			default:
@@ -541,7 +571,13 @@ export function parseSubAckProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
 				const { key, value } = utf8StringPair(data);
-				properties[key] = value;
+				if (!properties.userProperty) {
+					properties.userProperty = {
+						key: value,
+					};
+				} else {
+					properties.userProperty[key] = value;
+				}
 				break;
 			}
 			default:
@@ -560,7 +596,13 @@ export function parseUnsubscribeProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
 				const { key, value } = utf8StringPair(data);
-				properties[key] = value;
+				if (!properties.userProperty) {
+					properties.userProperty = {
+						key: value,
+					};
+				} else {
+					properties.userProperty[key] = value;
+				}
 				break;
 			}
 			default:
@@ -585,7 +627,13 @@ export function parseUnsubscribeAckProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
 				const { key, value } = utf8StringPair(data);
-				properties[key] = value;
+				if (!properties.userProperty) {
+					properties.userProperty = {
+						key: value,
+					};
+				} else {
+					properties.userProperty[key] = value;
+				}
 				break;
 			}
 			default:
@@ -663,7 +711,13 @@ export function parsePublishProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
 				const { key, value } = utf8StringPair(data);
-				properties[key] = value;
+				if (!properties.userProperty) {
+					properties.userProperty = {
+						key: value,
+					};
+				} else {
+					properties.userProperty[key] = value;
+				}
 				break;
 			}
 			default:
@@ -695,7 +749,13 @@ export function parsePublishAckProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
 				const { key, value } = utf8StringPair(data);
-				properties[key] = value;
+				if (!properties.userProperty) {
+					properties.userProperty = {
+						key: value,
+					};
+				} else {
+					properties.userProperty[key] = value;
+				}
 				break;
 			}
 			default:
@@ -721,7 +781,13 @@ export function parsePubRecProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
 				const { key, value } = utf8StringPair(data);
-				properties[key] = value;
+				if (!properties.userProperty) {
+					properties.userProperty = {
+						key: value,
+					};
+				} else {
+					properties.userProperty[key] = value;
+				}
 				break;
 			}
 			default:
@@ -747,7 +813,13 @@ export function parsePubRelProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
 				const { key, value } = utf8StringPair(data);
-				properties[key] = value;
+				if (!properties.userProperty) {
+					properties.userProperty = {
+						key: value,
+					};
+				} else {
+					properties.userProperty[key] = value;
+				}
 				break;
 			}
 			default:
@@ -773,7 +845,13 @@ export function parsePubCompProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
 				const { key, value } = utf8StringPair(data);
-				properties[key] = value;
+				if (!properties.userProperty) {
+					properties.userProperty = {
+						key: value,
+					};
+				} else {
+					properties.userProperty[key] = value;
+				}
 				break;
 			}
 			default:
@@ -791,7 +869,7 @@ export function parseAuthProperties(buffer: Buffer, index?: number) {
 		switch (buffer[data.index]) {
 			case PropertyIdentifier.AuthenticationMethod:
 				data.index++;
-				if (properties.AuthenticationMethod) {
+				if (properties.authenticationMethod) {
 					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
 				}
 				properties.authenticationMethod = utf8DecodedString(data);
@@ -813,7 +891,13 @@ export function parseAuthProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
 				const { key, value } = utf8StringPair(data);
-				properties[key] = value;
+				if (!properties.userProperty) {
+					properties.userProperty = {
+						key: value,
+					};
+				} else {
+					properties.userProperty[key] = value;
+				}
 				break;
 			}
 			default:
@@ -867,7 +951,13 @@ export function parseWillProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.UserProperty: {
 				data.index++;
 				const { key, value } = utf8StringPair(data);
-				properties[key] = value;
+				if (!properties.userProperty) {
+					properties.userProperty = {
+						key: value,
+					};
+				} else {
+					properties.userProperty[key] = value;
+				}
 				break;
 			}
 			default:
@@ -924,8 +1014,14 @@ export function encodedProperties<K extends keyof PropertyDataMap>(id: K, data: 
 			return [PropertyIdentifier.MaximumQoS, integerToOneUint8(data as number)];
 		case PropertyIdentifier.RetainAvailable:
 			return [PropertyIdentifier.RetainAvailable, integerToOneUint8(data as number)];
-		case PropertyIdentifier.UserProperty:
-			return [PropertyIdentifier.UserProperty, ...utf8decodedString((data as any).key), ...utf8decodedString((data as any).value)];
+		case PropertyIdentifier.UserProperty: {
+			const buffer: Array<number> = [];
+			const userPropertyData = data as IProperties['userProperty'];
+			for (const key in userPropertyData) {
+				buffer.push(...[PropertyIdentifier.UserProperty, ...utf8decodedString(key), ...utf8decodedString(userPropertyData[key])]);
+			}
+			return buffer;
+		}
 		case PropertyIdentifier.MaximumPacketSize:
 			return [PropertyIdentifier.MaximumPacketSize, ...integerToFourUint8(data as number)];
 		case PropertyIdentifier.WildcardSubscriptionAvailable:
