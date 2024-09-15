@@ -86,17 +86,17 @@ export class MqttManager {
 		}
 
 		// 处理 property
-		connAckData.properties.add(ConnAckPropertyIdentifier.ReceiveMaximum, MqttManager.defaultProperties.receiveMaximum);
+		connAckData.properties.add(ConnAckPropertyIdentifier.receiveMaximum, MqttManager.defaultProperties.receiveMaximum);
 		// TODO 暂时不支持 QoS 1 2  3.2.2.3.4
-		// connAckData.properties.add(ConnAckPropertyIdentifier.MaximumQoS, true);
-		connAckData.properties.add(ConnAckPropertyIdentifier.RetainAvailable, false);
-		connAckData.properties.add(ConnAckPropertyIdentifier.MaximumPacketSize, MqttManager.defaultProperties.maximumPacketSize);
-		connAckData.properties.add(ConnAckPropertyIdentifier.TopicAliasMaximum, MqttManager.defaultProperties.topicAliasMaximum);
+		// connAckData.properties.add(ConnAckPropertyIdentifier.maximumQoS, true);
+		connAckData.properties.add(ConnAckPropertyIdentifier.retainAvailable, false);
+		connAckData.properties.add(ConnAckPropertyIdentifier.maximumPacketSize, MqttManager.defaultProperties.maximumPacketSize);
+		connAckData.properties.add(ConnAckPropertyIdentifier.topicAliasMaximum, MqttManager.defaultProperties.topicAliasMaximum);
 		// TODO 未作通配符
-		connAckData.properties.add(ConnAckPropertyIdentifier.WildcardSubscriptionAvailable, MqttManager.defaultProperties.wildcardSubscriptionAvailable);
+		connAckData.properties.add(ConnAckPropertyIdentifier.wildcardSubscriptionAvailable, MqttManager.defaultProperties.wildcardSubscriptionAvailable);
 		// TODO 是否支持订阅，需要在 subscribe 报文中校验
-		connAckData.properties.add(ConnAckPropertyIdentifier.SubscriptionIdentifierAvailable, true);
-		connAckData.properties.add(ConnAckPropertyIdentifier.SharedSubscriptionAvailable, true);
+		connAckData.properties.add(ConnAckPropertyIdentifier.subscriptionIdentifierAvailable, true);
+		connAckData.properties.add(ConnAckPropertyIdentifier.sharedSubscriptionAvailable, true);
 
 		// 报文编码
 		connAckData.remainingLength = 2 + connAckData.properties.length;
@@ -122,7 +122,7 @@ export class MqttManager {
 		} catch (error) {
 			if (error instanceof ConnectAckException) {
 				const properties = new EncoderProperties();
-				properties.add(PropertyIdentifier.ReasonString, error.msg);
+				properties.add(PropertyIdentifier.reasonString, error.msg);
 				const errorPacket = Buffer.from([0x20, ...encodeVariableByteInteger(2 + properties.length), 0x00, error.code, ...properties.buffer]);
 				this.client.write(errorPacket);
 				this.client.end();
@@ -142,6 +142,7 @@ export class MqttManager {
 		};
 		try {
 			parseDisconnect(buffer, disconnectData);
+			this.client.end();
 		} catch (err) {
 			console.error(err);
 			this.client.end();
@@ -168,16 +169,19 @@ export class MqttManager {
 		try {
 			parsePublish(buffer, pubData);
 			console.log('pubData: ', pubData);
-
+			console.log(this.clients.size);
 			// TODO 缺少向每个订阅者发布消息
 			this.clients.forEach((client) => {
 				// if (this.client === client) {
 				// 	return;
 				// }
-				const edcodedPublishPacket = encodePublishPacket(pubData);
-				console.log('pubData0:', buffer);
-				console.log('pubData0:', edcodedPublishPacket);
-				client.write(buffer);
+				console.log(buffer);
+				// console.log(buffer.toString());
+				pubData.header.packetIdentifier = 0;
+				const pubPacket = encodePublishPacket(pubData);
+				console.log(pubPacket);
+				// console.log(pubPacket.toString());
+				// client.write(pubPacket);
 			});
 
 			if (pubData.header.qosLevel === QoSType.QoS1) {
@@ -193,7 +197,7 @@ export class MqttManager {
 						const packetIdentifier = pubData.header.packetIdentifier;
 
 						const properties = new EncoderProperties();
-						properties.add(PropertyIdentifier.ReasonString, error.msg);
+						properties.add(PropertyIdentifier.reasonString, error.msg);
 						const errorPacket = Buffer.from([
 							0x40,
 							...encodeVariableByteInteger(3 + properties.length),
@@ -211,14 +215,14 @@ export class MqttManager {
 		const packetIdentifier = pubData.header.packetIdentifier ?? 1;
 
 		const properties = new EncoderProperties();
-		const errorPacket = Buffer.from([
+		const pubAckPacket = Buffer.from([
 			PacketType.PUBACK << 4,
 			...encodeVariableByteInteger(3 + properties.length),
 			...integerToTwoUint8(packetIdentifier),
 			0x00,
 			...properties.buffer,
 		]);
-		this.client.write(errorPacket);
+		this.client.write(pubAckPacket);
 	}
 
 	private handlePubRec(pubData: IPublishData) {
