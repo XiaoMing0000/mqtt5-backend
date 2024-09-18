@@ -358,5 +358,27 @@ export interface IPubRelData {
 		packetIdentifier: number;
 		reasonCode: number;
 	};
-	properties: IDisconnectProperties;
+	properties: IPubRelProperties;
+}
+
+export interface IPubRecData {
+	header: {
+		packetType: PacketType;
+		received: number;
+		remainingLength: number;
+		packetIdentifier: number;
+		reasonCode: number;
+	};
+	properties: IPubRecProperties;
+}
+
+export interface IPubCompData {
+	header: {
+		packetType: PacketType;
+		received: number;
+		remainingLength: number;
+		packetIdentifier: number;
+		reasonCode: number;
+	};
+	properties: IPPubCompProperties;
 }

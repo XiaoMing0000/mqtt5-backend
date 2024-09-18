@@ -5,6 +5,7 @@ import {
 	IDisconnectData,
 	IProperties,
 	IPublishData,
+	IPubRecData,
 	IPubRelData,
 	ISubscribeData,
 	IUnsubscribeData,
@@ -18,7 +19,9 @@ import {
 	parseConnectProperties,
 	parseDisconnectProperties,
 	parseProperties,
+	parsePubCompProperties,
 	parsePublishProperties,
+	parsePubRecProperties,
 	parsePubRelProperties,
 	parseSubscribeProperties,
 } from './property';
@@ -339,6 +342,36 @@ export function parsePubRel(buffer: Buffer, pubRelData: IPubRelData) {
 	const propertyLength = variableByteInteger(data);
 	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
 	pubRelData.properties = parsePubRelProperties(propertiesBuffer);
+}
+
+export function parsePubRec(buffer: Buffer, pubRecData: IPubRecData) {
+	pubRecData.header.packetType = (buffer[0] >> 4) as PacketType;
+	pubRecData.header.received = buffer[0] & 0xf;
+
+	const data = { buffer, index: 1 };
+	// 获取数据长度
+	pubRecData.header.remainingLength = variableByteInteger(data);
+	pubRecData.header.packetIdentifier = twoByteInteger(data);
+	pubRecData.header.reasonCode = oneByteInteger(data) ?? PubRelReasonCode.Success;
+	// 获取属性
+	const propertyLength = variableByteInteger(data);
+	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+	pubRecData.properties = parsePubRecProperties(propertiesBuffer);
+}
+
+export function parsePubComp(buffer: Buffer, pubCompData: IPubRecData) {
+	pubCompData.header.packetType = (buffer[0] >> 4) as PacketType;
+	pubCompData.header.received = buffer[0] & 0xf;
+
+	const data = { buffer, index: 1 };
+	// 获取数据长度
+	pubCompData.header.remainingLength = variableByteInteger(data);
+	pubCompData.header.packetIdentifier = twoByteInteger(data);
+	pubCompData.header.reasonCode = oneByteInteger(data) ?? PubRelReasonCode.Success;
+	// 获取属性
+	const propertyLength = variableByteInteger(data);
+	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+	pubCompData.properties = parsePubCompProperties(propertiesBuffer);
 }
 
 export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {

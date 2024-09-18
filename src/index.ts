@@ -5,6 +5,7 @@ import {
 	IConnectData,
 	IDisconnectData,
 	IPublishData,
+	IPubRecData,
 	IPubRelData,
 	ISubscribeData,
 	IUnsubscribeData,
@@ -20,6 +21,7 @@ import {
 	parseConnect,
 	parseDisconnect,
 	parsePublish,
+	parsePubRec,
 	parsePubRel,
 	parseSubscribe,
 	parseUnsubscribe,
@@ -117,7 +119,7 @@ export class MqttManager {
 	public connectHandle(buffer: Buffer) {
 		try {
 			this.connData = parseConnect(buffer);
-			console.log('connData: ', this.connData);
+			// console.log('connData: ', this.connData);
 			this.handleConnAck();
 		} catch (error) {
 			if (error instanceof ConnectAckException) {
@@ -169,19 +171,21 @@ export class MqttManager {
 		try {
 			parsePublish(buffer, pubData);
 			console.log('pubData: ', pubData);
+			console.log('pubDataBuffer: ', buffer);
 			console.log(this.clients.size);
 			// TODO 缺少向每个订阅者发布消息
 			this.clients.forEach((client) => {
-				// if (this.client === client) {
-				// 	return;
-				// }
+				if (this.client === client) {
+					return;
+				}
 				console.log(buffer);
 				// console.log(buffer.toString());
-				pubData.header.packetIdentifier = 0;
+				// pubData.header.packetIdentifier = 0;
 				const pubPacket = encodePublishPacket(pubData);
-				console.log(pubPacket);
+				console.log('pubPacket:', pubPacket);
 				// console.log(pubPacket.toString());
 				// client.write(pubPacket);
+				client.write(buffer);
 			});
 
 			if (pubData.header.qosLevel === QoSType.QoS1) {
@@ -265,6 +269,52 @@ export class MqttManager {
 			...properties.buffer,
 		]);
 		this.client.write(compPacket);
+	}
+
+	public pubRecHandle(buffer: Buffer) {
+		console.log('-----------');
+		const pubRecData: IPubRecData = {
+			header: {
+				packetType: PacketType.PUBREL,
+				received: 0x02,
+				remainingLength: 0,
+				packetIdentifier: 0,
+				reasonCode: 0x00,
+			},
+			properties: {},
+		};
+		parsePubRec(buffer, pubRecData);
+		console.log('pubRecData: ', pubRecData);
+
+		this.handlePubRel(pubRecData);
+	}
+
+	private handlePubRel(pubRecData: IPubRecData) {
+		const properties = new EncoderProperties();
+		const pubRelPacket = Buffer.from([
+			(PacketType.PUBREL << 4) | 0x02,
+			...encodeVariableByteInteger(3 + properties.length),
+			...integerToTwoUint8(pubRecData.header.packetIdentifier),
+			PubCompReasonCode.Success,
+			...properties.buffer,
+		]);
+		this.client.write(pubRelPacket);
+	}
+
+	public pubCompHandle(buffer: Buffer) {
+		console.log('-----------');
+		const pubCompData: IPubRecData = {
+			header: {
+				packetType: PacketType.PUBREL,
+				received: 0x02,
+				remainingLength: 0,
+				packetIdentifier: 0,
+				reasonCode: 0x00,
+			},
+			properties: {},
+		};
+		parsePubRec(buffer, pubCompData);
+		console.log('pubCompData: ', pubCompData);
 	}
 
 	public subscribeHandle(buffer: Buffer) {
