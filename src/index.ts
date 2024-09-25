@@ -1,5 +1,5 @@
 import net from 'net';
-import { ConnectAckException, PubAckException, PubCompReasonCode, SubscribeAckReasonCode, UnsubscribeAckReasonCode } from './exception';
+import { ConnectAckException, PubAckException, PubAckReasonCode, PubCompReasonCode, SubscribeAckReasonCode, UnsubscribeAckReasonCode } from './exception';
 import {
 	ConnAckPropertyIdentifier,
 	IConnectData,
@@ -26,6 +26,7 @@ import {
 	parseSubscribe,
 	parseUnsubscribe,
 } from './parse';
+import { allPublishClient } from './test';
 export class MqttManager {
 	static defaultProperties = {
 		receiveMaximum: 32,
@@ -33,6 +34,9 @@ export class MqttManager {
 		topicAliasMaximum: 65535,
 		wildcardSubscriptionAvailable: false,
 	};
+
+	// 当前客户推送消息的 topic alisa name
+	topicAliasNameMap: { [key: number]: string } = {};
 
 	protected connData: IConnectData = {
 		header: {
@@ -171,21 +175,29 @@ export class MqttManager {
 		try {
 			parsePublish(buffer, pubData);
 			console.log('pubData: ', pubData);
-			console.log('pubDataBuffer: ', buffer);
-			console.log(this.clients.size);
+			console.log('pubData: ', buffer);
+			// 数据校验
+			if (pubData.properties.topicAlias && pubData.properties.topicAlias > MqttManager.defaultProperties.topicAliasMaximum) {
+				throw new PubAckException(
+					'A Client MUST accept all Topic Alias values greater than 0 and less than or equal to the Topic Alias Maximum value that it sent in the CONNECT packet.',
+					PubAckReasonCode.PacketIdentifierInUse,
+				);
+			}
+
+			// 添加主题别名映射
+			if (pubData.header.topicName && pubData.properties.topicAlias) {
+				this.topicAliasNameMap[pubData.properties.topicAlias] = pubData.header.topicName;
+			} else if (pubData.properties.topicAlias) {
+				pubData.header.topicName = this.topicAliasNameMap[pubData.properties.topicAlias];
+			}
+			delete pubData.properties.topicAlias;
+
 			// TODO 缺少向每个订阅者发布消息
-			this.clients.forEach((client) => {
-				if (this.client === client) {
-					return;
-				}
-				console.log(buffer);
-				// console.log(buffer.toString());
-				// pubData.header.packetIdentifier = 0;
+			allPublishClient.forEach((client) => {
+				// TODO 更具客户端订阅 QOS 级别进行发布消息
 				const pubPacket = encodePublishPacket(pubData);
-				console.log('pubPacket:', pubPacket);
-				// console.log(pubPacket.toString());
-				// client.write(pubPacket);
-				client.write(buffer);
+				console.log('pubPacket: ', pubPacket);
+				client.write(pubPacket);
 			});
 
 			if (pubData.header.qosLevel === QoSType.QoS1) {
@@ -193,7 +205,6 @@ export class MqttManager {
 			} else if (pubData.header.qosLevel === QoSType.QoS2) {
 				this.handlePubRec(pubData);
 			}
-			// throw new PubAckException('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', PubAckReasonCode.TopicNameInvalid);
 		} catch (error) {
 			if (error instanceof PubAckException) {
 				if (error instanceof PubAckException) {
@@ -255,7 +266,7 @@ export class MqttManager {
 			properties: {},
 		};
 		parsePubRel(buffer, pubRelData);
-		console.log('pubRelData: ', pubRelData);
+		// console.log('pubRelData: ', pubRelData);
 		this.handlePubComp(pubRelData);
 	}
 
@@ -272,7 +283,6 @@ export class MqttManager {
 	}
 
 	public pubRecHandle(buffer: Buffer) {
-		console.log('-----------');
 		const pubRecData: IPubRecData = {
 			header: {
 				packetType: PacketType.PUBREL,
@@ -284,7 +294,7 @@ export class MqttManager {
 			properties: {},
 		};
 		parsePubRec(buffer, pubRecData);
-		console.log('pubRecData: ', pubRecData);
+		// console.log('pubRecData: ', pubRecData);
 
 		this.handlePubRel(pubRecData);
 	}
@@ -302,7 +312,6 @@ export class MqttManager {
 	}
 
 	public pubCompHandle(buffer: Buffer) {
-		console.log('-----------');
 		const pubCompData: IPubRecData = {
 			header: {
 				packetType: PacketType.PUBREL,
@@ -314,7 +323,7 @@ export class MqttManager {
 			properties: {},
 		};
 		parsePubRec(buffer, pubCompData);
-		console.log('pubCompData: ', pubCompData);
+		// console.log('pubCompData: ', pubCompData);
 	}
 
 	public subscribeHandle(buffer: Buffer) {
@@ -331,7 +340,8 @@ export class MqttManager {
 		};
 		try {
 			parseSubscribe(buffer, subData);
-			console.log('subData: ', subData);
+			allPublishClient.add(this.client);
+			// console.log('subData: ', subData);
 		} catch {
 			// TODO 订阅异常处理
 		}
@@ -367,6 +377,7 @@ export class MqttManager {
 		try {
 			parseUnsubscribe(buffer, unsubscribeData);
 			console.log('unsubscribeData: ', unsubscribeData);
+			allPublishClient.delete(this.client);
 		} catch {
 			// TODO 订阅异常处理
 		}

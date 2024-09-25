@@ -6,6 +6,9 @@ import { MqttManager } from '.';
 // 本地缓存，用来记录连接的client
 const allClient = new Set<net.Socket>();
 
+// 测试订阅
+export const allPublishClient = new Set<net.Socket>();
+
 // 创建 TCP 服务器
 const server = net.createServer((client) => {
 	const defaultOption = {
@@ -77,6 +80,7 @@ const server = net.createServer((client) => {
 
 	client.on('close', (hadError: boolean) => {
 		allClient.delete(client);
+		allPublishClient.delete(client);
 		if (hadError) {
 			console.log('Connection closed due to error!');
 		} else {
