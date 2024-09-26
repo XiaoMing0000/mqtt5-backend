@@ -209,7 +209,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						key: value,
+						[key]: value,
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -320,7 +320,7 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						key: value,
+						[key]: value,
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -445,7 +445,7 @@ export function parseConnAckProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						key: value,
+						[key]: value,
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -519,7 +519,7 @@ export function parseDisconnectProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						key: value,
+						[key]: value,
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -554,7 +554,7 @@ export function parseSubscribeProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						key: value,
+						[key]: value,
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -592,7 +592,7 @@ export function parseSubAckProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						key: value,
+						[key]: value,
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -617,7 +617,7 @@ export function parseUnsubscribeProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						key: value,
+						[key]: value,
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -648,7 +648,7 @@ export function parseUnsubscribeAckProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						key: value,
+						[key]: value,
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -732,7 +732,7 @@ export function parsePublishProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						key: value,
+						[key]: value,
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -770,7 +770,7 @@ export function parsePublishAckProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						key: value,
+						[key]: value,
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -802,7 +802,7 @@ export function parsePubRecProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						key: value,
+						[key]: value,
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -834,7 +834,7 @@ export function parsePubRelProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						key: value,
+						[key]: value,
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -866,7 +866,7 @@ export function parsePubCompProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						key: value,
+						[key]: value,
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -912,7 +912,7 @@ export function parseAuthProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						key: value,
+						[key]: value,
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -972,7 +972,7 @@ export function parseWillProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						key: value,
+						[key]: value,
 					};
 				} else {
 					properties.userProperty[key] = value;

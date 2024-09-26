@@ -176,6 +176,7 @@ export class MqttManager {
 			parsePublish(buffer, pubData);
 			console.log('pubData: ', pubData);
 			console.log('pubData: ', buffer);
+			console.log('pubData: ', buffer.toString());
 			// 数据校验
 			if (pubData.properties.topicAlias && pubData.properties.topicAlias > MqttManager.defaultProperties.topicAliasMaximum) {
 				throw new PubAckException(
@@ -193,9 +194,9 @@ export class MqttManager {
 			delete pubData.properties.topicAlias;
 
 			// TODO 缺少向每个订阅者发布消息
+			const pubPacket = encodePublishPacket(pubData);
 			allPublishClient.forEach((client) => {
 				// TODO 更具客户端订阅 QOS 级别进行发布消息
-				const pubPacket = encodePublishPacket(pubData);
 				console.log('pubPacket: ', pubPacket);
 				client.write(pubPacket);
 			});
