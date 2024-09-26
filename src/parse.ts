@@ -437,6 +437,16 @@ export function parseDisconnect(buffer: Buffer, disconnectData: IDisconnectData)
 	disconnectData.properties = parseDisconnectProperties(propertiesBuffer);
 }
 
+export function encodeDisconnect(disconnectData: IDisconnectData) {
+	const fixedHeader = (disconnectData.header.packetType << 4) | disconnectData.header.received;
+
+	const properties = new EncoderProperties();
+	properties.push(disconnectData.properties);
+
+	const remainingBuffer = [disconnectData.header.reasonCode, ...properties.buffer];
+	return Buffer.from([fixedHeader, ...encodeVariableByteInteger(remainingBuffer.length), ...remainingBuffer]);
+}
+
 export function encodePublishPacket(pubData: IPublishData) {
 	const fixedHeader = (pubData.header.packetType << 4) | ((pubData.header.udpFlag ? 1 : 0) << 3) | (pubData.header.qosLevel << 1) | (pubData.header.retain ? 1 : 0);
 

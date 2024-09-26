@@ -1,9 +1,19 @@
 import net from 'net';
-import { ConnectAckException, PubAckException, PubAckReasonCode, PubCompReasonCode, SubscribeAckReasonCode, UnsubscribeAckReasonCode } from './exception';
+import {
+	ConnectAckException,
+	DisconnectException,
+	DisconnectReasonCode,
+	PubAckException,
+	PubAckReasonCode,
+	PubCompReasonCode,
+	SubscribeAckReasonCode,
+	UnsubscribeAckReasonCode,
+} from './exception';
 import {
 	ConnAckPropertyIdentifier,
 	IConnectData,
 	IDisconnectData,
+	IDisconnectProperties,
 	IPublishData,
 	IPubRecData,
 	IPubRelData,
@@ -14,6 +24,7 @@ import {
 	QoSType,
 } from './interface';
 import {
+	encodeDisconnect,
 	encodePublishPacket,
 	EncoderProperties,
 	encodeVariableByteInteger,
@@ -116,6 +127,7 @@ export class SubscriptionManger {
 
 export class MqttManager {
 	static defaultProperties = {
+		maximumQoS: 2,
 		receiveMaximum: 32,
 		maximumPacketSize: 1 << 20,
 		topicAliasMaximum: 65535,
@@ -239,6 +251,19 @@ export class MqttManager {
 		}
 	}
 
+	public handleDisconnect(reasonCode: DisconnectReasonCode, properties: IDisconnectProperties) {
+		const disconnectPacket = encodeDisconnect({
+			header: {
+				packetType: PacketType.DISCONNECT,
+				received: 0,
+				remainingLength: 0,
+				reasonCode: reasonCode,
+			},
+			properties: properties,
+		});
+		this.client.write(Buffer.from(disconnectPacket));
+	}
+
 	public pingReqHandle() {
 		this.client.write(Buffer.from([PacketType.PINGRESP << 4, 0]));
 	}
@@ -267,6 +292,12 @@ export class MqttManager {
 					'A Client MUST accept all Topic Alias values greater than 0 and less than or equal to the Topic Alias Maximum value that it sent in the CONNECT packet.',
 					PubAckReasonCode.PacketIdentifierInUse,
 				);
+			}
+			if (pubData.header.qosLevel > MqttManager.defaultProperties.maximumQoS) {
+				this.handleDisconnect(DisconnectReasonCode.QoSNotSupported, {
+					reasonString: 'The Client specified a QoS greater than the QoS specified in a Maximum QoS in the CONNACK.',
+				});
+				return;
 			}
 
 			// 添加主题别名映射
@@ -305,6 +336,9 @@ export class MqttManager {
 						this.client.write(errorPacket);
 					}
 				}
+			} else if (error instanceof DisconnectException) {
+				// 处理 disconnect
+				console.log('-------------');
 			}
 		}
 	}

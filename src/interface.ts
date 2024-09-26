@@ -1,3 +1,5 @@
+import { DisconnectReasonCode, PubCompReasonCode, PubRecReasonCode, PubRelReasonCode } from './exception';
+
 // MQTT 报文类型
 export enum PacketType {
 	RESERVED = 0,
@@ -351,7 +353,7 @@ export interface IDisconnectData {
 		packetType: PacketType;
 		received: number;
 		remainingLength: number;
-		reasonCode: number;
+		reasonCode: DisconnectReasonCode;
 	};
 	properties: IDisconnectProperties;
 }
@@ -362,7 +364,7 @@ export interface IPubRelData {
 		received: number;
 		remainingLength: number;
 		packetIdentifier: number;
-		reasonCode: number;
+		reasonCode: PubRelReasonCode;
 	};
 	properties: IPubRelProperties;
 }
@@ -373,7 +375,7 @@ export interface IPubRecData {
 		received: number;
 		remainingLength: number;
 		packetIdentifier: number;
-		reasonCode: number;
+		reasonCode: PubRecReasonCode;
 	};
 	properties: IPubRecProperties;
 }
@@ -384,7 +386,7 @@ export interface IPubCompData {
 		received: number;
 		remainingLength: number;
 		packetIdentifier: number;
-		reasonCode: number;
+		reasonCode: PubCompReasonCode;
 	};
 	properties: IPPubCompProperties;
 }
