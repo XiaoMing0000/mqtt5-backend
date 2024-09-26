@@ -26,7 +26,94 @@ import {
 	parseSubscribe,
 	parseUnsubscribe,
 } from './parse';
-import { allPublishClient } from './test';
+
+type TNetSocket = net.Socket;
+type TSubscribeData = {
+	qos: QoSType;
+	date: Date;
+};
+type TClientSubscription = Map<string, any>;
+
+export class SubscriptionManger {
+	private clientSubscription = new Map<TNetSocket, TClientSubscription>();
+	private topicMap = new Map<string, Set<TNetSocket>>();
+
+	/**
+	 * 添加主题订阅，订阅信息
+	 * @param client 订阅者
+	 * @param topic 订阅主题
+	 * @param data 订阅配置信息
+	 */
+	public subscribe(client: TNetSocket, topic: string, data: TSubscribeData) {
+		if (!this.clientSubscription.has(client)) {
+			const clientSubscription: TClientSubscription = new Map();
+			clientSubscription.set(topic, data);
+			this.clientSubscription.set(client, clientSubscription);
+		} else {
+			const clientSubscription = this.clientSubscription.get(client);
+			clientSubscription?.set(topic, data);
+		}
+
+		if (!this.topicMap.has(topic)) {
+			const clientSet = new Set<TNetSocket>();
+			clientSet.add(client);
+			this.topicMap.set(topic, clientSet);
+		} else {
+			const clientSet = this.topicMap.get(topic);
+			clientSet?.add(client);
+		}
+	}
+
+	/**
+	 * 取消主题订阅
+	 * @param client 订阅者
+	 * @param topic 订阅主题
+	 */
+	public unsubscribe(client: TNetSocket, topic: string) {
+		const subscription = this.clientSubscription.get(client);
+		if (subscription) {
+			subscription.delete(topic);
+			if (!subscription.size) {
+				this.clientSubscription.delete(client);
+			}
+		}
+
+		const clientSet = this.topicMap.get(topic);
+		if (clientSet) {
+			clientSet.delete(client);
+			if (!clientSet.size) {
+				this.topicMap.delete(topic);
+			}
+		}
+	}
+
+	/**
+	 * 遍历订阅指定主题的订阅者
+	 * @param topic 订阅主题
+	 * @param callbackfn 遍历回调函数
+	 */
+	public forEach(topic: string, callbackfn: (client: TNetSocket, data: TSubscribeData) => void) {
+		const clientSet = this.topicMap.get(topic);
+		if (clientSet) {
+			clientSet.forEach((cli) => {
+				const subscription = this.clientSubscription.get(cli);
+				const clientData = subscription?.get(topic);
+				if (clientData) {
+					callbackfn(cli, clientData);
+				}
+			});
+		}
+	}
+
+	/**
+	 * 清除该用户的所有订阅信息
+	 * @param client 订阅者
+	 */
+	public clear(client: TNetSocket) {
+		this.clientSubscription.delete(client);
+	}
+}
+
 export class MqttManager {
 	static defaultProperties = {
 		receiveMaximum: 32,
@@ -55,12 +142,9 @@ export class MqttManager {
 	};
 
 	constructor(
-		private readonly client: net.Socket,
-		private readonly clients: Set<net.Socket>,
-	) {
-		this.client = client;
-		this.clients = clients;
-	}
+		private readonly client: TNetSocket,
+		private readonly subscription: SubscriptionManger,
+	) {}
 	/**
 	 * 连接响应报文
 	 * @returns
@@ -192,16 +276,12 @@ export class MqttManager {
 				pubData.header.topicName = this.topicAliasNameMap[pubData.properties.topicAlias];
 			}
 			delete pubData.properties.topicAlias;
-
-			// TODO 缺少向每个订阅者发布消息
 			const pubPacket = encodePublishPacket(pubData);
-			allPublishClient.forEach((client) => {
-				// TODO 更具客户端订阅 QOS 级别进行发布消息
-				console.log('pubPacket: ', pubPacket);
-				// pubPacket[0] = (buffer[0] & 0xf9) | (0 << 1);
+			// TODO 向订阅者发布消息，未启动通配符订阅
+			this.subscription.forEach(pubData.header.topicName, (client, data) => {
+				pubPacket[0] = (buffer[0] & 0xf9) | (data.qos << 1);
 				client.write(pubPacket);
 			});
-
 			if (pubData.header.qosLevel === QoSType.QoS1) {
 				this.handlePubAck(pubData);
 			} else if (pubData.header.qosLevel === QoSType.QoS2) {
@@ -348,12 +428,11 @@ export class MqttManager {
 		};
 		try {
 			parseSubscribe(buffer, subData);
-			allPublishClient.add(this.client);
 			// console.log('subData: ', subData);
+			this.subscription.subscribe(this.client, subData.payload, { qos: subData.options.qos, date: new Date() });
 		} catch {
 			// TODO 订阅异常处理
 		}
-
 		this.handleSubAck(subData);
 	}
 
@@ -385,7 +464,8 @@ export class MqttManager {
 		try {
 			parseUnsubscribe(buffer, unsubscribeData);
 			console.log('unsubscribeData: ', unsubscribeData);
-			allPublishClient.delete(this.client);
+
+			this.subscription.unsubscribe(this.client, unsubscribeData.payload);
 		} catch {
 			// TODO 订阅异常处理
 		}

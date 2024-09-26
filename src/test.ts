@@ -1,14 +1,9 @@
 import net from 'net';
 import { PacketType } from './interface';
 import { defaultAuthenticate, defaultAuthorizeForward, defaultAuthorizePublish, defaultAuthorizeSubscribe, defaultPreConnect, defaultPublished } from './auth';
-import { MqttManager } from '.';
+import { MqttManager, SubscriptionManger } from '.';
 
-// 本地缓存，用来记录连接的client
-const allClient = new Set<net.Socket>();
-
-// 测试订阅
-export const allPublishClient = new Set<net.Socket>();
-
+const subscriptionManger = new SubscriptionManger();
 // 创建 TCP 服务器
 const server = net.createServer((client) => {
 	const defaultOption = {
@@ -28,10 +23,7 @@ const server = net.createServer((client) => {
 		maxClientsIdLength: 23,
 		keepaliveLimit: 0,
 	};
-
-	allClient.add(client);
-
-	const mqttManager = new MqttManager(client, allClient);
+	const mqttManager = new MqttManager(client, subscriptionManger);
 	client.on('data', (data) => {
 		const packetType = (data[0] >> 4) as PacketType;
 
@@ -79,8 +71,7 @@ const server = net.createServer((client) => {
 	});
 
 	client.on('close', (hadError: boolean) => {
-		allClient.delete(client);
-		allPublishClient.delete(client);
+		subscriptionManger.clear(client);
 		if (hadError) {
 			console.log('Connection closed due to error!');
 		} else {
@@ -92,5 +83,3 @@ const server = net.createServer((client) => {
 server.listen(1883, () => {
 	console.log('MQTT server listening on port 1883');
 });
-
-// TODO 报文分发处理 /src/index.ts line 174
