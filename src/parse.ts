@@ -392,7 +392,15 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
 	subData.properties = parseSubscribeProperties(propertiesBuffer);
 
 	subData.payload = utf8DecodedString(data);
-	subData.qos = oneByteInteger(data);
+
+	const subscriptionOptions = oneByteInteger(data);
+	subData.options = {
+		qos: subscriptionOptions & 0x3,
+		noLocal: !!((subscriptionOptions >> 2) & 0x01),
+		retainAsPublished: !!(subscriptionOptions & 0x4),
+		retainHandling: (subscriptionOptions >> 4) & 0x03,
+		retain: (subscriptionOptions >> 6) & 0x03,
+	};
 }
 
 export function parseUnsubscribe(buffer: Buffer, unsubscribeData: IUnsubscribeData) {

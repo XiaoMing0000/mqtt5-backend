@@ -198,6 +198,7 @@ export class MqttManager {
 			allPublishClient.forEach((client) => {
 				// TODO 更具客户端订阅 QOS 级别进行发布消息
 				console.log('pubPacket: ', pubPacket);
+				// pubPacket[0] = (buffer[0] & 0xf9) | (0 << 1);
 				client.write(pubPacket);
 			});
 
@@ -337,7 +338,13 @@ export class MqttManager {
 			},
 			properties: {},
 			payload: '',
-			qos: QoSType.QoS0,
+			options: {
+				qos: QoSType.QoS0,
+				noLocal: false,
+				retainAsPublished: false,
+				retainHandling: 0,
+				retain: 0,
+			},
 		};
 		try {
 			parseSubscribe(buffer, subData);

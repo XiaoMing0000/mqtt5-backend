@@ -326,7 +326,13 @@ export interface ISubscribeData {
 	};
 	properties: ISubscribeProperties;
 	payload: string;
-	qos: QoSType;
+	options: {
+		qos: QoSType;
+		noLocal: boolean;
+		retainAsPublished: boolean;
+		retainHandling: number;
+		retain: number;
+	};
 }
 
 export interface IUnsubscribeData {
