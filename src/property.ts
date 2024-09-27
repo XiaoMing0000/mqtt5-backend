@@ -712,9 +712,6 @@ export function parsePublishProperties(buffer: Buffer, index?: number) {
 				break;
 			case PropertyIdentifier.subscriptionIdentifier:
 				data.index++;
-				if (properties.subscriptionIdentifier) {
-					throw new PubAckException('It is a Protocol Error to include the Subscription Identifier more than once.', PubAckReasonCode.UnspecifiedError);
-				}
 				properties.subscriptionIdentifier = variableByteInteger(data, 4);
 				if (properties.subscriptionIdentifier == 0) {
 					throw new PubAckException('It is a Protocol Error if the Subscription Identifier has a value of 0. ', PubAckReasonCode.TopicNameInvalid);
