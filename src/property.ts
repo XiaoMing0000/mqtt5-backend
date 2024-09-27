@@ -40,6 +40,7 @@ import {
 	utf8DecodedString,
 	utf8StringPair,
 	variableByteInteger,
+	encodeVariableByteInteger,
 } from './parse';
 
 export function parseProperties(buffer: Buffer, index?: number) {
@@ -710,13 +711,16 @@ export function parsePublishProperties(buffer: Buffer, index?: number) {
 				}
 				properties.correlationData = utf8DecodedString(data);
 				break;
-			case PropertyIdentifier.subscriptionIdentifier:
+			case PropertyIdentifier.subscriptionIdentifier: {
 				data.index++;
-				properties.subscriptionIdentifier = variableByteInteger(data, 4);
-				if (properties.subscriptionIdentifier == 0) {
+				const subscriptionIdentifier = variableByteInteger(data, 4);
+
+				if (subscriptionIdentifier == 0) {
 					throw new PubAckException('It is a Protocol Error if the Subscription Identifier has a value of 0. ', PubAckReasonCode.TopicNameInvalid);
 				}
+				(properties.subscriptionIdentifier ??= []).push(subscriptionIdentifier);
 				break;
+			}
 			case PropertyIdentifier.topicAlias:
 				data.index++;
 				if (properties.topicAlias != undefined) {
@@ -997,6 +1001,11 @@ export function encodeProperties<K extends keyof PropertyDataMap>(id: K, data: P
 		case PropertyIdentifier.correlationData:
 			return [PropertyIdentifier.correlationData, ...encodeUTF8String(data as string)];
 		case PropertyIdentifier.subscriptionIdentifier:
+			if (Array.isArray(data)) {
+				const buffer: Array<number> = [];
+				data.map((item) => buffer.push(PropertyIdentifier.subscriptionIdentifier, ...encodeVariableByteInteger(item)));
+				return buffer;
+			}
 			return [PropertyIdentifier.subscriptionIdentifier, ...stringToVariableByteInteger(data as string)];
 		case PropertyIdentifier.sessionExpiryInterval:
 			return [PropertyIdentifier.sessionExpiryInterval, ...integerToFourUint8(data as number)];

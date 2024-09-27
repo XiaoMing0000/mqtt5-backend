@@ -42,8 +42,10 @@ type TNetSocket = net.Socket;
 type TSubscribeData = {
 	qos: QoSType;
 	date: Date;
+	packetIdentifier?: number;
 };
-type TClientSubscription = Map<string, any>;
+type TTopic = string;
+type TClientSubscription = Map<TTopic, TSubscribeData>;
 
 export class SubscriptionManger {
 	private clientSubscription = new Map<TNetSocket, TClientSubscription>();
@@ -114,6 +116,10 @@ export class SubscriptionManger {
 				}
 			});
 		}
+	}
+
+	public getSubscription(client: TNetSocket) {
+		return this.clientSubscription.get(client);
 	}
 
 	/**
@@ -307,10 +313,22 @@ export class MqttManager {
 				pubData.header.topicName = this.topicAliasNameMap[pubData.properties.topicAlias];
 			}
 			delete pubData.properties.topicAlias;
-			const pubPacket = encodePublishPacket(pubData);
 			// TODO 向订阅者发布消息，未启动通配符订阅
 			this.subscription.forEach(pubData.header.topicName, (client, data) => {
-				pubPacket[0] = (buffer[0] & 0xf9) | (data.qos << 1);
+				// 如果使用通配符进行订阅，可能会匹配多个订阅，如果订阅标识符存在则必须将这些订阅标识符发送给用户
+				const publishSubscriptionIdentifier: Array<number> = [];
+				let maxQoS = 0;
+				this.subscription.getSubscription(client)?.forEach((value, key) => {
+					if (key === pubData.header.topicName) {
+						// eslint-disable-next-line @typescript-eslint/no-unused-expressions
+						value.packetIdentifier && publishSubscriptionIdentifier.push(value.packetIdentifier);
+						maxQoS = value.qos > maxQoS ? value.qos : maxQoS;
+					}
+				});
+				pubData.properties.subscriptionIdentifier = publishSubscriptionIdentifier;
+
+				const pubPacket = encodePublishPacket(pubData);
+				pubPacket[0] = (buffer[0] & 0xf9) | (maxQoS << 1);
 				client.write(pubPacket);
 			});
 			if (pubData.header.qosLevel === QoSType.QoS1) {
@@ -463,7 +481,11 @@ export class MqttManager {
 		try {
 			parseSubscribe(buffer, subData);
 			// console.log('subData: ', subData);
-			this.subscription.subscribe(this.client, subData.payload, { qos: subData.options.qos, date: new Date() });
+			this.subscription.subscribe(this.client, subData.payload, {
+				qos: subData.options.qos,
+				date: new Date(),
+				packetIdentifier: subData.properties.subscriptionIdentifier,
+			});
 		} catch {
 			// TODO 订阅异常处理
 		}

@@ -158,7 +158,7 @@ export interface IProperties {
 	maximumQoS?: boolean;
 	retainAvailable?: boolean;
 	reasonString?: string;
-	subscriptionIdentifier?: number;
+	subscriptionIdentifier?: number | Array<number>;
 	serverKeepAlive?: number;
 	responseInformation?: string;
 	serverReference?: string;
@@ -206,7 +206,7 @@ export interface IPublishProperties {
 	contentType?: string;
 	responseTopic?: string;
 	correlationData?: string;
-	subscriptionIdentifier?: number;
+	subscriptionIdentifier?: Array<number>;
 	topicAliasMaximum?: number;
 	userProperty?: { [key: string]: any };
 	topicAlias?: number;
@@ -234,17 +234,6 @@ export interface IUnsubscribeProperties {
 }
 
 export interface IUnsubscribeAckProperties {
-	userProperty?: { [key: string]: any };
-}
-
-export interface IPublishProperties {
-	payloadFormatIndicator?: number;
-	messageExpiryInterval?: number;
-	contentType?: string;
-	responseTopic?: string;
-	correlationData?: string;
-	subscriptionIdentifier?: number;
-	topicAlias?: number;
 	userProperty?: { [key: string]: any };
 }
 
