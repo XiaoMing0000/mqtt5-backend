@@ -269,9 +269,6 @@ export function parseConnect(buffer: Buffer): IConnectData {
 	if (connData.connectFlags.reserved || connData.connectFlags.willQoS >= 0x03 || (!connData.connectFlags.willFlag && connData.connectFlags.willRetain)) {
 		throw new ConnectAckException('If the reserved flag is not 0 it is a Malformed Packet.', ConnectAckReasonCode.MalformedPacket);
 	}
-	if (connData.connectFlags.cleanStart) {
-		// TODO 是否建立新的连接 3.1.24
-	}
 	connData.header.keepAlive = twoByteInteger(data);
 
 	// 获取属性

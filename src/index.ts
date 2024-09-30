@@ -239,6 +239,10 @@ export class MqttManager {
 	public connectHandle(buffer: Buffer) {
 		try {
 			this.connData = parseConnect(buffer);
+
+			if (this.connData.connectFlags.cleanStart) {
+				this.subscription.clear(this.client);
+			}
 			// console.log('connData: ', this.connData);
 			this.handleConnAck();
 		} catch (error) {
