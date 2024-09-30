@@ -237,7 +237,7 @@ export interface IUnsubscribeAckProperties {
 	userProperty?: { [key: string]: any };
 }
 
-export interface IPublishAckProperties {
+export interface IPubAckProperties {
 	reasonString?: string;
 	userProperty?: { [key: string]: any };
 }
@@ -345,6 +345,17 @@ export interface IDisconnectData {
 		reasonCode: DisconnectReasonCode;
 	};
 	properties: IDisconnectProperties;
+}
+
+export interface IPubAckData {
+	header: {
+		packetType: PacketType;
+		received: number;
+		remainingLength: number;
+		packetIdentifier: number;
+		reasonCode: PubRelReasonCode;
+	};
+	properties: IPubAckProperties;
 }
 
 export interface IPubRelData {

@@ -14,6 +14,7 @@ import {
 	IConnectData,
 	IDisconnectData,
 	IDisconnectProperties,
+	IPubAckData,
 	IPublishData,
 	IPubRecData,
 	IPubRelData,
@@ -31,6 +32,7 @@ import {
 	integerToTwoUint8,
 	parseConnect,
 	parseDisconnect,
+	parsePubAck,
 	parsePublish,
 	parsePubRec,
 	parsePubRel,
@@ -50,6 +52,15 @@ type TClientSubscription = Map<TTopic, TSubscribeData>;
 export class SubscriptionManger {
 	private clientSubscription = new Map<TNetSocket, TClientSubscription>();
 	private topicMap = new Map<string, Set<TNetSocket>>();
+	private packetIdentifier = 0;
+
+	/**
+	 * 获取并更新 packetIdentifier
+	 * @returns
+	 */
+	public getPacketIdentifier() {
+		return this.packetIdentifier++ & 0xffff;
+	}
 
 	/**
 	 * 添加主题订阅，订阅信息
@@ -127,6 +138,9 @@ export class SubscriptionManger {
 	 * @param client 订阅者
 	 */
 	public clear(client: TNetSocket) {
+		this.clientSubscription.get(client)?.forEach((value, key) => {
+			this.topicMap.get(key)?.delete(client);
+		});
 		this.clientSubscription.delete(client);
 	}
 }
@@ -289,6 +303,8 @@ export class MqttManager {
 		};
 		try {
 			parsePublish(buffer, pubData);
+			const qosLevel = pubData.header.qosLevel;
+			const packetIdentifier = pubData.header.packetIdentifier;
 			console.log('pubData: ', pubData);
 			console.log('pubData: ', buffer);
 			console.log('pubData: ', buffer.toString());
@@ -318,19 +334,31 @@ export class MqttManager {
 				// 如果使用通配符进行订阅，可能会匹配多个订阅，如果订阅标识符存在则必须将这些订阅标识符发送给用户
 				const publishSubscriptionIdentifier: Array<number> = [];
 				let maxQoS = 0;
+				const newPacketIdentifier = this.subscription.getPacketIdentifier();
 				this.subscription.getSubscription(client)?.forEach((value, key) => {
 					if (key === pubData.header.topicName) {
 						// eslint-disable-next-line @typescript-eslint/no-unused-expressions
 						value.packetIdentifier && publishSubscriptionIdentifier.push(value.packetIdentifier);
 						maxQoS = value.qos > maxQoS ? value.qos : maxQoS;
+
+						if (qosLevel === QoSType.QoS0 && pubData.header.qosLevel !== maxQoS) {
+							pubData.header.packetIdentifier = newPacketIdentifier;
+						}
+						pubData.header.qosLevel = maxQoS;
+						pubData.properties.subscriptionIdentifier = publishSubscriptionIdentifier;
+						const pubPacket = encodePublishPacket(pubData);
+
+						// TODO 向客户端分发 qos1 和 qos2 级别的消息，需要记录 packetIdentifier；
+						// 分发 qos2 消息时当收到客户端返回 pubRec、PubComp 数据包需要校验 packetIdentifier;
+						// 分发 qos1 消息时当收到客户端返回 pubAck 数据包需要校验 packetIdentifier;
+						client.write(pubPacket);
 					}
 				});
-				pubData.properties.subscriptionIdentifier = publishSubscriptionIdentifier;
-
-				const pubPacket = encodePublishPacket(pubData);
-				pubPacket[0] = (buffer[0] & 0xf9) | (maxQoS << 1);
-				client.write(pubPacket);
 			});
+
+			// 相应推送者
+			pubData.header.qosLevel = qosLevel;
+			pubData.header.packetIdentifier = packetIdentifier;
 			if (pubData.header.qosLevel === QoSType.QoS1) {
 				this.handlePubAck(pubData);
 			} else if (pubData.header.qosLevel === QoSType.QoS2) {
@@ -386,6 +414,21 @@ export class MqttManager {
 			...properties.buffer,
 		]);
 		this.client.write(errorPacket);
+	}
+
+	public pubAckHandle(buffer: Buffer) {
+		const pubAckData: IPubAckData = {
+			header: {
+				packetType: PacketType.PUBACK,
+				received: 0x00,
+				remainingLength: 0,
+				packetIdentifier: 0,
+				reasonCode: 0x00,
+			},
+			properties: {},
+		};
+		parsePubAck(buffer, pubAckData);
+		console.log('pubAckData: ', pubAckData);
 	}
 
 	public pubRelHandle(buffer: Buffer) {

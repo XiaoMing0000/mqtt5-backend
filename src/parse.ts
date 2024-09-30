@@ -4,6 +4,7 @@ import {
 	IConnectData,
 	IDisconnectData,
 	IProperties,
+	IPubAckData,
 	IPublishData,
 	IPubRecData,
 	IPubRelData,
@@ -19,6 +20,7 @@ import {
 	parseConnectProperties,
 	parseDisconnectProperties,
 	parseProperties,
+	parsePubAckProperties,
 	parsePubCompProperties,
 	parsePublishProperties,
 	parsePubRecProperties,
@@ -327,6 +329,21 @@ export function parsePublish(buffer: Buffer, pubData: IPublishData) {
 	pubData.payload = data.buffer.slice(data.index).toString();
 
 	return pubData;
+}
+
+export function parsePubAck(buffer: Buffer, pubAckData: IPubAckData) {
+	pubAckData.header.packetType = (buffer[0] >> 4) as PacketType;
+	pubAckData.header.received = buffer[0] & 0xf;
+
+	const data = { buffer, index: 1 };
+	// 获取数据长度
+	pubAckData.header.remainingLength = variableByteInteger(data);
+	pubAckData.header.packetIdentifier = twoByteInteger(data);
+	pubAckData.header.reasonCode = oneByteInteger(data) ?? PubAckReasonCode.Success;
+	// 获取属性
+	const propertyLength = variableByteInteger(data);
+	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+	pubAckData.properties = parsePubAckProperties(propertiesBuffer);
 }
 
 export function parsePubRel(buffer: Buffer, pubRelData: IPubRelData) {

@@ -16,7 +16,7 @@ import {
 	IDisconnectProperties,
 	IPPubCompProperties,
 	IProperties,
-	IPublishAckProperties,
+	IPubAckProperties,
 	IPublishProperties,
 	IPubRecProperties,
 	IPubRelProperties,
@@ -754,15 +754,15 @@ export function parsePublishProperties(buffer: Buffer, index?: number) {
  * @param index
  * @returns
  */
-export function parsePublishAckProperties(buffer: Buffer, index?: number) {
-	const properties: IPublishAckProperties = {};
+export function parsePubAckProperties(buffer: Buffer, index?: number) {
+	const properties: IPubAckProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {
 			case PropertyIdentifier.reasonString:
 				data.index++;
 				if (properties.reasonString) {
-					throw new MqttBasicException('It is a Protocol Error to include Authentication Method more than once.');
+					throw new PubAckException('It is a Protocol Error to include Authentication Method more than once.');
 				}
 				properties.reasonString = utf8DecodedString(data);
 				break;

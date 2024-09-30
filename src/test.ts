@@ -34,6 +34,9 @@ const server = net.createServer((client) => {
 			case PacketType.PUBLISH:
 				mqttManager.publishHandle(data);
 				break;
+			case PacketType.PUBACK:
+				mqttManager.pubAckHandle(data);
+				break;
 			case PacketType.PUBREC:
 				mqttManager.pubRecHandle(data);
 				break;
