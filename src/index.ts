@@ -44,7 +44,7 @@ type TNetSocket = net.Socket;
 type TSubscribeData = {
 	qos: QoSType;
 	date: Date;
-	packetIdentifier?: number;
+	subscriptionIdentifier?: number;
 };
 type TTopic = string;
 type TClientSubscription = Map<TTopic, TSubscribeData>;
@@ -309,6 +309,11 @@ export class MqttManager {
 			parsePublish(buffer, pubData);
 			const qosLevel = pubData.header.qosLevel;
 			const packetIdentifier = pubData.header.packetIdentifier;
+			// 记录 packetIdentifier
+			if (qosLevel >= QoSType.QoS1) {
+				// this.p
+			}
+
 			console.log('pubData: ', pubData);
 			console.log('pubData: ', buffer);
 			console.log('pubData: ', buffer.toString());
@@ -342,7 +347,7 @@ export class MqttManager {
 				this.subscription.getSubscription(client)?.forEach((value, key) => {
 					if (key === pubData.header.topicName) {
 						// eslint-disable-next-line @typescript-eslint/no-unused-expressions
-						value.packetIdentifier && publishSubscriptionIdentifier.push(value.packetIdentifier);
+						value.subscriptionIdentifier && publishSubscriptionIdentifier.push(value.subscriptionIdentifier);
 						maxQoS = value.qos > maxQoS ? value.qos : maxQoS;
 
 						if (qosLevel === QoSType.QoS0 && pubData.header.qosLevel !== maxQoS) {
@@ -531,7 +536,7 @@ export class MqttManager {
 			this.subscription.subscribe(this.client, subData.payload, {
 				qos: subData.options.qos,
 				date: new Date(),
-				packetIdentifier: subData.properties.subscriptionIdentifier,
+				subscriptionIdentifier: subData.properties.subscriptionIdentifier,
 			});
 		} catch {
 			// TODO 订阅异常处理
