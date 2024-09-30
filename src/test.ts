@@ -1,9 +1,9 @@
 import net from 'net';
 import { PacketType } from './interface';
 import { defaultAuthenticate, defaultAuthorizeForward, defaultAuthorizePublish, defaultAuthorizeSubscribe, defaultPreConnect, defaultPublished } from './auth';
-import { MqttManager, SubscriptionManger } from '.';
+import { MqttManager, ClientManager } from '.';
 
-const subscriptionManger = new SubscriptionManger();
+const subscriptionManger = new ClientManager();
 // 创建 TCP 服务器
 const server = net.createServer((client) => {
 	const defaultOption = {

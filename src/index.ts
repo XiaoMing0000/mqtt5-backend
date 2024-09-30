@@ -49,10 +49,16 @@ type TSubscribeData = {
 type TTopic = string;
 type TClientSubscription = Map<TTopic, TSubscribeData>;
 
-export class SubscriptionManger {
-	private clientSubscription = new Map<TNetSocket, TClientSubscription>();
+export class ClientManager {
 	private topicMap = new Map<string, Set<TNetSocket>>();
 	private packetIdentifier = 0;
+	private clientManager = new Map<
+		TNetSocket,
+		{
+			subscription: TClientSubscription;
+			identifier: Set<number>;
+		}
+	>();
 
 	/**
 	 * 获取并更新 packetIdentifier
@@ -63,21 +69,28 @@ export class SubscriptionManger {
 	}
 
 	/**
+	 * 初始化客户端连接信息
+	 * @param client
+	 */
+	public initClient(client: TNetSocket) {
+		if (!this.clientManager.has(client)) {
+			this.clientManager.set(client, {
+				subscription: new Map(),
+				identifier: new Set(),
+			});
+		}
+	}
+
+	/**
 	 * 添加主题订阅，订阅信息
 	 * @param client 订阅者
 	 * @param topic 订阅主题
 	 * @param data 订阅配置信息
 	 */
 	public subscribe(client: TNetSocket, topic: string, data: TSubscribeData) {
-		if (!this.clientSubscription.has(client)) {
-			const clientSubscription: TClientSubscription = new Map();
-			clientSubscription.set(topic, data);
-			this.clientSubscription.set(client, clientSubscription);
-		} else {
-			const clientSubscription = this.clientSubscription.get(client);
-			clientSubscription?.set(topic, data);
+		if (this.clientManager.has(client)) {
+			this.clientManager.get(client)?.subscription.set(topic, data);
 		}
-
 		if (!this.topicMap.has(topic)) {
 			const clientSet = new Set<TNetSocket>();
 			clientSet.add(client);
@@ -94,12 +107,9 @@ export class SubscriptionManger {
 	 * @param topic 订阅主题
 	 */
 	public unsubscribe(client: TNetSocket, topic: string) {
-		const subscription = this.clientSubscription.get(client);
-		if (subscription) {
-			subscription.delete(topic);
-			if (!subscription.size) {
-				this.clientSubscription.delete(client);
-			}
+		const clientManager = this.clientManager.get(client)?.subscription;
+		if (clientManager) {
+			clientManager.delete(topic);
 		}
 
 		const clientSet = this.topicMap.get(topic);
@@ -120,17 +130,23 @@ export class SubscriptionManger {
 		const clientSet = this.topicMap.get(topic);
 		if (clientSet) {
 			clientSet.forEach((cli) => {
-				const subscription = this.clientSubscription.get(cli);
-				const clientData = subscription?.get(topic);
-				if (clientData) {
-					callbackfn(cli, clientData);
+				// const clientManager = this.clientSubscription.get(cli);
+				const clientSubscription = this.clientManager.get(cli)?.subscription;
+				const subscriptionData = clientSubscription?.get(topic);
+				if (subscriptionData) {
+					callbackfn(cli, subscriptionData);
 				}
 			});
 		}
 	}
 
+	/**
+	 * 获取客户端订阅信息
+	 * @param client
+	 * @returns
+	 */
 	public getSubscription(client: TNetSocket) {
-		return this.clientSubscription.get(client);
+		return this.clientManager.get(client)?.subscription;
 	}
 
 	/**
@@ -138,10 +154,10 @@ export class SubscriptionManger {
 	 * @param client 订阅者
 	 */
 	public clear(client: TNetSocket) {
-		this.clientSubscription.get(client)?.forEach((value, key) => {
+		this.clientManager.get(client)?.subscription.forEach((value, key) => {
 			this.topicMap.get(key)?.delete(client);
 		});
-		this.clientSubscription.delete(client);
+		this.clientManager.delete(client);
 	}
 }
 
@@ -175,7 +191,7 @@ export class MqttManager {
 
 	constructor(
 		private readonly client: TNetSocket,
-		private readonly subscription: SubscriptionManger,
+		private readonly clientManager: ClientManager,
 	) {}
 	/**
 	 * 连接响应报文
@@ -239,10 +255,10 @@ export class MqttManager {
 	public connectHandle(buffer: Buffer) {
 		try {
 			this.connData = parseConnect(buffer);
-
 			if (this.connData.connectFlags.cleanStart) {
-				this.subscription.clear(this.client);
+				this.clientManager.clear(this.client);
 			}
+			this.clientManager.initClient(this.client);
 			// console.log('connData: ', this.connData);
 			this.handleConnAck();
 		} catch (error) {
@@ -339,12 +355,12 @@ export class MqttManager {
 			}
 			delete pubData.properties.topicAlias;
 			// TODO 向订阅者发布消息，未启动通配符订阅
-			this.subscription.forEach(pubData.header.topicName, (client, data) => {
+			this.clientManager.forEach(pubData.header.topicName, (client, data) => {
 				// 如果使用通配符进行订阅，可能会匹配多个订阅，如果订阅标识符存在则必须将这些订阅标识符发送给用户
 				const publishSubscriptionIdentifier: Array<number> = [];
 				let maxQoS = 0;
-				const newPacketIdentifier = this.subscription.getPacketIdentifier();
-				this.subscription.getSubscription(client)?.forEach((value, key) => {
+				const newPacketIdentifier = this.clientManager.getPacketIdentifier();
+				this.clientManager.getSubscription(client)?.forEach((value, key) => {
 					if (key === pubData.header.topicName) {
 						// eslint-disable-next-line @typescript-eslint/no-unused-expressions
 						value.subscriptionIdentifier && publishSubscriptionIdentifier.push(value.subscriptionIdentifier);
@@ -533,7 +549,7 @@ export class MqttManager {
 		try {
 			parseSubscribe(buffer, subData);
 			// console.log('subData: ', subData);
-			this.subscription.subscribe(this.client, subData.payload, {
+			this.clientManager.subscribe(this.client, subData.payload, {
 				qos: subData.options.qos,
 				date: new Date(),
 				subscriptionIdentifier: subData.properties.subscriptionIdentifier,
@@ -573,7 +589,7 @@ export class MqttManager {
 			parseUnsubscribe(buffer, unsubscribeData);
 			console.log('unsubscribeData: ', unsubscribeData);
 
-			this.subscription.unsubscribe(this.client, unsubscribeData.payload);
+			this.clientManager.unsubscribe(this.client, unsubscribeData.payload);
 		} catch {
 			// TODO 订阅异常处理
 		}
