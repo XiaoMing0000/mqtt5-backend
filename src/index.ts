@@ -387,12 +387,6 @@ export class MqttManager {
 		};
 		try {
 			parsePublish(buffer, pubData);
-			const qosLevel = pubData.header.qosLevel;
-			const packetIdentifier = pubData.header.packetIdentifier;
-			// 记录 packetIdentifier
-			if (qosLevel >= QoSType.QoS1) {
-				// this.p
-			}
 
 			console.log('pubData: ', pubData);
 			console.log('pubData: ', buffer);
@@ -419,14 +413,16 @@ export class MqttManager {
 			}
 			delete pubData.properties.topicAlias;
 			// TODO 向订阅者发布消息，未启动通配符订阅
-			this.clientManager.forEach(pubData.header.topicName, (client, data) => {
+			// 拷贝数据，隔离服务端和客户端 PUBACK 报文
+			const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
+			this.clientManager.forEach(distributeData.header.topicName, (client, data) => {
 				// 如果使用通配符进行订阅，可能会匹配多个订阅，如果订阅标识符存在则必须将这些订阅标识符发送给用户
 				const publishSubscriptionIdentifier: Array<number> = [];
 				let maxQoS = 0;
 
 				// 获取当前用户订阅匹配到主题的最大 qos 等级
 				this.clientManager.getSubscription(client)?.forEach((value, key) => {
-					if (key === pubData.header.topicName) {
+					if (key === distributeData.header.topicName) {
 						// eslint-disable-next-line @typescript-eslint/no-unused-expressions
 						value.subscriptionIdentifier && publishSubscriptionIdentifier.push(value.subscriptionIdentifier);
 						maxQoS = value.qos > maxQoS ? value.qos : maxQoS;
@@ -437,17 +433,15 @@ export class MqttManager {
 					// 向客户端分发 qos1 和 qos2 级别的消息，需要记录 packetIdentifier；
 					// 分发 qos2 消息时当收到客户端返回 pubRec、PubComp 数据包需要校验 packetIdentifier;
 					// 分发 qos1 消息时当收到客户端返回 pubAck 数据包需要校验 packetIdentifier;
-					pubData.header.packetIdentifier = this.clientManager.newPacketIdentifier(client);
+					distributeData.header.packetIdentifier = this.clientManager.newPacketIdentifier(client);
 				}
-				pubData.header.qosLevel = maxQoS;
-				pubData.properties.subscriptionIdentifier = publishSubscriptionIdentifier;
-				const pubPacket = encodePublishPacket(pubData);
+				distributeData.header.qosLevel = maxQoS;
+				distributeData.properties.subscriptionIdentifier = publishSubscriptionIdentifier;
+				const pubPacket = encodePublishPacket(distributeData);
 				client.write(pubPacket);
 			});
 
-			// 相应推送者
-			pubData.header.qosLevel = qosLevel;
-			pubData.header.packetIdentifier = packetIdentifier;
+			// 响应推送者
 			if (pubData.header.qosLevel === QoSType.QoS1) {
 				this.handlePubAck(pubData);
 			} else if (pubData.header.qosLevel === QoSType.QoS2) {
