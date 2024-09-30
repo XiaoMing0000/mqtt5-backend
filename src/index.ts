@@ -10,7 +10,7 @@ import {
 	UnsubscribeAckReasonCode,
 } from './exception';
 import {
-	ConnAckPropertyIdentifier,
+	IConnAckData,
 	IConnectData,
 	IDisconnectData,
 	IDisconnectProperties,
@@ -25,6 +25,7 @@ import {
 	QoSType,
 } from './interface';
 import {
+	encodeConnAck,
 	encodeDisconnect,
 	encodePublishPacket,
 	EncoderProperties,
@@ -261,53 +262,44 @@ export class MqttManager {
 	 * @returns
 	 */
 	private handleConnAck() {
-		const connAckData: {
-			fixedHeader: number;
-			remainingLength: number;
-			acknowledgeFlags: number;
-			reasonCode: number;
-			properties: EncoderProperties;
-		} = {
-			fixedHeader: 0x20,
-			remainingLength: 0,
-			acknowledgeFlags: 0x00,
-			reasonCode: 0x00,
-			properties: new EncoderProperties(),
+		const connAckData: IConnAckData = {
+			header: {
+				packetType: PacketType.CONNACK,
+				reserved: 0x00,
+				reasonCode: 0x00,
+			},
+			acknowledgeFlags: {
+				SessionPresent: false,
+			},
+			properties: {},
 		};
 
 		if (this.connData.connectFlags.cleanStart) {
-			connAckData.acknowledgeFlags &= 0xfe;
+			connAckData.acknowledgeFlags.SessionPresent = false;
 		} else {
 			// TODO 校验服务端是否已经保存了此客户端表示的 ClientID 的 会话状态 Session State
-			connAckData.acknowledgeFlags = 0x01;
+
+			connAckData.acknowledgeFlags.SessionPresent = true;
 		}
 
 		if (!this.connData.properties.requestProblemInformation) {
 			// 仅当 request problem information 为 0 时才能向用户发送 properties 3.1.2.11.7
 		}
 
-		// 处理 property
-		connAckData.properties.add(ConnAckPropertyIdentifier.receiveMaximum, MqttManager.defaultProperties.receiveMaximum);
-		// TODO 暂时不支持 QoS 1 2  3.2.2.3.4
-		// connAckData.properties.add(ConnAckPropertyIdentifier.maximumQoS, true);
-		connAckData.properties.add(ConnAckPropertyIdentifier.retainAvailable, false);
-		connAckData.properties.add(ConnAckPropertyIdentifier.maximumPacketSize, MqttManager.defaultProperties.maximumPacketSize);
-		connAckData.properties.add(ConnAckPropertyIdentifier.topicAliasMaximum, MqttManager.defaultProperties.topicAliasMaximum);
-		// TODO 未作通配符
-		connAckData.properties.add(ConnAckPropertyIdentifier.wildcardSubscriptionAvailable, MqttManager.defaultProperties.wildcardSubscriptionAvailable);
+		connAckData.properties = {
+			receiveMaximum: MqttManager.defaultProperties.receiveMaximum,
+			retainAvailable: false,
+			maximumPacketSize: MqttManager.defaultProperties.maximumPacketSize,
+			topicAliasMaximum: MqttManager.defaultProperties.topicAliasMaximum,
+			wildcardSubscriptionAvailable: MqttManager.defaultProperties.wildcardSubscriptionAvailable,
+			subscriptionIdentifierAvailable: true,
+			sharedSubscriptionAvailable: true,
+		};
 		// TODO 是否支持订阅，需要在 subscribe 报文中校验
-		connAckData.properties.add(ConnAckPropertyIdentifier.subscriptionIdentifierAvailable, true);
-		connAckData.properties.add(ConnAckPropertyIdentifier.sharedSubscriptionAvailable, true);
+		// TODO 未作通配符
 
-		// 报文编码
-		connAckData.remainingLength = 2 + connAckData.properties.length;
-		const connPacket = Buffer.from([
-			connAckData.fixedHeader,
-			...encodeVariableByteInteger(connAckData.remainingLength),
-			connAckData.acknowledgeFlags,
-			connAckData.reasonCode,
-			...connAckData.properties.buffer,
-		]);
+		const connPacket = encodeConnAck(connAckData);
+		console.log(connPacket);
 		this.client.write(connPacket);
 	}
 
@@ -415,6 +407,7 @@ export class MqttManager {
 			// TODO 向订阅者发布消息，未启动通配符订阅
 			// 拷贝数据，隔离服务端和客户端 PUBACK 报文
 			const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
+			distributeData.header.udpFlag = false;
 			this.clientManager.forEach(distributeData.header.topicName, (client, data) => {
 				// 如果使用通配符进行订阅，可能会匹配多个订阅，如果订阅标识符存在则必须将这些订阅标识符发送给用户
 				const publishSubscriptionIdentifier: Array<number> = [];

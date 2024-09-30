@@ -1,6 +1,7 @@
 import { PubAckReasonCode, PubAckException, PubRelReasonCode, SubscribeAckException, ConnectAckException, ConnectAckReasonCode } from './exception';
 import {
 	BufferData,
+	IConnAckData,
 	IConnectData,
 	IDisconnectData,
 	IProperties,
@@ -449,6 +450,18 @@ export function parseDisconnect(buffer: Buffer, disconnectData: IDisconnectData)
 	const propertyLength = variableByteInteger(data);
 	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
 	disconnectData.properties = parseDisconnectProperties(propertiesBuffer);
+}
+
+export function encodeConnAck(connAckData: IConnAckData) {
+	const properties = new EncoderProperties();
+	properties.push(connAckData.properties);
+	return Buffer.from([
+		(connAckData.header.packetType << 4) | connAckData.header.reserved,
+		...encodeVariableByteInteger(properties.length + 2),
+		connAckData.acknowledgeFlags.SessionPresent ? 1 : 0,
+		connAckData.header.reasonCode,
+		...properties.buffer,
+	]);
 }
 
 export function encodeDisconnect(disconnectData: IDisconnectData) {

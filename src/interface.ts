@@ -1,4 +1,4 @@
-import { DisconnectReasonCode, PubCompReasonCode, PubRecReasonCode, PubRelReasonCode } from './exception';
+import { ConnectAckReasonCode, DisconnectReasonCode, PubCompReasonCode, PubRecReasonCode, PubRelReasonCode } from './exception';
 
 // MQTT 报文类型
 export enum PacketType {
@@ -292,6 +292,18 @@ export interface IConnectData {
 		username?: string;
 		password?: string;
 	};
+}
+
+export interface IConnAckData {
+	header: {
+		packetType: PacketType;
+		reserved: number;
+		reasonCode: ConnectAckReasonCode;
+	};
+	acknowledgeFlags: {
+		SessionPresent: boolean;
+	};
+	properties: IConnAckProperties;
 }
 
 export interface IPublishData {
