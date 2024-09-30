@@ -56,7 +56,8 @@ export class ClientManager {
 		TNetSocket,
 		{
 			subscription: TClientSubscription;
-			identifier: Set<number>;
+			packetIdentifier: Set<number>;
+			dynamicId: number;
 		}
 	>();
 
@@ -76,7 +77,8 @@ export class ClientManager {
 		if (!this.clientManager.has(client)) {
 			this.clientManager.set(client, {
 				subscription: new Map(),
-				identifier: new Set(),
+				packetIdentifier: new Set(),
+				dynamicId: 1,
 			});
 		}
 	}
@@ -147,6 +149,67 @@ export class ClientManager {
 	 */
 	public getSubscription(client: TNetSocket) {
 		return this.clientManager.get(client)?.subscription;
+	}
+
+	/**
+	 * 获取客户端使用过个的 id
+	 * @param client
+	 * @returns
+	 */
+	public getPacketIdentifierValues(client: TNetSocket) {
+		return this.clientManager.get(client)?.packetIdentifier.values();
+	}
+
+	/**
+	 * 添加一个新的报文标识符
+	 *
+	 * @remarks
+	 * 应用于服务端向客户端分发消息时 （publish)
+	 *
+	 * @param client
+	 * @returns
+	 */
+	public newPacketIdentifier(client: TNetSocket) {
+		let newPacketIdentifier = 0;
+		const manager = this.clientManager.get(client);
+		if (manager) {
+			do {
+				newPacketIdentifier = manager.dynamicId++ && 0xffff;
+			} while (manager.packetIdentifier.has(newPacketIdentifier));
+			manager.packetIdentifier.add(newPacketIdentifier);
+		}
+		return newPacketIdentifier;
+	}
+
+	/**
+	 * 释放报文标识符
+	 *
+	 * @remarks
+	 * 当一个 publish 消息结束时进行释放报文标识符, 仅应用于 PUBACK、PUBREC、PUBCOMP 报文中	 *
+	 *
+	 * @param client
+	 * @param id 被释放的报文标识符
+	 */
+	public deletePacketIdentifier(client: TNetSocket, id: number) {
+		this.clientManager.get(client)?.packetIdentifier.delete(id);
+	}
+
+	/**
+	 * 检测当前用户是否存在指定的报文标识符
+	 * @param client
+	 * @param id 被检测的报文标识符
+	 * @returns
+	 */
+	public hasPacketIdentifier(client: TNetSocket, id: number) {
+		return this.clientManager.get(client)?.packetIdentifier.has(id);
+	}
+
+	/**
+	 * 清空当前用户的报文标识符
+	 * @param client
+	 */
+	public clearPacketIdentifier(client: TNetSocket) {
+		this.clientManager.get(client)?.packetIdentifier.clear();
 	}
 
 	/**
@@ -302,6 +365,7 @@ export class MqttManager {
 			properties: properties,
 		});
 		this.client.write(Buffer.from(disconnectPacket));
+		this.client.end();
 	}
 
 	public pingReqHandle() {
@@ -359,26 +423,26 @@ export class MqttManager {
 				// 如果使用通配符进行订阅，可能会匹配多个订阅，如果订阅标识符存在则必须将这些订阅标识符发送给用户
 				const publishSubscriptionIdentifier: Array<number> = [];
 				let maxQoS = 0;
-				const newPacketIdentifier = this.clientManager.getPacketIdentifier();
+
+				// 获取当前用户订阅匹配到主题的最大 qos 等级
 				this.clientManager.getSubscription(client)?.forEach((value, key) => {
 					if (key === pubData.header.topicName) {
 						// eslint-disable-next-line @typescript-eslint/no-unused-expressions
 						value.subscriptionIdentifier && publishSubscriptionIdentifier.push(value.subscriptionIdentifier);
 						maxQoS = value.qos > maxQoS ? value.qos : maxQoS;
-
-						if (qosLevel === QoSType.QoS0 && pubData.header.qosLevel !== maxQoS) {
-							pubData.header.packetIdentifier = newPacketIdentifier;
-						}
-						pubData.header.qosLevel = maxQoS;
-						pubData.properties.subscriptionIdentifier = publishSubscriptionIdentifier;
-						const pubPacket = encodePublishPacket(pubData);
-
-						// TODO 向客户端分发 qos1 和 qos2 级别的消息，需要记录 packetIdentifier；
-						// 分发 qos2 消息时当收到客户端返回 pubRec、PubComp 数据包需要校验 packetIdentifier;
-						// 分发 qos1 消息时当收到客户端返回 pubAck 数据包需要校验 packetIdentifier;
-						client.write(pubPacket);
 					}
 				});
+				if (maxQoS > QoSType.QoS0) {
+					// 增加报文标识符，用来做publish消息结束校验数据来源
+					// 向客户端分发 qos1 和 qos2 级别的消息，需要记录 packetIdentifier；
+					// 分发 qos2 消息时当收到客户端返回 pubRec、PubComp 数据包需要校验 packetIdentifier;
+					// 分发 qos1 消息时当收到客户端返回 pubAck 数据包需要校验 packetIdentifier;
+					pubData.header.packetIdentifier = this.clientManager.newPacketIdentifier(client);
+				}
+				pubData.header.qosLevel = maxQoS;
+				pubData.properties.subscriptionIdentifier = publishSubscriptionIdentifier;
+				const pubPacket = encodePublishPacket(pubData);
+				client.write(pubPacket);
 			});
 
 			// 相应推送者
@@ -453,6 +517,12 @@ export class MqttManager {
 			properties: {},
 		};
 		parsePubAck(buffer, pubAckData);
+
+		if (!this.clientManager.hasPacketIdentifier(this.client, pubAckData.header.packetIdentifier)) {
+			throw new DisconnectException('PUBACK contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
+		}
+		// 释放报文标识符
+		this.clientManager.deletePacketIdentifier(this.client, pubAckData.header.packetIdentifier);
 		console.log('pubAckData: ', pubAckData);
 	}
 
@@ -497,7 +567,9 @@ export class MqttManager {
 		};
 		parsePubRec(buffer, pubRecData);
 		// console.log('pubRecData: ', pubRecData);
-
+		if (!this.clientManager.hasPacketIdentifier(this.client, pubRecData.header.packetIdentifier)) {
+			throw new DisconnectException('PUBACK contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
+		}
 		this.handlePubRel(pubRecData);
 	}
 
@@ -526,6 +598,11 @@ export class MqttManager {
 		};
 		parsePubRec(buffer, pubCompData);
 		// console.log('pubCompData: ', pubCompData);
+		if (!this.clientManager.hasPacketIdentifier(this.client, pubCompData.header.packetIdentifier)) {
+			throw new DisconnectException('PUBACK contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
+		}
+		// 释放报文标识符
+		this.clientManager.deletePacketIdentifier(this.client, pubCompData.header.packetIdentifier);
 	}
 
 	public subscribeHandle(buffer: Buffer) {

@@ -2,6 +2,7 @@ import net from 'net';
 import { PacketType } from './interface';
 import { defaultAuthenticate, defaultAuthorizeForward, defaultAuthorizePublish, defaultAuthorizeSubscribe, defaultPreConnect, defaultPublished } from './auth';
 import { MqttManager, ClientManager } from '.';
+import { DisconnectException, DisconnectReasonCode } from './exception';
 
 const subscriptionManger = new ClientManager();
 // 创建 TCP 服务器
@@ -25,42 +26,48 @@ const server = net.createServer((client) => {
 	};
 	const mqttManager = new MqttManager(client, subscriptionManger);
 	client.on('data', (data) => {
-		const packetType = (data[0] >> 4) as PacketType;
+		try {
+			const packetType = (data[0] >> 4) as PacketType;
 
-		switch (packetType) {
-			case PacketType.CONNECT:
-				mqttManager.connectHandle(data);
-				break;
-			case PacketType.PUBLISH:
-				mqttManager.publishHandle(data);
-				break;
-			case PacketType.PUBACK:
-				mqttManager.pubAckHandle(data);
-				break;
-			case PacketType.PUBREC:
-				mqttManager.pubRecHandle(data);
-				break;
-			case PacketType.PUBREL:
-				mqttManager.pubRelHandle(data);
-				break;
-			case PacketType.PUBCOMP:
-				mqttManager.pubCompHandle(data);
-				break;
-			case PacketType.SUBSCRIBE:
-				mqttManager.subscribeHandle(data);
-				break;
-			case PacketType.UNSUBSCRIBE:
-				mqttManager.unsubscribeHandle(data);
-				break;
-			case PacketType.PINGREQ:
-				mqttManager.pingReqHandle();
-				break;
+			switch (packetType) {
+				case PacketType.CONNECT:
+					mqttManager.connectHandle(data);
+					break;
+				case PacketType.PUBLISH:
+					mqttManager.publishHandle(data);
+					break;
+				case PacketType.PUBACK:
+					mqttManager.pubAckHandle(data);
+					break;
+				case PacketType.PUBREC:
+					mqttManager.pubRecHandle(data);
+					break;
+				case PacketType.PUBREL:
+					mqttManager.pubRelHandle(data);
+					break;
+				case PacketType.PUBCOMP:
+					mqttManager.pubCompHandle(data);
+					break;
+				case PacketType.SUBSCRIBE:
+					mqttManager.subscribeHandle(data);
+					break;
+				case PacketType.UNSUBSCRIBE:
+					mqttManager.unsubscribeHandle(data);
+					break;
+				case PacketType.PINGREQ:
+					mqttManager.pingReqHandle();
+					break;
 
-			case PacketType.DISCONNECT:
-				mqttManager.disconnectHandle(data);
-				break;
-			default:
-				console.log('Unhandled packet type:', packetType);
+				case PacketType.DISCONNECT:
+					mqttManager.disconnectHandle(data);
+					break;
+				default:
+					console.log('Unhandled packet type:', packetType);
+			}
+		} catch (error) {
+			if (error instanceof DisconnectException) {
+				mqttManager.handleDisconnect(error.code as DisconnectReasonCode, { reasonString: error.msg });
+			}
 		}
 	});
 
