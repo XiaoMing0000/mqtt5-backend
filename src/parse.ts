@@ -6,6 +6,7 @@ import {
 	IDisconnectData,
 	IProperties,
 	IPubAckData,
+	IPubCompData,
 	IPublishData,
 	IPubRecData,
 	IPubRelData,
@@ -491,4 +492,22 @@ export function encodePublishPacket(pubData: IPublishData) {
 	const publishedPacket = Buffer.from([fixedHeader, ...encodeVariableByteInteger(remainingBuffer.length), ...remainingBuffer]);
 
 	return publishedPacket;
+}
+
+/**
+ * 对 PUBACK、PUBREC、PUBCOMP 报文进行编码
+ * @param pubAckData
+ * @returns
+ */
+export function encodePubControlPacket(data: IPubAckData | IPubRecData | IPubCompData) {
+	const packetIdentifier = data.header.packetIdentifier ?? 0;
+	const properties = new EncoderProperties();
+	properties.push(data.properties);
+	return Buffer.from([
+		(data.header.packetType << 4) | data.header.received,
+		...encodeVariableByteInteger(3 + properties.length),
+		...integerToTwoUint8(packetIdentifier),
+		0x00,
+		...properties.buffer,
+	]);
 }

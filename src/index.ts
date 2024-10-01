@@ -27,6 +27,7 @@ import {
 import {
 	encodeConnAck,
 	encodeDisconnect,
+	encodePubControlPacket,
 	encodePublishPacket,
 	EncoderProperties,
 	encodeVariableByteInteger,
@@ -263,10 +264,8 @@ export class ClientManager {
 export class MqttManager {
 	static defaultProperties = {
 		maximumQoS: 2,
-		receiveMaximum: 32,
 		retainAvailable: true,
-		// retainTTL: 30 * 60,
-		retainTTL: 60,
+		retainTTL: 30 * 60,
 		maximumPacketSize: 1 << 20,
 		topicAliasMaximum: 65535,
 		wildcardSubscriptionAvailable: false,
@@ -274,6 +273,7 @@ export class MqttManager {
 
 	// 当前客户推送消息的 topic alisa name
 	topicAliasNameMap: { [key: number]: string } = {};
+	receiveCounter = 0;
 
 	protected connData: IConnectData = {
 		header: {
@@ -325,7 +325,7 @@ export class MqttManager {
 		}
 
 		connAckData.properties = {
-			receiveMaximum: MqttManager.defaultProperties.receiveMaximum,
+			receiveMaximum: this.connData.properties.receiveMaximum,
 			retainAvailable: MqttManager.defaultProperties.retainAvailable,
 			maximumPacketSize: MqttManager.defaultProperties.maximumPacketSize,
 			topicAliasMaximum: MqttManager.defaultProperties.topicAliasMaximum,
@@ -350,9 +350,12 @@ export class MqttManager {
 			this.connData = parseConnect(buffer);
 			if (this.connData.connectFlags.cleanStart) {
 				this.clientManager.clear(this.client);
+				this.receiveCounter = 0;
 			}
+
 			this.clientManager.initClient(this.client);
 			// console.log('connData: ', this.connData);
+			this.connData.properties.receiveMaximum ??= 0xffff;
 			this.handleConnAck();
 		} catch (error) {
 			if (error instanceof ConnectAckException) {
@@ -506,37 +509,45 @@ export class MqttManager {
 					}
 				}
 			} else if (error instanceof DisconnectException) {
-				// 处理 disconnect
-				console.log('-------------');
+				throw error;
 			}
 		}
 	}
 	private handlePubAck(pubData: IPublishData) {
-		const packetIdentifier = pubData.header.packetIdentifier ?? 1;
+		this.receiveCounter++;
+		if (this.receiveCounter > (this.connData.properties.receiveMaximum ?? 0xffff)) {
+			throw new DisconnectException(
+				'The Client MUST NOT send more than Receive Maximum QoS 1 and QoS 2 PUBLISH packets for which it has not received PUBACK, PUBCOMP, or PUBREC with a Reason Code of 128 or greater from the Server.',
+				DisconnectReasonCode.ReceiveMaximumExceeded,
+			);
+		}
 
-		const properties = new EncoderProperties();
-		const pubAckPacket = Buffer.from([
-			PacketType.PUBACK << 4,
-			...encodeVariableByteInteger(3 + properties.length),
-			...integerToTwoUint8(packetIdentifier),
-			0x00,
-			...properties.buffer,
-		]);
+		const pubAckData: IPubAckData = {
+			header: {
+				packetType: PacketType.PUBACK,
+				packetIdentifier: pubData.header.packetIdentifier ?? 0,
+				received: 0x00,
+				reasonCode: 0x00,
+			},
+			properties: {},
+		};
+
+		const pubAckPacket = encodePubControlPacket(pubAckData);
 		this.client.write(pubAckPacket);
 	}
 
 	private handlePubRec(pubData: IPublishData) {
-		const packetIdentifier = pubData.header.packetIdentifier ?? 1;
-
-		const properties = new EncoderProperties();
-		const errorPacket = Buffer.from([
-			PacketType.PUBREC << 4,
-			...encodeVariableByteInteger(3 + properties.length),
-			...integerToTwoUint8(packetIdentifier),
-			0x00,
-			...properties.buffer,
-		]);
-		this.client.write(errorPacket);
+		const pubRecData: IPubRecData = {
+			header: {
+				packetType: PacketType.PUBREC,
+				packetIdentifier: pubData.header.packetIdentifier ?? 0,
+				received: 0x00,
+				reasonCode: 0x00,
+			},
+			properties: {},
+		};
+		const pubRecPacket = encodePubControlPacket(pubRecData);
+		this.client.write(pubRecPacket);
 	}
 
 	public pubAckHandle(buffer: Buffer) {
@@ -577,6 +588,13 @@ export class MqttManager {
 	}
 
 	private handlePubComp(pubRelData: IPubRelData) {
+		this.receiveCounter++;
+		if (this.receiveCounter > (this.connData.properties.receiveMaximum ?? 0xffff)) {
+			throw new DisconnectException(
+				'The Client MUST NOT send more than Receive Maximum QoS 1 and QoS 2 PUBLISH packets for which it has not received PUBACK, PUBCOMP, or PUBREC with a Reason Code of 128 or greater from the Server.',
+				DisconnectReasonCode.ReceiveMaximumExceeded,
+			);
+		}
 		const properties = new EncoderProperties();
 		const compPacket = Buffer.from([
 			PacketType.PUBCOMP << 4,

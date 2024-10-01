@@ -277,7 +277,7 @@ export interface IConnectData {
 	header: {
 		packetType: PacketType;
 		packetFlags: number;
-		remainingLength: number;
+		remainingLength?: number;
 		protocolName: string;
 		protocolVersion: number;
 		keepAlive: number;
@@ -312,7 +312,7 @@ export interface IPublishData {
 		udpFlag: boolean;
 		qosLevel: number;
 		retain: boolean;
-		remainingLength: number;
+		remainingLength?: number;
 		packetIdentifier?: number;
 		topicName: string;
 	};
@@ -324,7 +324,7 @@ export interface ISubscribeData {
 	header: {
 		packetType: PacketType;
 		received: number;
-		remainingLength: number;
+		remainingLength?: number;
 		packetIdentifier: number;
 	};
 	properties: ISubscribeProperties;
@@ -342,7 +342,7 @@ export interface IUnsubscribeData {
 	header: {
 		packetType: PacketType;
 		received: number;
-		remainingLength: number;
+		remainingLength?: number;
 		packetIdentifier: number;
 	};
 	properties: IUnsubscribeProperties;
@@ -353,7 +353,7 @@ export interface IDisconnectData {
 	header: {
 		packetType: PacketType;
 		received: number;
-		remainingLength: number;
+		remainingLength?: number;
 		reasonCode: DisconnectReasonCode;
 	};
 	properties: IDisconnectProperties;
@@ -363,7 +363,7 @@ export interface IPubAckData {
 	header: {
 		packetType: PacketType;
 		received: number;
-		remainingLength: number;
+		remainingLength?: number;
 		packetIdentifier: number;
 		reasonCode: PubRelReasonCode;
 	};
@@ -374,7 +374,7 @@ export interface IPubRelData {
 	header: {
 		packetType: PacketType;
 		received: number;
-		remainingLength: number;
+		remainingLength?: number;
 		packetIdentifier: number;
 		reasonCode: PubRelReasonCode;
 	};
@@ -385,7 +385,7 @@ export interface IPubRecData {
 	header: {
 		packetType: PacketType;
 		received: number;
-		remainingLength: number;
+		remainingLength?: number;
 		packetIdentifier: number;
 		reasonCode: PubRecReasonCode;
 	};
@@ -396,7 +396,7 @@ export interface IPubCompData {
 	header: {
 		packetType: PacketType;
 		received: number;
-		remainingLength: number;
+		remainingLength?: number;
 		packetIdentifier: number;
 		reasonCode: PubCompReasonCode;
 	};
