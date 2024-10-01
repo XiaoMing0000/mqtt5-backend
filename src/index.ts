@@ -190,7 +190,7 @@ export class ClientManager {
 		if (manager) {
 			do {
 				newPacketIdentifier = manager.dynamicId++ && 0xffff;
-			} while (manager.packetIdentifier.has(newPacketIdentifier));
+			} while (manager.packetIdentifier.has(newPacketIdentifier) && !newPacketIdentifier);
 			manager.packetIdentifier.add(newPacketIdentifier);
 		}
 		return newPacketIdentifier;
@@ -620,7 +620,7 @@ export class MqttManager {
 		parsePubRec(buffer, pubRecData);
 		// console.log('pubRecData: ', pubRecData);
 		if (!this.clientManager.hasPacketIdentifier(this.client, pubRecData.header.packetIdentifier)) {
-			throw new DisconnectException('PUBACK contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
+			throw new DisconnectException('PUBREC contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
 		}
 		this.handlePubRel(pubRecData);
 	}
@@ -651,7 +651,7 @@ export class MqttManager {
 		parsePubRec(buffer, pubCompData);
 		// console.log('pubCompData: ', pubCompData);
 		if (!this.clientManager.hasPacketIdentifier(this.client, pubCompData.header.packetIdentifier)) {
-			throw new DisconnectException('PUBACK contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
+			throw new DisconnectException('PUBCOMP contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
 		}
 		// 释放报文标识符
 		this.clientManager.deletePacketIdentifier(this.client, pubCompData.header.packetIdentifier);
