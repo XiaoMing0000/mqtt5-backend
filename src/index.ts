@@ -61,6 +61,19 @@ export class ClientManager {
 			dynamicId: number;
 		}
 	>();
+	// 记录保留消息
+	private retainMessage = new Map<string, { data: IPublishData; TTL: number }>();
+
+	constructor() {
+		setInterval(() => {
+			const timestamp = Math.floor(Date.now() / 1000);
+			this.retainMessage.forEach((value, key) => {
+				if (timestamp > value.TTL) {
+					this.retainMessage.delete(key);
+				}
+			});
+		}, 1000);
+	}
 
 	/**
 	 * 获取并更新 packetIdentifier
@@ -223,12 +236,37 @@ export class ClientManager {
 		});
 		this.clientManager.delete(client);
 	}
+
+	/************************** PUBLISH 保留消息 **************************/
+	public addRetainMessage(topic: string, pubData: IPublishData) {
+		this.retainMessage.set(topic, {
+			TTL: Math.floor(Date.now()) + MqttManager.defaultProperties.retainTTL,
+			data: pubData,
+		});
+	}
+
+	public deleteRetainMessage(topic: string) {
+		this.retainMessage.delete(topic);
+	}
+
+	public getRetainMessage(topic: string) {
+		return this.retainMessage.get(topic);
+	}
+
+	public forEachRetainMessage(callbackfn: (topic: string, data: IPublishData) => void) {
+		this.retainMessage.forEach((value, key) => {
+			callbackfn(key, value.data);
+		});
+	}
 }
 
 export class MqttManager {
 	static defaultProperties = {
 		maximumQoS: 2,
 		receiveMaximum: 32,
+		retainAvailable: true,
+		// retainTTL: 30 * 60,
+		retainTTL: 60,
 		maximumPacketSize: 1 << 20,
 		topicAliasMaximum: 65535,
 		wildcardSubscriptionAvailable: false,
@@ -288,7 +326,7 @@ export class MqttManager {
 
 		connAckData.properties = {
 			receiveMaximum: MqttManager.defaultProperties.receiveMaximum,
-			retainAvailable: false,
+			retainAvailable: MqttManager.defaultProperties.retainAvailable,
 			maximumPacketSize: MqttManager.defaultProperties.maximumPacketSize,
 			topicAliasMaximum: MqttManager.defaultProperties.topicAliasMaximum,
 			wildcardSubscriptionAvailable: MqttManager.defaultProperties.wildcardSubscriptionAvailable,
@@ -403,6 +441,15 @@ export class MqttManager {
 			} else if (pubData.properties.topicAlias) {
 				pubData.header.topicName = this.topicAliasNameMap[pubData.properties.topicAlias];
 			}
+			// 保留消息处理
+			if (MqttManager.defaultProperties.retainAvailable && pubData.header.retain) {
+				if (pubData.payload) {
+					this.clientManager.addRetainMessage(pubData.header.topicName, pubData);
+				} else {
+					this.clientManager.deleteRetainMessage(pubData.header.topicName);
+				}
+			}
+
 			delete pubData.properties.topicAlias;
 			// TODO 向订阅者发布消息，未启动通配符订阅
 			// 拷贝数据，隔离服务端和客户端 PUBACK 报文
@@ -618,6 +665,18 @@ export class MqttManager {
 				date: new Date(),
 				subscriptionIdentifier: subData.properties.subscriptionIdentifier,
 			});
+
+			// 允许推送保留消息
+			if (MqttManager.defaultProperties.retainAvailable) {
+				this.clientManager.forEachRetainMessage((topic, data) => {
+					if (topic === subData.payload) {
+						data.header.qosLevel = subData.options.qos;
+						data.header.packetIdentifier = this.clientManager.newPacketIdentifier(this.client);
+						const publishPacket = encodePublishPacket(data);
+						this.client.write(publishPacket);
+					}
+				});
+			}
 		} catch {
 			// TODO 订阅异常处理
 		}
