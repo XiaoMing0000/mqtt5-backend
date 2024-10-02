@@ -1,4 +1,13 @@
-import { PubAckReasonCode, PubAckException, PubRelReasonCode, SubscribeAckException, ConnectAckException, ConnectAckReasonCode } from './exception';
+import {
+	PubAckReasonCode,
+	PubAckException,
+	PubRelReasonCode,
+	SubscribeAckException,
+	ConnectAckException,
+	ConnectAckReasonCode,
+	DisconnectException,
+	DisconnectReasonCode,
+} from './exception';
 import {
 	BufferData,
 	IConnAckData,
@@ -15,6 +24,7 @@ import {
 	PacketType,
 	PropertyDataMap,
 	PropertyIdentifier,
+	QoSType,
 	TPropertyIdentifier,
 } from './interface';
 import {
@@ -417,6 +427,10 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
 		retainHandling: (subscriptionOptions >> 4) & 0x03,
 		retain: (subscriptionOptions >> 6) & 0x03,
 	};
+
+	if (subData.options.qos > QoSType.QoS2) {
+		throw new DisconnectException('It is a Protocol Error if the Maximum QoS field has the value 3.', DisconnectReasonCode.ProtocolError);
+	}
 }
 
 export function parseUnsubscribe(buffer: Buffer, unsubscribeData: IUnsubscribeData) {

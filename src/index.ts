@@ -47,6 +47,7 @@ type TSubscribeData = {
 	qos: QoSType;
 	date: Date;
 	subscriptionIdentifier?: number;
+	noLocal: boolean;
 };
 type TTopic = string;
 type TClientSubscription = Map<TTopic, TSubscribeData>;
@@ -458,7 +459,10 @@ export class MqttManager {
 			// 拷贝数据，隔离服务端和客户端 PUBACK 报文
 			const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
 			distributeData.header.udpFlag = false;
-			this.clientManager.forEach(distributeData.header.topicName, (client, data) => {
+			this.clientManager.forEach(distributeData.header.topicName, (client, subFlags) => {
+				if (subFlags.noLocal && client === this.client) {
+					return;
+				}
 				// 如果使用通配符进行订阅，可能会匹配多个订阅，如果订阅标识符存在则必须将这些订阅标识符发送给用户
 				const publishSubscriptionIdentifier: Array<number> = [];
 				let maxQoS = 0;
@@ -682,6 +686,7 @@ export class MqttManager {
 				qos: subData.options.qos,
 				date: new Date(),
 				subscriptionIdentifier: subData.properties.subscriptionIdentifier,
+				noLocal: subData.options.noLocal,
 			});
 
 			// 允许推送保留消息
