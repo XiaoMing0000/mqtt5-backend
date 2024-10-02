@@ -18,6 +18,7 @@ import {
 	IPublishData,
 	IPubRecData,
 	IPubRelData,
+	ISubAckData,
 	ISubscribeData,
 	IUnsubscribeData,
 	PacketType,
@@ -30,6 +31,7 @@ import {
 	encodePubControlPacket,
 	encodePublishPacket,
 	EncoderProperties,
+	encodeSubAckPacket,
 	encodeVariableByteInteger,
 	integerToTwoUint8,
 	parseConnect,
@@ -722,16 +724,17 @@ export class MqttManager {
 	}
 
 	private handleSubAck(subData: ISubscribeData) {
-		let remainingLength = 1;
-		const properties = new EncoderProperties();
-		remainingLength += properties.length + 2;
-		const subAckPacket = Buffer.from([
-			PacketType.SUBACK << 4,
-			...encodeVariableByteInteger(remainingLength),
-			...integerToTwoUint8(subData.header.packetIdentifier),
-			...properties.buffer,
-			SubscribeAckReasonCode.GrantedQoS1,
-		]);
+		const subAckData: ISubAckData = {
+			header: {
+				packetType: PacketType.SUBACK,
+				retain: 0x00,
+				packetIdentifier: subData.header.packetIdentifier,
+			},
+			properties: {},
+			reasonCode: SubscribeAckReasonCode.GrantedQoS2,
+		};
+
+		const subAckPacket = encodeSubAckPacket(subAckData);
 		this.client.write(subAckPacket);
 	}
 

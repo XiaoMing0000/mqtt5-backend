@@ -19,6 +19,7 @@ import {
 	IPublishData,
 	IPubRecData,
 	IPubRelData,
+	ISubAckData,
 	ISubscribeData,
 	IUnsubscribeData,
 	PacketType,
@@ -434,6 +435,10 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
 	if (subData.options.retainHandling > 0x02) {
 		throw new DisconnectException('It is a Protocol Error to send a Retain Handling value of 3.', DisconnectReasonCode.ProtocolError);
 	}
+
+	if (subData.options.retain !== 0) {
+		throw new DisconnectException('Sending a Retain value that is not equal to 0 is a protocol error.', DisconnectReasonCode.ProtocolError);
+	}
 }
 
 export function parseUnsubscribe(buffer: Buffer, unsubscribeData: IUnsubscribeData) {
@@ -517,14 +522,24 @@ export function encodePublishPacket(pubData: IPublishData) {
  * @returns
  */
 export function encodePubControlPacket(data: IPubAckData | IPubRecData | IPubCompData) {
-	const packetIdentifier = data.header.packetIdentifier ?? 0;
 	const properties = new EncoderProperties();
 	properties.push(data.properties);
 	return Buffer.from([
 		(data.header.packetType << 4) | data.header.received,
 		...encodeVariableByteInteger(3 + properties.length),
-		...integerToTwoUint8(packetIdentifier),
+		...integerToTwoUint8(data.header.packetIdentifier),
 		0x00,
 		...properties.buffer,
+	]);
+}
+
+export function encodeSubAckPacket(subAckData: ISubAckData) {
+	const properties = new EncoderProperties();
+	return Buffer.from([
+		PacketType.SUBACK << 4,
+		...encodeVariableByteInteger(properties.length + 3),
+		...integerToTwoUint8(subAckData.header.packetIdentifier),
+		...properties.buffer,
+		subAckData.reasonCode,
 	]);
 }

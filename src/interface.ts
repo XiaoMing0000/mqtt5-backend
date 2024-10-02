@@ -1,4 +1,4 @@
-import { ConnectAckReasonCode, DisconnectReasonCode, PubCompReasonCode, PubRecReasonCode, PubRelReasonCode } from './exception';
+import { ConnectAckReasonCode, DisconnectReasonCode, PubCompReasonCode, PubRecReasonCode, PubRelReasonCode, SubscribeAckReasonCode } from './exception';
 
 // MQTT 报文类型
 export enum PacketType {
@@ -336,6 +336,16 @@ export interface ISubscribeData {
 		retainHandling: number;
 		retain: number;
 	};
+}
+
+export interface ISubAckData {
+	header: {
+		packetType: PacketType;
+		retain: number;
+		packetIdentifier: number;
+	};
+	properties: ISubAckProperties;
+	reasonCode: SubscribeAckReasonCode;
 }
 
 export interface IUnsubscribeData {
