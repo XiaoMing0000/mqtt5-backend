@@ -48,6 +48,7 @@ type TSubscribeData = {
 	date: Date;
 	subscriptionIdentifier?: number;
 	noLocal: boolean;
+	retainAsPublished: boolean;
 };
 type TTopic = string;
 type TClientSubscription = Map<TTopic, TSubscribeData>;
@@ -484,6 +485,7 @@ export class MqttManager {
 				}
 				distributeData.header.qosLevel = maxQoS;
 				distributeData.properties.subscriptionIdentifier = publishSubscriptionIdentifier;
+				distributeData.header.retain = subFlags.retainAsPublished ? distributeData.header.retain : false;
 				const pubPacket = encodePublishPacket(distributeData);
 				client.write(pubPacket);
 			});
@@ -687,6 +689,7 @@ export class MqttManager {
 				date: new Date(),
 				subscriptionIdentifier: subData.properties.subscriptionIdentifier,
 				noLocal: subData.options.noLocal,
+				retainAsPublished: subData.options.retainAsPublished,
 			});
 
 			// 允许推送保留消息
