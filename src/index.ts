@@ -169,6 +169,15 @@ export class ClientManager {
 	}
 
 	/**
+	 * 检测是订阅是否存在
+	 * @param topic
+	 * @returns
+	 */
+	public isSubscribe(topic: string) {
+		return this.topicMap.has(topic);
+	}
+
+	/**
 	 * 获取客户端使用过个的 id
 	 * @param client
 	 * @returns
@@ -693,7 +702,10 @@ export class MqttManager {
 			});
 
 			// 允许推送保留消息
-			if (MqttManager.defaultProperties.retainAvailable) {
+			if (
+				MqttManager.defaultProperties.retainAvailable &&
+				(subData.options.retainHandling == 0 || (subData.options.retainHandling == 1 && this.clientManager.isSubscribe(subData.payload)))
+			) {
 				this.clientManager.forEachRetainMessage((topic, data) => {
 					if (topic === subData.payload) {
 						data.header.qosLevel = subData.options.qos;

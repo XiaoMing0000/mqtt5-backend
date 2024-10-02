@@ -431,6 +431,9 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
 	if (subData.options.qos > QoSType.QoS2) {
 		throw new DisconnectException('It is a Protocol Error if the Maximum QoS field has the value 3.', DisconnectReasonCode.ProtocolError);
 	}
+	if (subData.options.retainHandling > 0x02) {
+		throw new DisconnectException('It is a Protocol Error to send a Retain Handling value of 3.', DisconnectReasonCode.ProtocolError);
+	}
 }
 
 export function parseUnsubscribe(buffer: Buffer, unsubscribeData: IUnsubscribeData) {
