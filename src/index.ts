@@ -56,7 +56,7 @@ type TTopic = string;
 type TClientSubscription = Map<TTopic, TSubscribeData>;
 
 export class ClientManager {
-	private topicMap = new Map<string, Set<TNetSocket>>();
+	private topicMap = new Map<string | RegExp, Set<TNetSocket>>();
 	private packetIdentifier = 0;
 	private clientManager = new Map<
 		TNetSocket,
@@ -112,6 +112,9 @@ export class ClientManager {
 		if (this.clientManager.has(client)) {
 			this.clientManager.get(client)?.subscription.set(topic, data);
 		}
+		// TODO 添加通配符订阅主题
+		// TODO subscribe 主题名合法性校验和 publish 主题名非法性校验
+
 		if (!this.topicMap.has(topic)) {
 			const clientSet = new Set<TNetSocket>();
 			clientSet.add(client);
@@ -702,6 +705,8 @@ export class MqttManager {
 				noLocal: subData.options.noLocal,
 				retainAsPublished: subData.options.retainAsPublished,
 			});
+
+			// TODO 3.8.4 SUBSCRIBE Actions
 
 			// 允许推送保留消息
 			if (
