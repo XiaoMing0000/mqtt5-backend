@@ -1,8 +1,8 @@
 import net from 'net';
-import { PacketType } from './interface';
+import { IPubAckData, ISubAckData, PacketType } from './interface';
 import { defaultAuthenticate, defaultAuthorizeForward, defaultAuthorizePublish, defaultAuthorizeSubscribe, defaultPreConnect, defaultPublished } from './auth';
 import { MqttManager, ClientManager } from '.';
-import { DisconnectException, DisconnectReasonCode } from './exception';
+import { DisconnectException, DisconnectReasonCode, PubAckReasonCode, SubscribeAckException, SubscribeAckReasonCode } from './exception';
 
 const subscriptionManger = new ClientManager();
 // 创建 TCP 服务器
@@ -67,6 +67,17 @@ const server = net.createServer((client) => {
 		} catch (error) {
 			if (error instanceof DisconnectException) {
 				mqttManager.handleDisconnect(error.code as DisconnectReasonCode, { reasonString: error.msg });
+			} else if (error instanceof SubscribeAckException) {
+				// const subAckData: ISubAckData = {
+				// 	header: {
+				// 		packetType: PacketType.SUBACK,
+				// 		retain: 0x00,
+				// 		packetIdentifier: error.packetIdentifier,
+				// 	},
+				// 	properties: {},
+				// 	reasonCode: error.code as SubscribeAckReasonCode,
+				// };
+				// mqttManager.handleSubAck(subAckData);
 			}
 		}
 	});

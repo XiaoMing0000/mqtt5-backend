@@ -28,24 +28,24 @@ export function verifyTopic(topic: string) {
  * @param topic
  * @returns false 表示无效主题；string 表示字符串主题；RegExp 表示具有统配符的主题订阅
  */
-export function topicToRegEx(topic: string): string | false | RegExp {
+export function topicToRegEx(topic: string): string | false {
 	if (!verifyTopic(topic)) {
 		// 无效的主题过滤器
 		return false;
 	}
 	if (/$|#|\+/.test(topic)) {
 		if (topic === '#') {
-			return new RegExp(`.*`);
+			return `^.*`;
 		}
 		if (topic === '+') {
-			return new RegExp(`^[^/]*$`);
+			return `^[^/]*$`;
 		}
 
 		let regStr = topic;
 		regStr = regStr.replace('$', '\\$');
 		regStr = regStr.replace('/#', '/?.*');
 		regStr = regStr.replace(/\+/g, '[^/]*');
-		return new RegExp(`^${regStr}$`);
+		return `^${regStr}$`;
 	}
-	return topic;
+	return `^${topic}$`;
 }

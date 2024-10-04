@@ -6,6 +6,7 @@ import {
 	PubAckException,
 	PubAckReasonCode,
 	PubCompReasonCode,
+	SubscribeAckException,
 	SubscribeAckReasonCode,
 	UnsubscribeAckReasonCode,
 } from './exception';
@@ -43,6 +44,7 @@ import {
 	parseSubscribe,
 	parseUnsubscribe,
 } from './parse';
+import { topicToRegEx } from './topicFilters';
 
 type TNetSocket = net.Socket;
 type TSubscribeData = {
@@ -56,7 +58,7 @@ type TTopic = string;
 type TClientSubscription = Map<TTopic, TSubscribeData>;
 
 export class ClientManager {
-	private topicMap = new Map<string | RegExp, Set<TNetSocket>>();
+	private topicMap = new Map<string, Set<TNetSocket>>();
 	private packetIdentifier = 0;
 	private clientManager = new Map<
 		TNetSocket,
@@ -151,17 +153,19 @@ export class ClientManager {
 	 * @param callbackfn 遍历回调函数
 	 */
 	public forEach(topic: string, callbackfn: (client: TNetSocket, data: TSubscribeData) => void) {
-		const clientSet = this.topicMap.get(topic);
-		if (clientSet) {
-			clientSet.forEach((cli) => {
+		this.topicMap.forEach((topicClientSet, topicKey) => {
+			if (!new RegExp(topicKey).test(topic)) {
+				return;
+			}
+			topicClientSet.forEach((cli) => {
 				// const clientManager = this.clientSubscription.get(cli);
 				const clientSubscription = this.clientManager.get(cli)?.subscription;
-				const subscriptionData = clientSubscription?.get(topic);
+				const subscriptionData = clientSubscription?.get(topicKey);
 				if (subscriptionData) {
 					callbackfn(cli, subscriptionData);
 				}
 			});
-		}
+		});
 	}
 
 	/**
@@ -483,11 +487,11 @@ export class MqttManager {
 				let maxQoS = 0;
 
 				// 获取当前用户订阅匹配到主题的最大 qos 等级
-				this.clientManager.getSubscription(client)?.forEach((value, key) => {
-					if (key === distributeData.header.topicName) {
+				this.clientManager.getSubscription(client)?.forEach((data, topic) => {
+					if (new RegExp(topic).test(distributeData.header.topicName)) {
 						// eslint-disable-next-line @typescript-eslint/no-unused-expressions
-						value.subscriptionIdentifier && publishSubscriptionIdentifier.push(value.subscriptionIdentifier);
-						maxQoS = value.qos > maxQoS ? value.qos : maxQoS;
+						data.subscriptionIdentifier && publishSubscriptionIdentifier.push(data.subscriptionIdentifier);
+						maxQoS = data.qos > maxQoS ? data.qos : maxQoS;
 					}
 				});
 				if (maxQoS > QoSType.QoS0) {
@@ -698,13 +702,18 @@ export class MqttManager {
 		try {
 			parseSubscribe(buffer, subData);
 			// console.log('subData: ', subData);
-			this.clientManager.subscribe(this.client, subData.payload, {
-				qos: subData.options.qos,
-				date: new Date(),
-				subscriptionIdentifier: subData.properties.subscriptionIdentifier,
-				noLocal: subData.options.noLocal,
-				retainAsPublished: subData.options.retainAsPublished,
-			});
+			const topic = topicToRegEx(subData.payload);
+			if (!topic) {
+				throw new SubscribeAckException('The topic filter format is incorrect and cannot be received by the server.', SubscribeAckReasonCode.TopicFilterInvalid);
+			} else {
+				this.clientManager.subscribe(this.client, topic, {
+					qos: subData.options.qos,
+					date: new Date(),
+					subscriptionIdentifier: subData.properties.subscriptionIdentifier,
+					noLocal: subData.options.noLocal,
+					retainAsPublished: subData.options.retainAsPublished,
+				});
+			}
 
 			// TODO 3.8.4 SUBSCRIBE Actions
 
@@ -714,7 +723,7 @@ export class MqttManager {
 				(subData.options.retainHandling == 0 || (subData.options.retainHandling == 1 && this.clientManager.isSubscribe(subData.payload)))
 			) {
 				this.clientManager.forEachRetainMessage((topic, data) => {
-					if (topic === subData.payload) {
+					if (new RegExp(topic).test(subData.payload)) {
 						data.header.qosLevel = subData.options.qos;
 						data.header.packetIdentifier = this.clientManager.newPacketIdentifier(this.client);
 						const publishPacket = encodePublishPacket(data);
@@ -725,10 +734,8 @@ export class MqttManager {
 		} catch {
 			// TODO 订阅异常处理
 		}
-		this.handleSubAck(subData);
-	}
-
-	private handleSubAck(subData: ISubscribeData) {
+		// subData.header.packetIdentifier = 100;
+		console.log(subData.header.packetIdentifier);
 		const subAckData: ISubAckData = {
 			header: {
 				packetType: PacketType.SUBACK,
@@ -738,7 +745,10 @@ export class MqttManager {
 			properties: {},
 			reasonCode: SubscribeAckReasonCode.GrantedQoS2,
 		};
+		this.handleSubAck(subAckData);
+	}
 
+	public handleSubAck(subAckData: ISubAckData) {
 		const subAckPacket = encodeSubAckPacket(subAckData);
 		this.client.write(subAckPacket);
 	}
@@ -757,8 +767,12 @@ export class MqttManager {
 		try {
 			parseUnsubscribe(buffer, unsubscribeData);
 			console.log('unsubscribeData: ', unsubscribeData);
+			const topic = topicToRegEx(unsubscribeData.payload);
+			if (!topic) {
+				throw new Error('topic name error');
+			}
 
-			this.clientManager.unsubscribe(this.client, unsubscribeData.payload);
+			this.clientManager.unsubscribe(this.client, topic);
 		} catch {
 			// TODO 订阅异常处理
 		}

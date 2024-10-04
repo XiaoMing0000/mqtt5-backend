@@ -235,6 +235,9 @@ export class EncoderProperties {
 	}
 }
 
+// TODO 报文解析
+export function parsePacket(buffer: Buffer) {}
+
 /**
  * 解析 connect 报文
  * @param buffer
