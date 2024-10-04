@@ -13,6 +13,7 @@ import {
 	IConnAckData,
 	IConnectData,
 	IDisconnectData,
+	IPingData,
 	IProperties,
 	IPubAckData,
 	IPubCompData,
@@ -23,6 +24,7 @@ import {
 	ISubscribeData,
 	IUnsubscribeData,
 	PacketType,
+	PacketTypeData,
 	PropertyDataMap,
 	PropertyIdentifier,
 	QoSType,
@@ -236,7 +238,142 @@ export class EncoderProperties {
 }
 
 // TODO 报文解析
-export function parsePacket(buffer: Buffer) {}
+export function parsePacket(buffer: Buffer): PacketTypeData {
+	const packetType = (buffer[0] >> 4) as PacketType;
+
+	switch (packetType) {
+		case PacketType.PINGREQ: {
+			const data: IPingData = { header: { packetType: PacketType.PINGREQ } };
+			return data;
+		}
+		case PacketType.CONNECT: {
+			return parseConnect(buffer);
+		}
+		case PacketType.PUBLISH: {
+			const pubData: IPublishData = {
+				header: {
+					packetType: PacketType.RESERVED,
+					udpFlag: false,
+					qosLevel: 0,
+					retain: false,
+					remainingLength: 0,
+					topicName: '',
+				},
+				properties: {},
+				payload: '',
+			};
+			parsePublish(buffer, pubData);
+			return pubData;
+		}
+		case PacketType.PUBACK: {
+			const pubAckData: IPubAckData = {
+				header: {
+					packetType: PacketType.PUBACK,
+					received: 0x00,
+					remainingLength: 0,
+					packetIdentifier: 0,
+					reasonCode: 0x00,
+				},
+				properties: {},
+			};
+			parsePubAck(buffer, pubAckData);
+			return pubAckData;
+		}
+		case PacketType.PUBREC: {
+			const pubRecData: IPubRecData = {
+				header: {
+					packetType: PacketType.PUBREL,
+					received: 0x02,
+					remainingLength: 0,
+					packetIdentifier: 0,
+					reasonCode: 0x00,
+				},
+				properties: {},
+			};
+			parsePubRec(buffer, pubRecData);
+			return pubRecData;
+		}
+		case PacketType.PUBREL: {
+			const pubRelData: IPubRelData = {
+				header: {
+					packetType: PacketType.PUBREC,
+					received: 0x02,
+					remainingLength: 0,
+					packetIdentifier: 0,
+					reasonCode: 0x00,
+				},
+				properties: {},
+			};
+			parsePubRel(buffer, pubRelData);
+			return pubRelData;
+		}
+		case PacketType.PUBCOMP: {
+			const pubCompData: IPubRecData = {
+				header: {
+					packetType: PacketType.PUBREL,
+					received: 0x02,
+					remainingLength: 0,
+					packetIdentifier: 0,
+					reasonCode: 0x00,
+				},
+				properties: {},
+			};
+			parsePubRec(buffer, pubCompData);
+			return pubCompData;
+		}
+		case PacketType.SUBSCRIBE: {
+			const subData: ISubscribeData = {
+				header: {
+					packetType: PacketType.RESERVED,
+					received: 0x02,
+					remainingLength: 0,
+					packetIdentifier: 0,
+				},
+				properties: {},
+				payload: '',
+				options: {
+					qos: QoSType.QoS0,
+					noLocal: false,
+					retainAsPublished: false,
+					retainHandling: 0,
+					retain: 0,
+				},
+			};
+			parseSubscribe(buffer, subData);
+			return subData;
+		}
+		case PacketType.UNSUBSCRIBE: {
+			const unsubscribeData: IUnsubscribeData = {
+				header: {
+					packetType: PacketType.RESERVED,
+					received: 0x02,
+					remainingLength: 0,
+					packetIdentifier: 0,
+				},
+				properties: {},
+				payload: '',
+			};
+			parseUnsubscribe(buffer, unsubscribeData);
+			return unsubscribeData;
+		}
+
+		case PacketType.DISCONNECT: {
+			const disconnectData: IDisconnectData = {
+				header: {
+					packetType: PacketType.DISCONNECT,
+					received: 0,
+					remainingLength: 0,
+					reasonCode: 0x00,
+				},
+				properties: {},
+			};
+			parseDisconnect(buffer, disconnectData);
+			return disconnectData;
+		}
+		default:
+			throw new DisconnectException('报文解析错误', DisconnectReasonCode.ProtocolError);
+	}
+}
 
 /**
  * 解析 connect 报文

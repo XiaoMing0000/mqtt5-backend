@@ -1,4 +1,4 @@
-import { ConnectAckReasonCode, DisconnectReasonCode, PubCompReasonCode, PubRecReasonCode, PubRelReasonCode, SubscribeAckReasonCode } from './exception';
+import { ConnectAckReasonCode, DisconnectReasonCode, PubAckReasonCode, PubCompReasonCode, PubRecReasonCode, PubRelReasonCode, SubscribeAckReasonCode } from './exception';
 
 // MQTT 报文类型
 export enum PacketType {
@@ -273,6 +273,26 @@ export interface IWillProperties {
 	userProperty?: { [key: string]: any };
 }
 
+export type PacketTypeData =
+	| IPingData
+	| IConnectData
+	| IConnAckData
+	| IPublishData
+	| ISubscribeData
+	| ISubAckData
+	| IUnsubscribeData
+	| IDisconnectData
+	| IPubAckData
+	| IPubRelData
+	| IPubRecData
+	| IPubCompData;
+
+export interface IPingData {
+	header: {
+		packetType: PacketType;
+	};
+}
+
 export interface IConnectData {
 	header: {
 		packetType: PacketType;
@@ -375,7 +395,7 @@ export interface IPubAckData {
 		received: number;
 		remainingLength?: number;
 		packetIdentifier: number;
-		reasonCode: PubRelReasonCode;
+		reasonCode: PubAckReasonCode;
 	};
 	properties: IPubAckProperties;
 }

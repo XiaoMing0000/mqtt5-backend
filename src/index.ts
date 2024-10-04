@@ -1,6 +1,6 @@
 import net from 'net';
 import {
-	ConnectAckException,
+	ConnectAckReasonCode,
 	DisconnectException,
 	DisconnectReasonCode,
 	PubAckException,
@@ -23,7 +23,6 @@ import {
 	ISubscribeData,
 	IUnsubscribeData,
 	PacketType,
-	PropertyIdentifier,
 	QoSType,
 } from './interface';
 import {
@@ -35,14 +34,6 @@ import {
 	encodeSubAckPacket,
 	encodeVariableByteInteger,
 	integerToTwoUint8,
-	parseConnect,
-	parseDisconnect,
-	parsePubAck,
-	parsePublish,
-	parsePubRec,
-	parsePubRel,
-	parseSubscribe,
-	parseUnsubscribe,
 } from './parse';
 import { topicToRegEx } from './topicFilters';
 
@@ -319,17 +310,19 @@ export class MqttManager {
 	 * 连接响应报文
 	 * @returns
 	 */
-	private handleConnAck() {
+	public handleConnAck(connData: IConnectData, reasonCode?: ConnectAckReasonCode, reasonString?: string) {
 		const connAckData: IConnAckData = {
 			header: {
 				packetType: PacketType.CONNACK,
 				reserved: 0x00,
-				reasonCode: 0x00,
+				reasonCode: reasonCode ?? 0x00,
 			},
 			acknowledgeFlags: {
 				SessionPresent: false,
 			},
-			properties: {},
+			properties: {
+				reasonString,
+			},
 		};
 
 		if (this.connData.connectFlags.cleanStart) {
@@ -359,52 +352,31 @@ export class MqttManager {
 		const connPacket = encodeConnAck(connAckData);
 		console.log(connPacket);
 		this.client.write(connPacket);
+		if (reasonCode === ConnectAckReasonCode.UnsupportedProtocolVersion) {
+			this.client.end();
+		}
+		console.log('------------------');
 	}
 
 	/**
 	 * 处理连接报
 	 * @param buffer
 	 */
-	public connectHandle(buffer: Buffer) {
-		try {
-			this.connData = parseConnect(buffer);
-			if (this.connData.connectFlags.cleanStart) {
-				this.clientManager.clear(this.client);
-				this.receiveCounter = 0;
-			}
-
-			this.clientManager.initClient(this.client);
-			// console.log('connData: ', this.connData);
-			this.connData.properties.receiveMaximum ??= 0xffff;
-			this.handleConnAck();
-		} catch (error) {
-			if (error instanceof ConnectAckException) {
-				const properties = new EncoderProperties();
-				properties.add(PropertyIdentifier.reasonString, error.msg);
-				const errorPacket = Buffer.from([0x20, ...encodeVariableByteInteger(2 + properties.length), 0x00, error.code, ...properties.buffer]);
-				this.client.write(errorPacket);
-				this.client.end();
-			}
+	public connectHandle(connData: IConnectData) {
+		this.connData = connData;
+		if (this.connData.connectFlags.cleanStart) {
+			this.clientManager.clear(this.client);
+			this.receiveCounter = 0;
 		}
+
+		this.clientManager.initClient(this.client);
+		// console.log('connData: ', this.connData);
+		this.connData.properties.receiveMaximum ??= 0xffff;
+		this.handleConnAck(this.connData);
 	}
 
-	public disconnectHandle(buffer: Buffer) {
-		const disconnectData: IDisconnectData = {
-			header: {
-				packetType: PacketType.DISCONNECT,
-				received: 0,
-				remainingLength: 0,
-				reasonCode: 0x00,
-			},
-			properties: {},
-		};
-		try {
-			parseDisconnect(buffer, disconnectData);
-			this.client.end();
-		} catch (err) {
-			console.error(err);
-			this.client.end();
-		}
+	public disconnectHandle(disconnectData: IDisconnectData) {
+		this.client.end();
 	}
 
 	public handleDisconnect(reasonCode: DisconnectReasonCode, properties: IDisconnectProperties) {
@@ -417,124 +389,81 @@ export class MqttManager {
 			},
 			properties: properties,
 		});
-		this.client.write(Buffer.from(disconnectPacket));
-		this.client.end();
+		this.client.end(Buffer.from(disconnectPacket));
 	}
 
 	public pingReqHandle() {
 		this.client.write(Buffer.from([PacketType.PINGRESP << 4, 0]));
 	}
 
-	public publishHandle(buffer: Buffer) {
-		const pubData: IPublishData = {
-			header: {
-				packetType: PacketType.RESERVED,
-				udpFlag: false,
-				qosLevel: 0,
-				retain: false,
-				remainingLength: 0,
-				topicName: '',
-			},
-			properties: {},
-			payload: '',
-		};
-		try {
-			parsePublish(buffer, pubData);
+	public publishHandle(pubData: IPublishData) {
+		console.log('pubData: ', pubData);
+		// 数据校验
+		if (pubData.properties.topicAlias && pubData.properties.topicAlias > MqttManager.defaultProperties.topicAliasMaximum) {
+			throw new PubAckException(
+				'A Client MUST accept all Topic Alias values greater than 0 and less than or equal to the Topic Alias Maximum value that it sent in the CONNECT packet.',
+				PubAckReasonCode.PacketIdentifierInUse,
+			);
+		}
+		if (pubData.header.qosLevel > MqttManager.defaultProperties.maximumQoS) {
+			throw new DisconnectException('The Client specified a QoS greater than the QoS specified in a Maximum QoS in the CONNACK.', DisconnectReasonCode.QoSNotSupported);
+		}
 
-			console.log('pubData: ', pubData);
-			console.log('pubData: ', buffer);
-			console.log('pubData: ', buffer.toString());
-			// 数据校验
-			if (pubData.properties.topicAlias && pubData.properties.topicAlias > MqttManager.defaultProperties.topicAliasMaximum) {
-				throw new PubAckException(
-					'A Client MUST accept all Topic Alias values greater than 0 and less than or equal to the Topic Alias Maximum value that it sent in the CONNECT packet.',
-					PubAckReasonCode.PacketIdentifierInUse,
-				);
+		// 添加主题别名映射
+		if (pubData.header.topicName && pubData.properties.topicAlias) {
+			this.topicAliasNameMap[pubData.properties.topicAlias] = pubData.header.topicName;
+		} else if (pubData.properties.topicAlias) {
+			pubData.header.topicName = this.topicAliasNameMap[pubData.properties.topicAlias];
+		}
+		// 保留消息处理
+		if (MqttManager.defaultProperties.retainAvailable && pubData.header.retain) {
+			if (pubData.payload) {
+				this.clientManager.addRetainMessage(pubData.header.topicName, pubData);
+			} else {
+				this.clientManager.deleteRetainMessage(pubData.header.topicName);
 			}
-			if (pubData.header.qosLevel > MqttManager.defaultProperties.maximumQoS) {
-				this.handleDisconnect(DisconnectReasonCode.QoSNotSupported, {
-					reasonString: 'The Client specified a QoS greater than the QoS specified in a Maximum QoS in the CONNACK.',
-				});
+		}
+
+		delete pubData.properties.topicAlias;
+		// TODO 向订阅者发布消息，未启动通配符订阅
+		// 拷贝数据，隔离服务端和客户端 PUBACK 报文
+		const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
+		distributeData.header.udpFlag = false;
+		this.clientManager.forEach(distributeData.header.topicName, (client, subFlags) => {
+			if (subFlags.noLocal && client === this.client) {
 				return;
 			}
+			// 如果使用通配符进行订阅，可能会匹配多个订阅，如果订阅标识符存在则必须将这些订阅标识符发送给用户
+			const publishSubscriptionIdentifier: Array<number> = [];
+			let maxQoS = 0;
 
-			// 添加主题别名映射
-			if (pubData.header.topicName && pubData.properties.topicAlias) {
-				this.topicAliasNameMap[pubData.properties.topicAlias] = pubData.header.topicName;
-			} else if (pubData.properties.topicAlias) {
-				pubData.header.topicName = this.topicAliasNameMap[pubData.properties.topicAlias];
-			}
-			// 保留消息处理
-			if (MqttManager.defaultProperties.retainAvailable && pubData.header.retain) {
-				if (pubData.payload) {
-					this.clientManager.addRetainMessage(pubData.header.topicName, pubData);
-				} else {
-					this.clientManager.deleteRetainMessage(pubData.header.topicName);
+			// 获取当前用户订阅匹配到主题的最大 qos 等级
+			this.clientManager.getSubscription(client)?.forEach((data, topic) => {
+				if (new RegExp(topic).test(distributeData.header.topicName)) {
+					// eslint-disable-next-line @typescript-eslint/no-unused-expressions
+					data.subscriptionIdentifier && publishSubscriptionIdentifier.push(data.subscriptionIdentifier);
+					maxQoS = data.qos > maxQoS ? data.qos : maxQoS;
 				}
-			}
-
-			delete pubData.properties.topicAlias;
-			// TODO 向订阅者发布消息，未启动通配符订阅
-			// 拷贝数据，隔离服务端和客户端 PUBACK 报文
-			const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
-			distributeData.header.udpFlag = false;
-			this.clientManager.forEach(distributeData.header.topicName, (client, subFlags) => {
-				if (subFlags.noLocal && client === this.client) {
-					return;
-				}
-				// 如果使用通配符进行订阅，可能会匹配多个订阅，如果订阅标识符存在则必须将这些订阅标识符发送给用户
-				const publishSubscriptionIdentifier: Array<number> = [];
-				let maxQoS = 0;
-
-				// 获取当前用户订阅匹配到主题的最大 qos 等级
-				this.clientManager.getSubscription(client)?.forEach((data, topic) => {
-					if (new RegExp(topic).test(distributeData.header.topicName)) {
-						// eslint-disable-next-line @typescript-eslint/no-unused-expressions
-						data.subscriptionIdentifier && publishSubscriptionIdentifier.push(data.subscriptionIdentifier);
-						maxQoS = data.qos > maxQoS ? data.qos : maxQoS;
-					}
-				});
-				if (maxQoS > QoSType.QoS0) {
-					// 增加报文标识符，用来做publish消息结束校验数据来源
-					// 向客户端分发 qos1 和 qos2 级别的消息，需要记录 packetIdentifier；
-					// 分发 qos2 消息时当收到客户端返回 pubRec、PubComp 数据包需要校验 packetIdentifier;
-					// 分发 qos1 消息时当收到客户端返回 pubAck 数据包需要校验 packetIdentifier;
-					distributeData.header.packetIdentifier = this.clientManager.newPacketIdentifier(client);
-				}
-				distributeData.header.qosLevel = maxQoS;
-				distributeData.properties.subscriptionIdentifier = publishSubscriptionIdentifier;
-				distributeData.header.retain = subFlags.retainAsPublished ? distributeData.header.retain : false;
-				const pubPacket = encodePublishPacket(distributeData);
-				client.write(pubPacket);
 			});
-
-			// 响应推送者
-			if (pubData.header.qosLevel === QoSType.QoS1) {
-				this.handlePubAck(pubData);
-			} else if (pubData.header.qosLevel === QoSType.QoS2) {
-				this.handlePubRec(pubData);
+			if (maxQoS > QoSType.QoS0) {
+				// 增加报文标识符，用来做publish消息结束校验数据来源
+				// 向客户端分发 qos1 和 qos2 级别的消息，需要记录 packetIdentifier；
+				// 分发 qos2 消息时当收到客户端返回 pubRec、PubComp 数据包需要校验 packetIdentifier;
+				// 分发 qos1 消息时当收到客户端返回 pubAck 数据包需要校验 packetIdentifier;
+				distributeData.header.packetIdentifier = this.clientManager.newPacketIdentifier(client);
 			}
-		} catch (error) {
-			if (error instanceof PubAckException) {
-				if (error instanceof PubAckException) {
-					if (pubData.header.qosLevel > 0 && pubData.header.packetIdentifier) {
-						const packetIdentifier = pubData.header.packetIdentifier;
+			distributeData.header.qosLevel = maxQoS;
+			distributeData.properties.subscriptionIdentifier = publishSubscriptionIdentifier;
+			distributeData.header.retain = subFlags.retainAsPublished ? distributeData.header.retain : false;
+			const pubPacket = encodePublishPacket(distributeData);
+			client.write(pubPacket);
+		});
 
-						const properties = new EncoderProperties();
-						properties.add(PropertyIdentifier.reasonString, error.msg);
-						const errorPacket = Buffer.from([
-							0x40,
-							...encodeVariableByteInteger(3 + properties.length),
-							...integerToTwoUint8(packetIdentifier),
-							error.code,
-							...properties.buffer,
-						]);
-						this.client.write(errorPacket);
-					}
-				}
-			} else if (error instanceof DisconnectException) {
-				throw error;
-			}
+		// 响应推送者
+		if (pubData.header.qosLevel === QoSType.QoS1) {
+			this.handlePubAck(pubData);
+		} else if (pubData.header.qosLevel === QoSType.QoS2) {
+			this.handlePubRec(pubData);
 		}
 	}
 	private handlePubAck(pubData: IPublishData) {
@@ -574,19 +503,7 @@ export class MqttManager {
 		this.client.write(pubRecPacket);
 	}
 
-	public pubAckHandle(buffer: Buffer) {
-		const pubAckData: IPubAckData = {
-			header: {
-				packetType: PacketType.PUBACK,
-				received: 0x00,
-				remainingLength: 0,
-				packetIdentifier: 0,
-				reasonCode: 0x00,
-			},
-			properties: {},
-		};
-		parsePubAck(buffer, pubAckData);
-
+	public pubAckHandle(pubAckData: IPubAckData) {
 		if (!this.clientManager.hasPacketIdentifier(this.client, pubAckData.header.packetIdentifier)) {
 			throw new DisconnectException('PUBACK contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
 		}
@@ -595,18 +512,7 @@ export class MqttManager {
 		console.log('pubAckData: ', pubAckData);
 	}
 
-	public pubRelHandle(buffer: Buffer) {
-		const pubRelData: IPubRelData = {
-			header: {
-				packetType: PacketType.PUBREC,
-				received: 0x02,
-				remainingLength: 0,
-				packetIdentifier: 0,
-				reasonCode: 0x00,
-			},
-			properties: {},
-		};
-		parsePubRel(buffer, pubRelData);
+	public pubRelHandle(pubRelData: IPubRelData) {
 		// console.log('pubRelData: ', pubRelData);
 		this.handlePubComp(pubRelData);
 	}
@@ -630,18 +536,7 @@ export class MqttManager {
 		this.client.write(compPacket);
 	}
 
-	public pubRecHandle(buffer: Buffer) {
-		const pubRecData: IPubRecData = {
-			header: {
-				packetType: PacketType.PUBREL,
-				received: 0x02,
-				remainingLength: 0,
-				packetIdentifier: 0,
-				reasonCode: 0x00,
-			},
-			properties: {},
-		};
-		parsePubRec(buffer, pubRecData);
+	public pubRecHandle(pubRecData: IPubRecData) {
 		// console.log('pubRecData: ', pubRecData);
 		if (!this.clientManager.hasPacketIdentifier(this.client, pubRecData.header.packetIdentifier)) {
 			throw new DisconnectException('PUBREC contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
@@ -661,18 +556,7 @@ export class MqttManager {
 		this.client.write(pubRelPacket);
 	}
 
-	public pubCompHandle(buffer: Buffer) {
-		const pubCompData: IPubRecData = {
-			header: {
-				packetType: PacketType.PUBREL,
-				received: 0x02,
-				remainingLength: 0,
-				packetIdentifier: 0,
-				reasonCode: 0x00,
-			},
-			properties: {},
-		};
-		parsePubRec(buffer, pubCompData);
+	public pubCompHandle(pubCompData: IPubRecData) {
 		// console.log('pubCompData: ', pubCompData);
 		if (!this.clientManager.hasPacketIdentifier(this.client, pubCompData.header.packetIdentifier)) {
 			throw new DisconnectException('PUBCOMP contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
@@ -681,58 +565,36 @@ export class MqttManager {
 		this.clientManager.deletePacketIdentifier(this.client, pubCompData.header.packetIdentifier);
 	}
 
-	public subscribeHandle(buffer: Buffer) {
-		const subData: ISubscribeData = {
-			header: {
-				packetType: PacketType.RESERVED,
-				received: 0x02,
-				remainingLength: 0,
-				packetIdentifier: 0,
-			},
-			properties: {},
-			payload: '',
-			options: {
-				qos: QoSType.QoS0,
-				noLocal: false,
-				retainAsPublished: false,
-				retainHandling: 0,
-				retain: 0,
-			},
-		};
-		try {
-			parseSubscribe(buffer, subData);
-			// console.log('subData: ', subData);
-			const topic = topicToRegEx(subData.payload);
-			if (!topic) {
-				throw new SubscribeAckException('The topic filter format is incorrect and cannot be received by the server.', SubscribeAckReasonCode.TopicFilterInvalid);
-			} else {
-				this.clientManager.subscribe(this.client, topic, {
-					qos: subData.options.qos,
-					date: new Date(),
-					subscriptionIdentifier: subData.properties.subscriptionIdentifier,
-					noLocal: subData.options.noLocal,
-					retainAsPublished: subData.options.retainAsPublished,
-				});
-			}
+	public subscribeHandle(subData: ISubscribeData) {
+		// console.log('subData: ', subData);
+		const topic = topicToRegEx(subData.payload);
+		if (!topic) {
+			throw new SubscribeAckException('The topic filter format is incorrect and cannot be received by the server.', SubscribeAckReasonCode.TopicFilterInvalid);
+		} else {
+			this.clientManager.subscribe(this.client, topic, {
+				qos: subData.options.qos,
+				date: new Date(),
+				subscriptionIdentifier: subData.properties.subscriptionIdentifier,
+				noLocal: subData.options.noLocal,
+				retainAsPublished: subData.options.retainAsPublished,
+			});
+		}
 
-			// TODO 3.8.4 SUBSCRIBE Actions
+		// TODO 3.8.4 SUBSCRIBE Actions
 
-			// 允许推送保留消息
-			if (
-				MqttManager.defaultProperties.retainAvailable &&
-				(subData.options.retainHandling == 0 || (subData.options.retainHandling == 1 && this.clientManager.isSubscribe(subData.payload)))
-			) {
-				this.clientManager.forEachRetainMessage((topic, data) => {
-					if (new RegExp(topic).test(subData.payload)) {
-						data.header.qosLevel = subData.options.qos;
-						data.header.packetIdentifier = this.clientManager.newPacketIdentifier(this.client);
-						const publishPacket = encodePublishPacket(data);
-						this.client.write(publishPacket);
-					}
-				});
-			}
-		} catch {
-			// TODO 订阅异常处理
+		// 允许推送保留消息
+		if (
+			MqttManager.defaultProperties.retainAvailable &&
+			(subData.options.retainHandling == 0 || (subData.options.retainHandling == 1 && this.clientManager.isSubscribe(subData.payload)))
+		) {
+			this.clientManager.forEachRetainMessage((topic, data) => {
+				if (new RegExp(topic).test(subData.payload)) {
+					data.header.qosLevel = subData.options.qos;
+					data.header.packetIdentifier = this.clientManager.newPacketIdentifier(this.client);
+					const publishPacket = encodePublishPacket(data);
+					this.client.write(publishPacket);
+				}
+			});
 		}
 		// subData.header.packetIdentifier = 100;
 		console.log(subData.header.packetIdentifier);
@@ -753,34 +615,19 @@ export class MqttManager {
 		this.client.write(subAckPacket);
 	}
 
-	public unsubscribeHandle(buffer: Buffer) {
-		const unsubscribeData: IUnsubscribeData = {
-			header: {
-				packetType: PacketType.RESERVED,
-				received: 0x02,
-				remainingLength: 0,
-				packetIdentifier: 0,
-			},
-			properties: {},
-			payload: '',
-		};
-		try {
-			parseUnsubscribe(buffer, unsubscribeData);
-			console.log('unsubscribeData: ', unsubscribeData);
-			const topic = topicToRegEx(unsubscribeData.payload);
-			if (!topic) {
-				throw new Error('topic name error');
-			}
-
-			this.clientManager.unsubscribe(this.client, topic);
-		} catch {
-			// TODO 订阅异常处理
+	public unsubscribeHandle(unsubscribeData: IUnsubscribeData) {
+		console.log('unsubscribeData: ', unsubscribeData);
+		const topic = topicToRegEx(unsubscribeData.payload);
+		if (!topic) {
+			// TODO 检测 topic name 是否符合规则，如果不符合规则，则返回错误或则断开连接
+			throw new Error('topic name error');
 		}
 
+		this.clientManager.unsubscribe(this.client, topic);
 		this.handleUnsubscribeAck(unsubscribeData);
 	}
 
-	private handleUnsubscribeAck(unsubscribeData: IUnsubscribeData) {
+	public handleUnsubscribeAck(unsubscribeData: IUnsubscribeData) {
 		let remainingLength = 1;
 		const properties = new EncoderProperties();
 		remainingLength += properties.length + 2;

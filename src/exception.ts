@@ -154,8 +154,8 @@ export class ConnectAckException extends MqttBasicException {
 	}
 }
 
-export class PubAckException extends MqttBasicException {
-	constructor(msg: string, code: PubAckReasonCode = PubAckReasonCode.UnspecifiedError) {
+export class DisconnectException extends MqttBasicException {
+	constructor(msg: string, code: DisconnectReasonCode = DisconnectReasonCode.UnspecifiedError) {
 		super(msg, code);
 	}
 }
@@ -166,20 +166,8 @@ export class SubscribeAckException extends MqttBasicException {
 	}
 }
 
-export class UnsubscribeAckException extends MqttBasicException {
-	constructor(msg: string, code: UnsubscribeAckReasonCode = UnsubscribeAckReasonCode.UnspecifiedError) {
-		super(msg, code);
-	}
-}
-
-export class DisconnectException extends MqttBasicException {
-	constructor(msg: string, code: DisconnectReasonCode = DisconnectReasonCode.UnspecifiedError) {
-		super(msg, code);
-	}
-}
-
-export class PubRelException extends MqttBasicException {
-	constructor(msg: string, code: PubRelReasonCode = PubRelReasonCode.PacketIdentifierNotFound) {
+export class PubAckException extends MqttBasicException {
+	constructor(msg: string, code: PubAckReasonCode = PubAckReasonCode.UnspecifiedError) {
 		super(msg, code);
 	}
 }

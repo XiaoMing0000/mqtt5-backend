@@ -1,8 +1,18 @@
 import net from 'net';
-import { IPubAckData, ISubAckData, PacketType } from './interface';
+import { IConnectData, IDisconnectData, IPubAckData, IPublishData, IPubRecData, IPubRelData, ISubAckData, ISubscribeData, IUnsubscribeData, PacketType } from './interface';
 import { defaultAuthenticate, defaultAuthorizeForward, defaultAuthorizePublish, defaultAuthorizeSubscribe, defaultPreConnect, defaultPublished } from './auth';
 import { MqttManager, ClientManager } from '.';
-import { DisconnectException, DisconnectReasonCode, PubAckReasonCode, SubscribeAckException, SubscribeAckReasonCode } from './exception';
+import {
+	ConnectAckException,
+	ConnectAckReasonCode,
+	DisconnectException,
+	DisconnectReasonCode,
+	PubAckException,
+	PubAckReasonCode,
+	SubscribeAckException,
+	SubscribeAckReasonCode,
+} from './exception';
+import { parsePacket } from './parse';
 
 const subscriptionManger = new ClientManager();
 // 创建 TCP 服务器
@@ -25,59 +35,86 @@ const server = net.createServer((client) => {
 		keepaliveLimit: 0,
 	};
 	const mqttManager = new MqttManager(client, subscriptionManger);
-	client.on('data', (data) => {
+	client.on('data', (buffer) => {
 		try {
-			const packetType = (data[0] >> 4) as PacketType;
+			// 这一层捕获协议错误和未知错误
+			const data = parsePacket(buffer);
+			try {
+				switch (data.header.packetType) {
+					case PacketType.CONNECT:
+						mqttManager.connectHandle(data as IConnectData);
+						break;
+					case PacketType.PUBLISH:
+						mqttManager.publishHandle(data as IPublishData);
+						break;
+					case PacketType.PUBACK:
+						mqttManager.pubAckHandle(data as IPubAckData);
+						break;
+					case PacketType.PUBREC:
+						mqttManager.pubRecHandle(data as IPubRecData);
+						break;
+					case PacketType.PUBREL:
+						mqttManager.pubRelHandle(data as IPubRelData);
+						break;
+					case PacketType.PUBCOMP:
+						mqttManager.pubCompHandle(data as IPubRecData);
+						break;
+					case PacketType.SUBSCRIBE:
+						mqttManager.subscribeHandle(data as ISubscribeData);
+						break;
+					case PacketType.UNSUBSCRIBE:
+						mqttManager.unsubscribeHandle(data as IUnsubscribeData);
+						break;
+					case PacketType.PINGREQ:
+						mqttManager.pingReqHandle();
+						break;
 
-			switch (packetType) {
-				case PacketType.CONNECT:
-					mqttManager.connectHandle(data);
-					break;
-				case PacketType.PUBLISH:
-					mqttManager.publishHandle(data);
-					break;
-				case PacketType.PUBACK:
-					mqttManager.pubAckHandle(data);
-					break;
-				case PacketType.PUBREC:
-					mqttManager.pubRecHandle(data);
-					break;
-				case PacketType.PUBREL:
-					mqttManager.pubRelHandle(data);
-					break;
-				case PacketType.PUBCOMP:
-					mqttManager.pubCompHandle(data);
-					break;
-				case PacketType.SUBSCRIBE:
-					mqttManager.subscribeHandle(data);
-					break;
-				case PacketType.UNSUBSCRIBE:
-					mqttManager.unsubscribeHandle(data);
-					break;
-				case PacketType.PINGREQ:
-					mqttManager.pingReqHandle();
-					break;
-
-				case PacketType.DISCONNECT:
-					mqttManager.disconnectHandle(data);
-					break;
-				default:
-					console.log('Unhandled packet type:', packetType);
+					case PacketType.DISCONNECT:
+						mqttManager.disconnectHandle(data as IDisconnectData);
+						break;
+					default:
+						console.log('Unhandled packet type:', data);
+				}
+			} catch (error) {
+				if (error instanceof DisconnectException) {
+					mqttManager.handleDisconnect(error.code as DisconnectReasonCode, { reasonString: error.msg });
+				} else if (error instanceof ConnectAckException) {
+					mqttManager.handleConnAck(data as IConnectData, error.code as ConnectAckReasonCode, error.msg);
+				} else if (error instanceof SubscribeAckException) {
+					const subAckData: ISubAckData = {
+						header: {
+							packetType: PacketType.SUBACK,
+							retain: 0x00,
+							packetIdentifier: data.header.packetType ?? 0,
+						},
+						properties: {
+							reasonString: error.msg,
+						},
+						reasonCode: error.code as SubscribeAckReasonCode,
+					};
+					mqttManager.handleSubAck(subAckData);
+				} else if (error instanceof PubAckException) {
+					const pubAckData: IPubAckData = {
+						header: {
+							packetType: PacketType.PUBACK,
+							received: 0x00,
+							packetIdentifier: data.header.packetType ?? 0,
+							reasonCode: error.code as PubAckReasonCode,
+						},
+						properties: {
+							reasonString: error.msg,
+						},
+					};
+					mqttManager.pubAckHandle(pubAckData);
+				} else {
+					throw error;
+				}
 			}
 		} catch (error) {
 			if (error instanceof DisconnectException) {
 				mqttManager.handleDisconnect(error.code as DisconnectReasonCode, { reasonString: error.msg });
-			} else if (error instanceof SubscribeAckException) {
-				// const subAckData: ISubAckData = {
-				// 	header: {
-				// 		packetType: PacketType.SUBACK,
-				// 		retain: 0x00,
-				// 		packetIdentifier: error.packetIdentifier,
-				// 	},
-				// 	properties: {},
-				// 	reasonCode: error.code as SubscribeAckReasonCode,
-				// };
-				// mqttManager.handleSubAck(subAckData);
+			} else {
+				mqttManager.handleDisconnect(DisconnectReasonCode.UnspecifiedError, { reasonString: 'Internal Server Error.' });
 			}
 		}
 	});
