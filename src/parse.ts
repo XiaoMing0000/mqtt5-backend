@@ -10,6 +10,7 @@ import {
 } from './exception';
 import {
 	BufferData,
+	IAuthData,
 	IConnAckData,
 	IConnectData,
 	IDisconnectData,
@@ -32,6 +33,7 @@ import {
 } from './interface';
 import {
 	encodeProperties,
+	parseAuthProperties,
 	parseConnectProperties,
 	parseDisconnectProperties,
 	parseProperties,
@@ -88,7 +90,7 @@ export function variableByteInteger(data: BufferData, length = 3): number {
 		value += (encodeByte & 0x7f) << leftShift;
 		leftShift += 7;
 		if (leftShift > length * 7) {
-			throw new Error('Malformed Remaining Length');
+			throw new DisconnectException('Malformed Remaining Length.', DisconnectReasonCode.ProtocolError);
 		}
 	} while (encodeByte & 0x80);
 	return value;
@@ -160,7 +162,7 @@ export function variableByteIntegerLength(data: number): number {
  */
 export function encodeVariableByteInteger(value: number) {
 	if (value < 0 || value > 268435455) {
-		throw new Error('Value out of range');
+		throw new DisconnectException('Variable byte integer Value out of range.', DisconnectReasonCode.ProtocolError);
 	}
 
 	const bytes = [];
@@ -356,7 +358,6 @@ export function parsePacket(buffer: Buffer): PacketTypeData {
 			parseUnsubscribe(buffer, unsubscribeData);
 			return unsubscribeData;
 		}
-
 		case PacketType.DISCONNECT: {
 			const disconnectData: IDisconnectData = {
 				header: {
@@ -370,8 +371,21 @@ export function parsePacket(buffer: Buffer): PacketTypeData {
 			parseDisconnect(buffer, disconnectData);
 			return disconnectData;
 		}
+		case PacketType.AUTH: {
+			const authData: IAuthData = {
+				header: {
+					packetType: PacketType.AUTH,
+					received: 0,
+					remainingLength: 0,
+					reasonCode: 0x00,
+				},
+				properties: {},
+			};
+			parseAuth(buffer, authData);
+			return authData;
+		}
 		default:
-			throw new DisconnectException('报文解析错误', DisconnectReasonCode.ProtocolError);
+			throw new DisconnectException('未能解析的报文类型', DisconnectReasonCode.ProtocolError);
 	}
 }
 
@@ -406,7 +420,7 @@ export function parseConnect(buffer: Buffer): IConnectData {
 	connData.header.protocolName = utf8DecodedString(data);
 	connData.header.protocolVersion = oneByteInteger(data);
 	if (connData.header.protocolName !== 'MQTT' || connData.header.protocolVersion !== 5) {
-		throw new ConnectAckException('Unsupported Protocol Version.', ConnectAckReasonCode.UnsupportedProtocolVersion);
+		throw new DisconnectException('Unsupported Protocol Version.', DisconnectReasonCode.ProtocolError);
 	}
 
 	const connectFlagsValue = oneByteInteger(data);
@@ -420,7 +434,7 @@ export function parseConnect(buffer: Buffer): IConnectData {
 		reserved: !!(connectFlagsValue & 1),
 	};
 	if (connData.connectFlags.reserved || connData.connectFlags.willQoS >= 0x03 || (!connData.connectFlags.willFlag && connData.connectFlags.willRetain)) {
-		throw new ConnectAckException('If the reserved flag is not 0 it is a Malformed Packet.', ConnectAckReasonCode.MalformedPacket);
+		throw new DisconnectException('If the reserved flag is not 0 it is a Malformed Packet.', DisconnectReasonCode.ProtocolError);
 	}
 	connData.header.keepAlive = twoByteInteger(data);
 
@@ -546,7 +560,10 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
 	subData.header.received = buffer[0] & 0xf;
 
 	if (subData.header.received !== 0x02) {
-		new SubscribeAckException('Bits 3,2,1 and 0 of the Fixed Header of the SUBSCRIBE packet are reserved and MUST be set to 0,0,1 and 0 respectively. ');
+		new DisconnectException(
+			'Bits 3,2,1 and 0 of the Fixed Header of the SUBSCRIBE packet are reserved and MUST be set to 0,0,1 and 0 respectively.',
+			DisconnectReasonCode.ProtocolError,
+		);
 	}
 
 	const data = { buffer, index: 1 };
@@ -613,6 +630,20 @@ export function parseDisconnect(buffer: Buffer, disconnectData: IDisconnectData)
 	const propertyLength = variableByteInteger(data);
 	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
 	disconnectData.properties = parseDisconnectProperties(propertiesBuffer);
+}
+
+export function parseAuth(buffer: Buffer, authData: IAuthData) {
+	authData.header.packetType = buffer[0] >> 4;
+	authData.header.received = buffer[0] & 0xf;
+
+	const data = { buffer, index: 1 };
+	authData.header.remainingLength = variableByteInteger(data);
+	authData.header.reasonCode = oneByteInteger(data);
+
+	// 获取属性
+	const propertyLength = variableByteInteger(data);
+	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+	authData.properties = parseAuthProperties(propertiesBuffer);
 }
 
 export function encodeConnAck(connAckData: IConnAckData) {

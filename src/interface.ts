@@ -1,4 +1,13 @@
-import { ConnectAckReasonCode, DisconnectReasonCode, PubAckReasonCode, PubCompReasonCode, PubRecReasonCode, PubRelReasonCode, SubscribeAckReasonCode } from './exception';
+import {
+	AuthenticateReasonCode,
+	ConnectAckReasonCode,
+	DisconnectReasonCode,
+	PubAckReasonCode,
+	PubCompReasonCode,
+	PubRecReasonCode,
+	PubRelReasonCode,
+	SubscribeAckReasonCode,
+} from './exception';
 
 // MQTT 报文类型
 export enum PacketType {
@@ -431,4 +440,14 @@ export interface IPubCompData {
 		reasonCode: PubCompReasonCode;
 	};
 	properties: IPPubCompProperties;
+}
+
+export interface IAuthData {
+	header: {
+		packetType: PacketType;
+		received: number;
+		remainingLength?: number;
+		reasonCode: AuthenticateReasonCode;
+	};
+	properties: IAuthProperties;
 }

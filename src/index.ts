@@ -11,6 +11,7 @@ import {
 	UnsubscribeAckReasonCode,
 } from './exception';
 import {
+	IAuthData,
 	IConnAckData,
 	IConnectData,
 	IDisconnectData,
@@ -514,6 +515,10 @@ export class MqttManager {
 
 	public pubRelHandle(pubRelData: IPubRelData) {
 		// console.log('pubRelData: ', pubRelData);
+		if (!this.clientManager.hasPacketIdentifier(this.client, pubRelData.header.packetIdentifier)) {
+			// TODO 未知的处理方式
+			// throw new
+		}
 		this.handlePubComp(pubRelData);
 	}
 
@@ -639,5 +644,9 @@ export class MqttManager {
 			UnsubscribeAckReasonCode.Success,
 		]);
 		this.client.write(unsubscribePacket);
+	}
+
+	public authHandle(authData: IAuthData) {
+		// TODO auth 报文处理
 	}
 }

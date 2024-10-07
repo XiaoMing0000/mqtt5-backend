@@ -1,5 +1,17 @@
 import net from 'net';
-import { IConnectData, IDisconnectData, IPubAckData, IPublishData, IPubRecData, IPubRelData, ISubAckData, ISubscribeData, IUnsubscribeData, PacketType } from './interface';
+import {
+	IAuthData,
+	IConnectData,
+	IDisconnectData,
+	IPubAckData,
+	IPublishData,
+	IPubRecData,
+	IPubRelData,
+	ISubAckData,
+	ISubscribeData,
+	IUnsubscribeData,
+	PacketType,
+} from './interface';
 import { defaultAuthenticate, defaultAuthorizeForward, defaultAuthorizePublish, defaultAuthorizeSubscribe, defaultPreConnect, defaultPublished } from './auth';
 import { MqttManager, ClientManager } from '.';
 import {
@@ -68,9 +80,11 @@ const server = net.createServer((client) => {
 					case PacketType.PINGREQ:
 						mqttManager.pingReqHandle();
 						break;
-
 					case PacketType.DISCONNECT:
 						mqttManager.disconnectHandle(data as IDisconnectData);
+						break;
+					case PacketType.AUTH:
+						mqttManager.authHandle(data as IAuthData);
 						break;
 					default:
 						console.log('Unhandled packet type:', data);
