@@ -11,6 +11,7 @@ import {
 	UnsubscribeAckReasonCode,
 } from './exception';
 import {
+	AuthMethod,
 	IAuthData,
 	IConnAckData,
 	IConnectData,
@@ -38,7 +39,9 @@ import {
 } from './parse';
 import { topicToRegEx, verifyTopic } from './topicFilters';
 
-type TNetSocket = net.Socket;
+// TODO 做提取消息管理
+
+export type TNetSocket = net.Socket;
 type TSubscribeData = {
 	qos: QoSType;
 	date: Date;
@@ -359,6 +362,7 @@ export class MqttManager {
 			clientIdentifier: '',
 		},
 	};
+	authMethod: AuthMethod | undefined;
 
 	constructor(
 		private readonly client: TNetSocket,
@@ -416,12 +420,19 @@ export class MqttManager {
 		console.log('------------------');
 	}
 
+	public setAuth(callbackfn: AuthMethod) {
+		this.authMethod = callbackfn;
+	}
+
 	/**
 	 * 处理连接报
 	 * @param buffer
 	 */
 	public connectHandle(connData: IConnectData) {
 		this.connData = connData;
+		if (this.authMethod) {
+			this.authMethod(this.client, this.connData);
+		}
 		if (this.connData.connectFlags.cleanStart) {
 			this.clientManager.clear(this.client);
 			this.receiveCounter = 0;

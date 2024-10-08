@@ -1,3 +1,4 @@
+import { TNetSocket } from '.';
 import {
 	AuthenticateReasonCode,
 	ConnectAckReasonCode,
@@ -8,6 +9,12 @@ import {
 	PubRelReasonCode,
 	SubscribeAckReasonCode,
 } from './exception';
+
+export type AuthMethod = (client: TNetSocket, connData: IConnectData) => void;
+
+export interface IMqttOptions {
+	authMethod?: AuthMethod;
+}
 
 // MQTT 报文类型
 export enum PacketType {
