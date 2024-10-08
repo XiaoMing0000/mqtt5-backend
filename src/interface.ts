@@ -12,6 +12,15 @@ import {
 
 export type AuthMethod = (client: TNetSocket, connData: IConnectData) => void;
 
+// 定义事件名称和对应的数据类型
+export interface MqttEvents {
+	publish: IPublishData;
+	connect: IConnectData;
+	subscribe: ISubscribeData;
+	unsubscribe: IUnsubscribeData;
+	disconnect: IDisconnectData;
+}
+
 export interface IMqttOptions {
 	authMethod?: AuthMethod;
 }
