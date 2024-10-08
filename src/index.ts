@@ -36,7 +36,7 @@ import {
 	encodeVariableByteInteger,
 	integerToTwoUint8,
 } from './parse';
-import { topicToRegEx } from './topicFilters';
+import { topicToRegEx, verifyTopic } from './topicFilters';
 
 type TNetSocket = net.Socket;
 type TSubscribeData = {
@@ -49,9 +49,14 @@ type TSubscribeData = {
 type TTopic = string;
 type TClientSubscription = Map<TTopic, TSubscribeData>;
 
+interface IRoute {
+	[key: string]: {
+		clients: Map<TNetSocket, TTopic>;
+		child?: IRoute;
+	};
+}
+
 export class ClientManager {
-	private topicMap = new Map<string, Set<TNetSocket>>();
-	private packetIdentifier = 0;
 	private clientManager = new Map<
 		TNetSocket,
 		{
@@ -60,6 +65,7 @@ export class ClientManager {
 			dynamicId: number;
 		}
 	>();
+	private route: IRoute = {};
 	// 记录保留消息
 	private retainMessage = new Map<string, { data: IPublishData; TTL: number }>();
 
@@ -72,14 +78,6 @@ export class ClientManager {
 				}
 			});
 		}, 1000);
-	}
-
-	/**
-	 * 获取并更新 packetIdentifier
-	 * @returns
-	 */
-	public getPacketIdentifier() {
-		return this.packetIdentifier++ & 0xffff;
 	}
 
 	/**
@@ -106,17 +104,26 @@ export class ClientManager {
 		if (this.clientManager.has(client)) {
 			this.clientManager.get(client)?.subscription.set(topic, data);
 		}
-		// TODO 添加通配符订阅主题
-		// TODO subscribe 主题名合法性校验和 publish 主题名非法性校验
 
-		if (!this.topicMap.has(topic)) {
-			const clientSet = new Set<TNetSocket>();
-			clientSet.add(client);
-			this.topicMap.set(topic, clientSet);
-		} else {
-			const clientSet = this.topicMap.get(topic);
-			clientSet?.add(client);
+		function push(nodes: Array<string>, index: number, route: IRoute) {
+			if (!route[nodes[index]]) {
+				route[nodes[index]] = {
+					clients: new Map(),
+				};
+			}
+			const currentRouter = route[nodes[index]];
+			if (nodes.length === index + 1) {
+				route[nodes[index]].clients.set(client, topic);
+			} else {
+				if (!currentRouter.child) {
+					currentRouter.child = {};
+				}
+				push(nodes, index + 1, currentRouter.child);
+			}
 		}
+
+		const nodes = topic.split('/');
+		push(nodes, 0, this.route);
 	}
 
 	/**
@@ -125,18 +132,22 @@ export class ClientManager {
 	 * @param topic 订阅主题
 	 */
 	public unsubscribe(client: TNetSocket, topic: string) {
-		const clientManager = this.clientManager.get(client)?.subscription;
-		if (clientManager) {
-			clientManager.delete(topic);
-		}
+		function pop(nodes: Array<string>, index: number, route: IRoute) {
+			const currentRouter = route[nodes[index]];
+			if (currentRouter) {
+				if (nodes.length === index + 1 && route[nodes[index]]) {
+					route[nodes[index]].clients.delete(client);
+				} else if (currentRouter.child) {
+					pop(nodes, index + 1, currentRouter.child);
+				}
 
-		const clientSet = this.topicMap.get(topic);
-		if (clientSet) {
-			clientSet.delete(client);
-			if (!clientSet.size) {
-				this.topicMap.delete(topic);
+				if (!Object.keys(currentRouter.child ?? {}).length && !currentRouter.clients.size) {
+					delete route[nodes[index]];
+				}
 			}
 		}
+		const nodes = topic.split('/');
+		pop(nodes, 0, this.route);
 	}
 
 	/**
@@ -144,20 +155,47 @@ export class ClientManager {
 	 * @param topic 订阅主题
 	 * @param callbackfn 遍历回调函数
 	 */
-	public forEach(topic: string, callbackfn: (client: TNetSocket, data: TSubscribeData) => void) {
-		this.topicMap.forEach((topicClientSet, topicKey) => {
-			if (!new RegExp(topicKey).test(topic)) {
-				return;
-			}
-			topicClientSet.forEach((cli) => {
-				// const clientManager = this.clientSubscription.get(cli);
-				const clientSubscription = this.clientManager.get(cli)?.subscription;
-				const subscriptionData = clientSubscription?.get(topicKey);
-				if (subscriptionData) {
-					callbackfn(cli, subscriptionData);
+	publish(topic: string, callbackfn: (client: TNetSocket, data: TSubscribeData) => void) {
+		const match = (nodes: Array<string>, index: number, route: IRoute) => {
+			for (const node of [nodes[index], '+']) {
+				const currentRoute = route[node];
+				if (currentRoute) {
+					if (nodes.length == index + 1) {
+						currentRoute.clients.forEach((topic, client) => {
+							const data = this.clientManager.get(client)?.subscription.get(topic);
+							if (data) {
+								callbackfn(client, data);
+							}
+						});
+
+						if (nodes.length == index + 1 && route[nodes[index]]) {
+							const childRoute = route[nodes[index]].child;
+							if (childRoute && childRoute['#']) {
+								childRoute['#'].clients.forEach((topic, client) => {
+									const data = this.clientManager.get(client)?.subscription.get(topic);
+									if (data) {
+										callbackfn(client, data);
+									}
+								});
+							}
+						}
+						return;
+					} else if (currentRoute.child) {
+						match(nodes, index + 1, currentRoute.child);
+					}
 				}
-			});
-		});
+			}
+			if (route['#']) {
+				route['#'].clients.forEach((topic, client) => {
+					const data = this.clientManager.get(client)?.subscription.get(topic);
+					if (data) {
+						callbackfn(client, data);
+					}
+				});
+			}
+		};
+		const nodes = topic.split('/');
+		match(nodes, 0, this.route);
 	}
 
 	/**
@@ -175,7 +213,25 @@ export class ClientManager {
 	 * @returns
 	 */
 	public isSubscribe(topic: string) {
-		return this.topicMap.has(topic);
+		const find = (nodes: Array<string>, index: number, route: IRoute) => {
+			for (const node of [nodes[index], '+']) {
+				const currentRoute = route[node];
+				if (currentRoute) {
+					if (nodes.length == index + 1) {
+						if (currentRoute.clients.size) {
+							return true;
+						}
+						return false;
+					} else if (currentRoute.child) {
+						return find(nodes, index + 1, currentRoute.child);
+					}
+				}
+			}
+			return false;
+		};
+
+		const nodes = topic.split('/');
+		return find(nodes, 0, this.route);
 	}
 
 	/**
@@ -245,8 +301,9 @@ export class ClientManager {
 	 */
 	public clear(client: TNetSocket) {
 		this.clientManager.get(client)?.subscription.forEach((value, key) => {
-			this.topicMap.get(key)?.delete(client);
+			this.unsubscribe(client, key);
 		});
+
 		this.clientManager.delete(client);
 	}
 
@@ -430,7 +487,10 @@ export class MqttManager {
 		// 拷贝数据，隔离服务端和客户端 PUBACK 报文
 		const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
 		distributeData.header.udpFlag = false;
-		this.clientManager.forEach(distributeData.header.topicName, (client, subFlags) => {
+		this.clientManager.publish(distributeData.header.topicName, (client, subFlags) => {
+			if (subFlags.noLocal && client === this.client) {
+				return;
+			}
 			if (subFlags.noLocal && client === this.client) {
 				return;
 			}
@@ -440,7 +500,8 @@ export class MqttManager {
 
 			// 获取当前用户订阅匹配到主题的最大 qos 等级
 			this.clientManager.getSubscription(client)?.forEach((data, topic) => {
-				if (new RegExp(topic).test(distributeData.header.topicName)) {
+				const topicReg = topicToRegEx(topic);
+				if (topicReg && new RegExp(topicReg).test(distributeData.header.topicName)) {
 					// eslint-disable-next-line @typescript-eslint/no-unused-expressions
 					data.subscriptionIdentifier && publishSubscriptionIdentifier.push(data.subscriptionIdentifier);
 					maxQoS = data.qos > maxQoS ? data.qos : maxQoS;
@@ -572,35 +633,38 @@ export class MqttManager {
 
 	public subscribeHandle(subData: ISubscribeData) {
 		// console.log('subData: ', subData);
-		const topic = topicToRegEx(subData.payload);
+		const topic = verifyTopic(subData.payload);
 		if (!topic) {
 			throw new SubscribeAckException('The topic filter format is incorrect and cannot be received by the server.', SubscribeAckReasonCode.TopicFilterInvalid);
-		} else {
-			this.clientManager.subscribe(this.client, topic, {
-				qos: subData.options.qos,
-				date: new Date(),
-				subscriptionIdentifier: subData.properties.subscriptionIdentifier,
-				noLocal: subData.options.noLocal,
-				retainAsPublished: subData.options.retainAsPublished,
-			});
 		}
 
 		// TODO 3.8.4 SUBSCRIBE Actions
-
 		// 允许推送保留消息
 		if (
 			MqttManager.defaultProperties.retainAvailable &&
-			(subData.options.retainHandling == 0 || (subData.options.retainHandling == 1 && this.clientManager.isSubscribe(subData.payload)))
+			(subData.options.retainHandling == 0 || (subData.options.retainHandling == 1 && !this.clientManager.isSubscribe(subData.payload)))
 		) {
-			this.clientManager.forEachRetainMessage((topic, data) => {
-				if (new RegExp(topic).test(subData.payload)) {
-					data.header.qosLevel = subData.options.qos;
-					data.header.packetIdentifier = this.clientManager.newPacketIdentifier(this.client);
-					const publishPacket = encodePublishPacket(data);
-					this.client.write(publishPacket);
-				}
-			});
+			const reg = topicToRegEx(subData.payload);
+			if (reg) {
+				const topicRegEx = new RegExp(reg);
+				this.clientManager.forEachRetainMessage((topic, data) => {
+					if (topicRegEx.test(topic)) {
+						data.header.qosLevel = subData.options.qos;
+						data.header.packetIdentifier = this.clientManager.newPacketIdentifier(this.client);
+						const publishPacket = encodePublishPacket(data);
+						this.client.write(publishPacket);
+					}
+				});
+			}
 		}
+
+		this.clientManager.subscribe(this.client, subData.payload, {
+			qos: subData.options.qos,
+			date: new Date(),
+			subscriptionIdentifier: subData.properties.subscriptionIdentifier,
+			noLocal: subData.options.noLocal,
+			retainAsPublished: subData.options.retainAsPublished,
+		});
 		// subData.header.packetIdentifier = 100;
 		console.log(subData.header.packetIdentifier);
 		const subAckData: ISubAckData = {
@@ -622,13 +686,12 @@ export class MqttManager {
 
 	public unsubscribeHandle(unsubscribeData: IUnsubscribeData) {
 		console.log('unsubscribeData: ', unsubscribeData);
-		const topic = topicToRegEx(unsubscribeData.payload);
+		const topic = verifyTopic(unsubscribeData.payload);
 		if (!topic) {
-			// TODO 检测 topic name 是否符合规则，如果不符合规则，则返回错误或则断开连接
-			throw new Error('topic name error');
+			throw new SubscribeAckException('The topic filter format is incorrect and cannot be received by the server.', SubscribeAckReasonCode.TopicFilterInvalid);
 		}
 
-		this.clientManager.unsubscribe(this.client, topic);
+		this.clientManager.unsubscribe(this.client, unsubscribeData.payload);
 		this.handleUnsubscribeAck(unsubscribeData);
 	}
 
