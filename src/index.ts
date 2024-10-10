@@ -728,13 +728,31 @@ export class MqttManager {
 		// TODO auth 报文处理
 	}
 }
-
 export class MqttServer extends net.Server {
 	subscriptionManger = new ClientManager();
 	constructor(options: IMqttOptions) {
 		super((client) => {
 			client.on('data', (buffer) => {
 				this.handleData(client, buffer);
+			});
+
+			client.on('end', () => {
+				console.log('Client disconnected');
+				client.end();
+			});
+
+			client.on('error', (err) => {
+				// this.subscriptionManger.clear(client);
+				console.error('Client error:', err);
+			});
+
+			client.on('close', (hadError: boolean) => {
+				this.subscriptionManger.clear(client);
+				if (hadError) {
+					console.log('Connection closed due to error!');
+				} else {
+					console.log('The connection was closed properly!');
+				}
 			});
 		});
 	}
