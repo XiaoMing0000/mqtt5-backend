@@ -7,6 +7,7 @@ import {
 	PubAckException,
 	PubAckReasonCode,
 	PubCompReasonCode,
+	PubRecReasonCode,
 	SubscribeAckException,
 	SubscribeAckReasonCode,
 	UnsubscribeAckReasonCode,
@@ -264,7 +265,7 @@ export class ClientManager {
 		const manager = this.clientManager.get(client);
 		if (manager) {
 			do {
-				newPacketIdentifier = manager.dynamicId++ && 0xffff;
+				newPacketIdentifier = manager.dynamicId++ & 0xffff;
 			} while (manager.packetIdentifier.has(newPacketIdentifier) && !newPacketIdentifier);
 			manager.packetIdentifier.add(newPacketIdentifier);
 		}
@@ -528,6 +529,7 @@ export class MqttManager {
 				// 分发 qos2 消息时当收到客户端返回 pubRec、PubComp 数据包需要校验 packetIdentifier;
 				// 分发 qos1 消息时当收到客户端返回 pubAck 数据包需要校验 packetIdentifier;
 				distributeData.header.packetIdentifier = this.clientManager.newPacketIdentifier(client);
+				distributeData.header.udpFlag = false;
 			}
 			distributeData.header.qosLevel = maxQoS;
 			distributeData.properties.subscriptionIdentifier = publishSubscriptionIdentifier;
@@ -621,6 +623,9 @@ export class MqttManager {
 		// console.log('pubRecData: ', pubRecData);
 		if (!this.clientManager.hasPacketIdentifier(this.client, pubRecData.header.packetIdentifier)) {
 			throw new DisconnectException('PUBREC contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
+		}
+		if (pubRecData.header.reasonCode >= PubRecReasonCode.UnspecifiedError) {
+			// TODO 数据错误如何处理
 		}
 		this.handlePubRel(pubRecData);
 	}
