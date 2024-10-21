@@ -417,12 +417,10 @@ export class MqttManager {
 		// TODO 未作通配符
 
 		const connPacket = encodeConnAck(connAckData);
-		console.log(connPacket);
 		this.client.write(connPacket);
 		if (reasonCode === ConnectAckReasonCode.UnsupportedProtocolVersion) {
 			this.client.end();
 		}
-		console.log('------------------');
 	}
 
 	public setAuth(callbackfn: AuthMethod) {
@@ -444,7 +442,6 @@ export class MqttManager {
 		}
 
 		this.clientManager.initClient(this.client);
-		// console.log('connData: ', this.connData);
 		this.connData.properties.receiveMaximum ??= 0xffff;
 		this.handleConnAck(this.connData);
 	}
@@ -471,7 +468,6 @@ export class MqttManager {
 	}
 
 	public publishHandle(pubData: IPublishData) {
-		console.log('pubData: ', pubData);
 		// 数据校验
 		if (pubData.properties.topicAlias && pubData.properties.topicAlias > MqttManager.defaultProperties.topicAliasMaximum) {
 			throw new PubAckException(
@@ -588,11 +584,9 @@ export class MqttManager {
 		}
 		// 释放报文标识符
 		this.clientManager.deletePacketIdentifier(this.client, pubAckData.header.packetIdentifier);
-		console.log('pubAckData: ', pubAckData);
 	}
 
 	public pubRelHandle(pubRelData: IPubRelData) {
-		// console.log('pubRelData: ', pubRelData);
 		if (!this.clientManager.hasPacketIdentifier(this.client, pubRelData.header.packetIdentifier)) {
 			// TODO 未知的处理方式
 			// throw new
@@ -620,7 +614,6 @@ export class MqttManager {
 	}
 
 	public pubRecHandle(pubRecData: IPubRecData) {
-		// console.log('pubRecData: ', pubRecData);
 		if (!this.clientManager.hasPacketIdentifier(this.client, pubRecData.header.packetIdentifier)) {
 			throw new DisconnectException('PUBREC contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
 		}
@@ -643,7 +636,6 @@ export class MqttManager {
 	}
 
 	public pubCompHandle(pubCompData: IPubRecData) {
-		// console.log('pubCompData: ', pubCompData);
 		if (!this.clientManager.hasPacketIdentifier(this.client, pubCompData.header.packetIdentifier)) {
 			throw new DisconnectException('PUBCOMP contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
 		}
@@ -652,7 +644,6 @@ export class MqttManager {
 	}
 
 	public subscribeHandle(subData: ISubscribeData) {
-		// console.log('subData: ', subData);
 		const topic = verifyTopic(subData.payload);
 		if (!topic) {
 			throw new SubscribeAckException('The topic filter format is incorrect and cannot be received by the server.', SubscribeAckReasonCode.TopicFilterInvalid);
@@ -685,8 +676,6 @@ export class MqttManager {
 			noLocal: subData.options.noLocal,
 			retainAsPublished: subData.options.retainAsPublished,
 		});
-		// subData.header.packetIdentifier = 100;
-		console.log(subData.header.packetIdentifier);
 		const subAckData: ISubAckData = {
 			header: {
 				packetType: PacketType.SUBACK,
@@ -705,7 +694,6 @@ export class MqttManager {
 	}
 
 	public unsubscribeHandle(unsubscribeData: IUnsubscribeData) {
-		console.log('unsubscribeData: ', unsubscribeData);
 		const topic = verifyTopic(unsubscribeData.payload);
 		if (!topic) {
 			throw new SubscribeAckException('The topic filter format is incorrect and cannot be received by the server.', SubscribeAckReasonCode.TopicFilterInvalid);
