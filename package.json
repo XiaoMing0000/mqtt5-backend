@@ -1,5 +1,5 @@
 {
-	"name": "server",
+	"name": "mqtt-backend",
 	"version": "1.0.0",
 	"description": "后端服务",
 	"main": "index.js",
@@ -8,6 +8,7 @@
 		"test": "supervisor -w ./dist -n error -s -- -r dotenv/config ./dist/index.js",
 		"debugger": "nodemon src/test.ts",
 		"build:prod": "rimraf dist && tsx ./config/esbuild.prod.ts",
+		"build": "tsc",
 		"prettier:all": "prettier --write ./src",
 		"lint": "eslint -f unix \"src/**/*.{ts,tsx}\""
 	},
