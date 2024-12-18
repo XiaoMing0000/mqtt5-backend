@@ -239,7 +239,19 @@ export class EncoderProperties {
 	}
 }
 
-// TODO 报文解析
+export function parseAllPacket(allBuffer: Buffer): Array<PacketTypeData> {
+	const allPacket: Array<PacketTypeData> = [];
+	for (let i = 0; i < allBuffer.length; i) {
+		const remainingLength = variableByteInteger({ buffer: allBuffer, index: i + 1 });
+		const offset = variableByteIntegerLength(remainingLength);
+		const buffer = allBuffer.slice(i, i + remainingLength + 1 + offset);
+		i += remainingLength + 1 + offset;
+		allPacket.push(parsePacket(buffer));
+	}
+	return allPacket;
+}
+
+// TODO 报文解析（只做了服务端用到的报文类型）
 export function parsePacket(buffer: Buffer): PacketTypeData {
 	const packetType = (buffer[0] >> 4) as PacketType;
 

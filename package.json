@@ -37,5 +37,9 @@
 	"repository": {
 		"type": "git",
 		"url": "git@github.com-XiaoMing0000/mqtt-backend.git"
+	},
+	"dependencies": {
+		"dotenv": "^16.4.7",
+		"ioredis": "^5.4.1"
 	}
 }

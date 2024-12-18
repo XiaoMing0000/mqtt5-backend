@@ -1,4 +1,4 @@
-import { TNetSocket } from '.';
+import { RedisOptions } from 'ioredis';
 import {
 	AuthenticateReasonCode,
 	ConnectAckReasonCode,
@@ -9,8 +9,9 @@ import {
 	PubRelReasonCode,
 	SubscribeAckReasonCode,
 } from './exception';
+import { TClient } from './manager/manager';
 
-export type AuthMethod = (client: TNetSocket, connData: IConnectData) => void;
+export type AuthMethod = (client: TClient, connData: IConnectData) => void;
 
 // 定义事件名称和对应的数据类型
 export interface MqttEvents {
@@ -23,6 +24,7 @@ export interface MqttEvents {
 
 export interface IMqttOptions {
 	authMethod?: AuthMethod;
+	redis?: RedisOptions;
 }
 
 // MQTT 报文类型
