@@ -714,10 +714,6 @@ export function parsePublishProperties(buffer: Buffer, index?: number) {
 					throw new DisconnectException('It is a Protocol Error to include the Payload Format Indicator more than once.', DisconnectReasonCode.ProtocolError);
 				}
 				properties.payloadFormatIndicator = oneByteInteger(data);
-
-				if (properties.payloadFormatIndicator !== undefined) {
-					throw new DisconnectException('It is a Protocol Error to include the Payload Format Indicator more than once.', DisconnectReasonCode.ProtocolError);
-				}
 				break;
 			case PropertyIdentifier.messageExpiryInterval:
 				data.index++;

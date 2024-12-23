@@ -220,7 +220,7 @@ export class MemoryManager extends Manager {
 	}
 
 	public async getRetainMessage(topic: string) {
-		return this.retainMessage.get(topic);
+		return this.retainMessage.get(topic)?.data;
 	}
 
 	public async forEachRetainMessage(callbackfn: (topic: string, data: IPublishData) => void) {

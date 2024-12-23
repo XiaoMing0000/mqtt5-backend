@@ -296,7 +296,7 @@ export abstract class Manager {
 
 	abstract deleteRetainMessage(topic: string): Promise<void>;
 
-	abstract getRetainMessage(topic: string): Promise<any>;
+	abstract getRetainMessage(topic: string): Promise<IPublishData | undefined>;
 
 	abstract forEachRetainMessage(callbackfn: (topic: string, data: IPublishData) => void): Promise<void>;
 }
