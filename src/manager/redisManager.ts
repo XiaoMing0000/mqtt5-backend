@@ -1,15 +1,43 @@
 import Redis, { RedisOptions } from 'ioredis';
-import { ClientIdentifierManager, Manager, TClient, TIdentifier, TSubscribeData, TTopic } from './manager';
-import { IConnectData, IPublishData } from '../interface';
+import { ClientIdentifierManager, Manager, TClient, TClientSubscription, TIdentifier, TSubscribeData, TTopic } from './manager';
+import { IConnectData, IPublishData, QoSType } from '../interface';
+import { topicToRegEx } from '../topicFilters';
+import { encodePublishPacket } from '../parse';
 
 // TODO redis 管理客户端
-export class RedisStorage extends Manager {
+export class RedisManager extends Manager {
 	clientIdentifierManager: ClientIdentifierManager;
 	private redis: Redis;
+	private redisSub: Redis;
+	private subMap = new Map<string, Set<string>>();
+
 	constructor(options: RedisOptions) {
 		super();
 		this.redis = new Redis(options);
+		this.redisSub = new Redis(options);
 		this.clientIdentifierManager = new ClientIdentifierManager();
+		this.redisSub.subscribe('publish');
+		this.public2();
+	}
+
+	private connectKey(clientIdentifier: string) {
+		return `connect:${clientIdentifier}`;
+	}
+
+	private topicKey(topic: string) {
+		return `topic:${topic}`;
+	}
+
+	private subscribeKey(clientIdentifier: string, topic: string) {
+		return `subscribe:${clientIdentifier}:${topic}`;
+	}
+
+	private retainKey(topic: string) {
+		return `retain:${topic}`;
+	}
+
+	private convertMqttToRedisPattern(mqttPattern: string) {
+		return mqttPattern.replace(/[+#]/g, '*');
 	}
 
 	async clear(clientIdentifier: string, match = '*'): Promise<void> {
@@ -25,72 +53,199 @@ export class RedisStorage extends Manager {
 		});
 	}
 
+	async getRatain() {
+		return await this.redis.scan(0, 'MATCH', 'retain:*', (err, matchData) => {
+			if (err) {
+			}
+		});
+	}
+
 	public async isConnected(key: TClient | TIdentifier): Promise<boolean> {
 		if (typeof key === 'string') {
-			return !!(await this.redis.exists(`${key}:connectData`));
+			return !!(await this.redis.exists(this.connectKey(key)));
 		} else {
-			return this.clientIdentifierManager.has(key);
+			const clientID = this.clientIdentifierManager.getClient(key);
+			if (clientID) {
+				return !!(await this.redis.exists(this.connectKey(clientID.identifier)));
+			}
+			return false;
 		}
 	}
 
 	public async connect(clientIdentifier: string, connData: IConnectData, client: TClient) {
 		this.clientIdentifierManager.set(client, clientIdentifier);
-		await this.redis.set(`${clientIdentifier}:connectData`, JSON.stringify(connData));
-		await this.redis.expire(clientIdentifier, 3600 * 24);
+		await this.redis.set(this.connectKey(clientIdentifier), JSON.stringify(connData));
 	}
 
-	disconnect(client: string): void;
-	disconnect(client: TClient): void;
-	disconnect(client: string | TClient): void {
-		if (typeof client === 'string') {
-			this.clear(client);
-		} else {
-			const clientIdentifier = this.clientIdentifierManager.getClient(client as TClient);
-			if (clientIdentifier) {
-				this.clear(clientIdentifier.identifier);
-			}
+	public async disconnect(client: string): Promise<void>;
+	public async disconnect(client: TClient): Promise<void>;
+	public async disconnect(client: string | TClient): Promise<void> {
+		const clientIdentifier = typeof client === 'string' ? client : (this.clientIdentifierManager.getClient(client as TClient)?.identifier ?? '');
+		if (!clientIdentifier) {
+			return;
 		}
+
+		await this.redis.scan(0, 'MATCH', `subscribe:${clientIdentifier}:*`, async (err, matchData) => {
+			if (err) {
+			} else if (matchData) {
+				const [cursor, elements] = matchData;
+				const delStrSart = `subscribe:${clientIdentifier}:`.length;
+				for (const key of elements) {
+					const topic = key.substring(delStrSart);
+					await this.delTopicIdentifier(clientIdentifier, topic);
+					await this.redis.del(key);
+				}
+			}
+		});
+
+		await this.redis.del(this.connectKey(clientIdentifier));
 		this.clientIdentifierManager.delete(client);
 	}
 
-	public clearSubscribe(clientIdentifier: string): void {
-		this.clear(clientIdentifier, 'subscribe:*');
+	public async subscribe(clientIdentifier: string, topic: TTopic, data: TSubscribeData) {
+		const subscribeClientsID = await this.redis.get(this.topicKey(topic));
+
+		if (subscribeClientsID) {
+			const clientIds = JSON.parse(subscribeClientsID);
+			clientIds[clientIdentifier] = 1;
+			await this.redis.set(this.topicKey(topic), JSON.stringify(clientIds));
+		} else {
+			await this.redis.set(this.topicKey(topic), JSON.stringify({ [clientIdentifier]: 1 }));
+		}
+		await this.redis.set(this.subscribeKey(clientIdentifier, topic), JSON.stringify(data));
+
+		const clientIdentifierSet = this.subMap.get(topic);
+		if (clientIdentifierSet) {
+			clientIdentifierSet.add(clientIdentifier);
+		} else {
+			const initSet = new Set<string>();
+			initSet.add(clientIdentifier);
+			this.subMap.set(topic, initSet);
+		}
 	}
 
-	public subscribe(clientIdentifier: string, topic: TTopic, data: TSubscribeData) {
-		this.redis.set(`${clientIdentifier}:subscribe:${topic}`, JSON.stringify(data));
+	private async delTopicIdentifier(clientIdentifier: string, topic: string) {
+		const topicIdendifitersString = await this.redis.get(this.topicKey(topic));
+		if (topicIdendifitersString) {
+			const topicIdentifiers = JSON.parse(topicIdendifitersString);
+			delete topicIdentifiers[clientIdentifier];
+			if (!Object.keys(topicIdentifiers).length) {
+				await this.redis.del(this.topicKey(topic));
+			} else {
+				await this.redis.set(this.topicKey(topic), JSON.stringify(topicIdentifiers));
+			}
+		}
 	}
 
-	async unsubscribe(clientIdentifier: string, topic: TTopic): Promise<void> {
-		this.clear(clientIdentifier, `subscribe:${topic}`);
+	public async unsubscribe(clientIdentifier: string, topic: TTopic): Promise<void> {
+		await this.redis.del(this.subscribeKey(clientIdentifier, topic));
+		await this.delTopicIdentifier(clientIdentifier, topic);
+
+		this.subMap.get(topic)?.delete(clientIdentifier);
+		if (this.subMap.get(topic)?.size === 0) {
+			this.subMap.delete(topic);
+		}
 	}
 
-	public getSubscribe(clientIdentifier: string) {
-		this.redis.get(`${clientIdentifier}:subscribe`);
+	public async getSubscribe(clientIdentifier: string) {
+		await this.redis.get(`subscribe:${clientIdentifier}`);
 	}
 
-	publish(topic: TTopic, callbackfn: (client: TClient, topic: TSubscribeData) => void): Promise<void> {
-		throw new Error('Method not implemented.');
+	public async publish(clientIdentifier: string, topic: TTopic, pubData: IPublishData): Promise<void> {
+		this.redis.publish(
+			'publish',
+			JSON.stringify({
+				clientIdentifier,
+				topic,
+				pubData,
+			}),
+		);
 	}
 
-	isSubscribe(topic: TTopic): Promise<boolean> {
-		throw new Error('Method not implemented.');
+	async public2() {
+		this.redisSub.on('message', (channel, message) => {
+			switch (channel) {
+				case 'publish':
+					{
+						const { pubData, topic, clientIdentifier } = JSON.parse(message) as { pubData: IPublishData; topic: string; clientIdentifier: string };
+						this.subMap.forEach((value, key) => {
+							const topicReg = topicToRegEx(key);
+							if (topicReg && new RegExp(topicReg).test(topic)) {
+								const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
+								value.forEach(async (publishIdentifier) => {
+									const client = this.clientIdentifierManager.getIdendifier(publishIdentifier);
+									const subFlags = await this.getSubscription(publishIdentifier, key);
+									if (subFlags && client) {
+										if (subFlags && subFlags.noLocal && publishIdentifier === clientIdentifier) {
+											return;
+										}
+
+										const minQoS = Math.min(subFlags.qos || 0, pubData.header.qosLevel);
+										if (minQoS > QoSType.QoS0) {
+											distributeData.header.packetIdentifier = this.newPacketIdentifier(client);
+											distributeData.header.udpFlag = false;
+										}
+										distributeData.header.qosLevel = minQoS;
+										distributeData.header.retain = subFlags.retainAsPublished ? distributeData.header.retain : false;
+										const pubPacket = encodePublishPacket(distributeData);
+										client.write(pubPacket);
+									}
+								});
+							}
+						});
+					}
+					break;
+			}
+		});
 	}
 
-	getSubscription(client: TClient): Promise<any> {
-		throw new Error('Method not implemented.');
+	public async isSubscribe(topic: TTopic): Promise<boolean> {
+		let isSub = false;
+		await this.redis.scan(0, 'MATCH', `topic:*`, async (err, matchData) => {
+			if (matchData) {
+				const [cursor, elements] = matchData;
+				const delStrSart = `${topic}:`.length;
+				for (const key of elements) {
+					const keyTopic = key.substring(delStrSart);
+					const reg = topicToRegEx(keyTopic);
+					if (reg && new RegExp(reg).test(topic)) {
+						isSub = true;
+						return;
+					}
+				}
+			}
+		});
+		return isSub;
 	}
 
-	addRetainMessage(topic: string, pubData: IPublishData): Promise<void> {
-		throw new Error('Method not implemented.');
+	async getSubscription(clientIdentifier: TIdentifier, topic: string): Promise<TSubscribeData | undefined> {
+		const data = await this.redis.get(this.subscribeKey(clientIdentifier, topic));
+		if (data) {
+			return JSON.parse(data);
+		}
+		return undefined;
 	}
-	deleteRetainMessage(topic: string): Promise<void> {
-		throw new Error('Method not implemented.');
+
+	async addRetainMessage(topic: string, pubData: IPublishData): Promise<void> {
+		this.redis.set(this.retainKey(topic), JSON.stringify(pubData));
+		this.redis.expire(this.retainKey(topic), 3600 * 24);
 	}
-	getRetainMessage(topic: string): Promise<any> {
-		throw new Error('Method not implemented.');
+	async deleteRetainMessage(topic: string): Promise<void> {
+		this.redis.del(this.retainKey(topic));
 	}
-	forEachRetainMessage(callbackfn: (topic: string, data: IPublishData) => void): Promise<void> {
-		throw new Error('Method not implemented.');
+	async getRetainMessage(topic: string): Promise<IPublishData | undefined> {
+		const ratainData = await this.redis.get(this.retainKey(topic));
+		return ratainData ? JSON.parse(ratainData) : undefined;
+	}
+	async forEachRetainMessage(callbackfn: (topic: string, data: IPublishData) => void): Promise<void> {
+		const [cursor, elements] = await this.getRatain();
+
+		for (const key of elements) {
+			const topic = key;
+			const data = await this.redis.get(key);
+			if (data) {
+				callbackfn(topic, JSON.parse(data));
+			}
+		}
 	}
 }

@@ -197,12 +197,6 @@ export abstract class Manager {
 	abstract clear(clientIdentifier: string): Promise<void>;
 
 	/**
-	 * 清除该用户的所有订阅信息
-	 * @param clientIdentifier 订阅者
-	 */
-	abstract clearSubscribe(clientIdentifier: string): void;
-
-	/**
 	 * 添加主题订阅，订阅信息
 	 * @param client 订阅者
 	 * @param topic 订阅主题
@@ -229,14 +223,14 @@ export abstract class Manager {
 	 * @param client
 	 * @returns
 	 */
-	abstract getSubscription(client: TClient): Promise<TClientSubscription | undefined>;
+	abstract getSubscription(clientIdentifier: TIdentifier, topic: string): Promise<TSubscribeData | undefined>;
 
 	/**
 	 * 发布主题
 	 * @param topic 订阅主题
 	 * @param pubData 推送内容
 	 */
-	abstract publish(topic: TTopic, callbackfn: (client: TClient, data: TSubscribeData) => void): void;
+	abstract publish(clientIdentifier: string, topic: TTopic, pubData: IPublishData): void;
 
 	/**
 	 * 获取客户端使用过个的 id

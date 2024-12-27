@@ -45,6 +45,7 @@ import {
 import { topicToRegEx, verifyTopic } from './topicFilters';
 import { Manager, TClient } from './manager/manager';
 import { MemoryManager } from './manager/memoryManager';
+import { RedisManager } from './manager/redisManager';
 
 export class MqttManager {
 	static defaultProperties = {
@@ -207,34 +208,7 @@ export class MqttManager {
 		delete pubData.properties.topicAlias;
 		// TODO 向订阅者发布消息，未启动通配符订阅
 		// 拷贝数据，隔离服务端和客户端 PUBACK 报文
-		const receiveQos = pubData.header.qosLevel;
-		const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
-		distributeData.header.udpFlag = false;
-		this.clientManager.publish(distributeData.header.topicName, async (client, subFlags) => {
-			if (subFlags.noLocal && client === this.client) {
-				return;
-			}
-			if (subFlags.noLocal && client === this.client) {
-				return;
-			}
-			// 如果使用通配符进行订阅，可能会匹配多个订阅，如果订阅标识符存在则必须将这些订阅标识符发送给用户
-			const publishSubscriptionIdentifier: Array<number> = [];
-
-			const minQoS = Math.min(subFlags.qos || 0, receiveQos);
-			if (minQoS > QoSType.QoS0) {
-				// 增加报文标识符，用来做publish消息结束校验数据来源
-				// 向客户端分发 qos1 和 qos2 级别的消息，需要记录 packetIdentifier；
-				// 分发 qos2 消息时当收到客户端返回 pubRec、PubComp 数据包需要校验 packetIdentifier;
-				// 分发 qos1 消息时当收到客户端返回 pubAck 数据包需要校验 packetIdentifier;
-				distributeData.header.packetIdentifier = this.clientManager.newPacketIdentifier(client);
-				distributeData.header.udpFlag = false;
-			}
-			distributeData.header.qosLevel = minQoS;
-			distributeData.properties.subscriptionIdentifier = publishSubscriptionIdentifier;
-			distributeData.header.retain = subFlags.retainAsPublished ? distributeData.header.retain : false;
-			const pubPacket = encodePublishPacket(distributeData);
-			client.write(pubPacket);
-		});
+		this.clientManager.publish(this.clientIdentifier, pubData.header.topicName, pubData);
 
 		// 响应推送者
 		if (pubData.header.qosLevel === QoSType.QoS1) {
@@ -423,11 +397,11 @@ export class MqttManager {
 	}
 }
 export class MqttServer extends net.Server {
-	clientManager: MemoryManager;
+	clientManager: Manager;
 	constructor(options: IMqttOptions) {
 		super();
-
-		this.clientManager = new MemoryManager();
+		// this.clientManager = new MemoryManager();
+		this.clientManager = new RedisManager(options.redis ?? {});
 		super.on('connection', this.mqttConnection);
 	}
 
@@ -487,6 +461,8 @@ export class MqttServer extends net.Server {
 								console.log('Unhandled packet type:', data);
 						}
 					} catch (error) {
+						this.clientManager.disconnect(client);
+						console.log(error);
 						if (error instanceof DisconnectException) {
 							mqttManager.handleDisconnect(error.code as DisconnectReasonCode, { reasonString: error.msg });
 						} else if (error instanceof ConnectAckException) {
