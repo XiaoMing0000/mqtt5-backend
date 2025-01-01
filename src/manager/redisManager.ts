@@ -36,10 +36,6 @@ export class RedisManager extends Manager {
 		return `retain:${topic}`;
 	}
 
-	private convertMqttToRedisPattern(mqttPattern: string) {
-		return mqttPattern.replace(/[+#]/g, '*');
-	}
-
 	async clear(clientIdentifier: string, match = '*'): Promise<void> {
 		await this.redis.scan(0, 'MATCH', `${clientIdentifier}:${match}`, (err, matchData) => {
 			if (err) {
@@ -163,32 +159,36 @@ export class RedisManager extends Manager {
 	}
 
 	async public2() {
-		this.redisSub.on('message', (channel, message) => {
+		this.redisSub.on('message', async (channel, message) => {
 			switch (channel) {
 				case 'publish':
 					{
 						const { pubData, topic, clientIdentifier } = JSON.parse(message) as { pubData: IPublishData; topic: string; clientIdentifier: string };
-						this.subMap.forEach((value, key) => {
+						this.subMap.forEach(async (value, key) => {
 							const topicReg = topicToRegEx(key);
 							if (topicReg && new RegExp(topicReg).test(topic)) {
 								const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
 								value.forEach(async (publishIdentifier) => {
-									const client = this.clientIdentifierManager.getIdendifier(publishIdentifier);
-									const subFlags = await this.getSubscription(publishIdentifier, key);
-									if (subFlags && client) {
-										if (subFlags && subFlags.noLocal && publishIdentifier === clientIdentifier) {
-											return;
-										}
+									try {
+										const client = this.clientIdentifierManager.getIdendifier(publishIdentifier);
+										const subFlags = await this.getSubscription(publishIdentifier, key);
+										if (subFlags && client) {
+											if (subFlags && subFlags.noLocal && publishIdentifier === clientIdentifier) {
+												return;
+											}
 
-										const minQoS = Math.min(subFlags.qos || 0, pubData.header.qosLevel);
-										if (minQoS > QoSType.QoS0) {
-											distributeData.header.packetIdentifier = this.newPacketIdentifier(client);
-											distributeData.header.udpFlag = false;
+											const minQoS = Math.min(subFlags.qos || 0, pubData.header.qosLevel);
+											if (minQoS > QoSType.QoS0) {
+												distributeData.header.packetIdentifier = this.newPacketIdentifier(client);
+												distributeData.header.udpFlag = false;
+											}
+											distributeData.header.qosLevel = minQoS;
+											distributeData.header.retain = subFlags.retainAsPublished ? distributeData.header.retain : false;
+											const pubPacket = encodePublishPacket(distributeData);
+											client.write(pubPacket);
 										}
-										distributeData.header.qosLevel = minQoS;
-										distributeData.header.retain = subFlags.retainAsPublished ? distributeData.header.retain : false;
-										const pubPacket = encodePublishPacket(distributeData);
-										client.write(pubPacket);
+									} catch (error) {
+										console.log('publish error:', error);
 									}
 								});
 							}
@@ -204,7 +204,7 @@ export class RedisManager extends Manager {
 		await this.redis.scan(0, 'MATCH', `topic:*`, async (err, matchData) => {
 			if (matchData) {
 				const [cursor, elements] = matchData;
-				const delStrSart = `${topic}:`.length;
+				const delStrSart = `topic:`.length;
 				for (const key of elements) {
 					const keyTopic = key.substring(delStrSart);
 					const reg = topicToRegEx(keyTopic);
@@ -226,9 +226,9 @@ export class RedisManager extends Manager {
 		return undefined;
 	}
 
-	async addRetainMessage(topic: string, pubData: IPublishData): Promise<void> {
+	async addRetainMessage(topic: string, pubData: IPublishData, retainTTL?: number): Promise<void> {
 		this.redis.set(this.retainKey(topic), JSON.stringify(pubData));
-		this.redis.expire(this.retainKey(topic), 3600 * 24);
+		this.redis.expire(this.retainKey(topic), retainTTL ?? 3600 * 24);
 	}
 	async deleteRetainMessage(topic: string): Promise<void> {
 		this.redis.del(this.retainKey(topic));
@@ -237,14 +237,15 @@ export class RedisManager extends Manager {
 		const ratainData = await this.redis.get(this.retainKey(topic));
 		return ratainData ? JSON.parse(ratainData) : undefined;
 	}
-	async forEachRetainMessage(callbackfn: (topic: string, data: IPublishData) => void): Promise<void> {
+	async forEachRetainMessage(callbackfn: (topic: string, data: IPublishData) => Promise<void>): Promise<void> {
 		const [cursor, elements] = await this.getRatain();
 
 		for (const key of elements) {
-			const topic = key;
+			const topic = key.substring('retain:'.length);
 			const data = await this.redis.get(key);
-			if (data) {
-				callbackfn(topic, JSON.parse(data));
+			const pubData = data ? JSON.parse(data) : undefined;
+			if (pubData) {
+				await callbackfn(topic, pubData);
 			}
 		}
 	}

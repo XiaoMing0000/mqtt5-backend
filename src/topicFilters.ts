@@ -49,3 +49,12 @@ export function topicToRegEx(topic: string): string | false {
 	}
 	return `^${topic}$`;
 }
+
+/**
+ * 校验主题是否是通配符主题
+ * @param topic
+ * @returns
+ */
+export function isWildcardTopic(topic: string) {
+	return /[#+]/.test(topic);
+}

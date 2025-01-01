@@ -72,7 +72,7 @@ export class MemoryManager extends Manager {
 		}
 	}
 
-	subscribe(clientIdentifier: string, topic: string, data: TSubscribeData): void {
+	async subscribe(clientIdentifier: string, topic: string, data: TSubscribeData): Promise<void> {
 		const client = this.clientIdentifierManager.getIdendifier(clientIdentifier);
 		if (client) {
 			if (this.clientDataMap.has(client)) {
@@ -235,9 +235,9 @@ export class MemoryManager extends Manager {
 		return undefined;
 	}
 
-	public async addRetainMessage(topic: string, pubData: IPublishData) {
+	public async addRetainMessage(topic: string, pubData: IPublishData, retainTTL?: number) {
 		this.retainMessage.set(topic, {
-			TTL: Math.floor(Date.now()) + MqttManager.defaultProperties.retainTTL,
+			TTL: Math.floor(Date.now()) + (retainTTL ?? 3600),
 			data: pubData,
 		});
 	}
@@ -250,9 +250,9 @@ export class MemoryManager extends Manager {
 		return this.retainMessage.get(topic)?.data;
 	}
 
-	public async forEachRetainMessage(callbackfn: (topic: string, data: IPublishData) => void) {
-		this.retainMessage.forEach((value, key) => {
-			callbackfn(key, value.data);
+	public async forEachRetainMessage(callbackfn: (topic: string, data: IPublishData) => Promise<void>) {
+		this.retainMessage.forEach(async (value, key) => {
+			await callbackfn(key, value.data);
 		});
 	}
 }

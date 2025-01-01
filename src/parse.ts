@@ -431,10 +431,6 @@ export function parseConnect(buffer: Buffer): IConnectData {
 
 	connData.header.protocolName = utf8DecodedString(data);
 	connData.header.protocolVersion = oneByteInteger(data);
-	if (connData.header.protocolName !== 'MQTT' || connData.header.protocolVersion !== 5) {
-		throw new DisconnectException('Unsupported Protocol Version.', DisconnectReasonCode.ProtocolError);
-	}
-
 	const connectFlagsValue = oneByteInteger(data);
 	connData.connectFlags = {
 		username: !!((connectFlagsValue >> 7) & 1),

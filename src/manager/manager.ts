@@ -202,7 +202,7 @@ export abstract class Manager {
 	 * @param topic 订阅主题
 	 * @param data 订阅配置信息
 	 */
-	abstract subscribe(clientIdentifier: string, topic: TTopic, data: TSubscribeData): void;
+	abstract subscribe(clientIdentifier: string, topic: TTopic, data: TSubscribeData): Promise<void>;
 
 	/**
 	 * 取消主题订阅
@@ -286,11 +286,11 @@ export abstract class Manager {
 	}
 
 	/************************** PUBLISH 保留消息 **************************/
-	abstract addRetainMessage(topic: string, pubData: IPublishData): Promise<void>;
+	abstract addRetainMessage(topic: string, pubData: IPublishData, retainTTL?: number): Promise<void>;
 
 	abstract deleteRetainMessage(topic: string): Promise<void>;
 
 	abstract getRetainMessage(topic: string): Promise<IPublishData | undefined>;
 
-	abstract forEachRetainMessage(callbackfn: (topic: string, data: IPublishData) => void): Promise<void>;
+	abstract forEachRetainMessage(callbackfn: (topic: string, data: IPublishData) => Promise<void>): Promise<void>;
 }

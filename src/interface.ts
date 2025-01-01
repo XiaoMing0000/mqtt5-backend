@@ -9,7 +9,7 @@ import {
 	PubRelReasonCode,
 	SubscribeAckReasonCode,
 } from './exception';
-import { TClient } from './manager/manager';
+import { Manager, TClient } from './manager/manager';
 
 export type AuthMethod = (client: TClient, connData: IConnectData) => void;
 
@@ -23,8 +23,15 @@ export interface MqttEvents {
 }
 
 export interface IMqttOptions {
-	authMethod?: AuthMethod;
-	redis?: RedisOptions;
+	protocolName?: 'MQTT';
+	protocolVersion?: 5;
+	clientManager?: Manager;
+	maximumQoS?: QoSType; // 最大 QoS
+	retainAvailable?: true; // 保留消息
+	retainTTL?: number; // 保留消息过期时间
+	maximumPacketSize?: number; // 最大报文长度
+	topicAliasMaximum?: number; // 主题别名最大长度
+	wildcardSubscriptionAvailable?: boolean; // 通配符订阅
 }
 
 // MQTT 报文类型
