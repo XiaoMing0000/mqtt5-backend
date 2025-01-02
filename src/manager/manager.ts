@@ -193,7 +193,7 @@ export abstract class Manager {
 	}
 
 	/**
-	 * 获取客户端连接的信息
+	 * 清除客户端连接的信息
 	 * @param clientIdentifier
 	 */
 	abstract clearConnect(clientIdentifier: TClient | TIdentifier): void;

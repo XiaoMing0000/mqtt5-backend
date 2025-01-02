@@ -30,7 +30,7 @@ export interface IMqttOptions {
 	retainAvailable?: true; // 保留消息
 	retainTTL?: number; // 保留消息过期时间
 	maximumPacketSize?: number; // 最大报文长度
-	topicAliasMaximum?: number; // 主题别名最大长度
+	topicAliasMaximum?: number; // 主题别名最大值
 	wildcardSubscriptionAvailable?: boolean; // 通配符订阅
 }
 

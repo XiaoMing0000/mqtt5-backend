@@ -86,7 +86,7 @@ export class MqttManager {
 	 * 连接响应报文
 	 * @returns
 	 */
-	public handleConnAck(connData: IConnectData, reasonCode?: ConnectAckReasonCode, reasonString?: string) {
+	public async handleConnAck(connData: IConnectData, reasonCode?: ConnectAckReasonCode, reasonString?: string) {
 		const connAckData: IConnAckData = {
 			header: {
 				packetType: PacketType.CONNACK,
@@ -156,14 +156,14 @@ export class MqttManager {
 
 		this.clientIdentifier = connData.payload.clientIdentifier;
 		this.connData.properties.receiveMaximum ??= 0xffff;
-		this.handleConnAck(this.connData);
+		await this.handleConnAck(this.connData);
 	}
 
 	public async disconnectHandle(disconnectData: IDisconnectData) {
 		this.client.end();
 	}
 
-	public handleDisconnect(reasonCode: DisconnectReasonCode, properties: IDisconnectProperties) {
+	public async handleDisconnect(reasonCode: DisconnectReasonCode, properties: IDisconnectProperties) {
 		const disconnectPacket = encodeDisconnect({
 			header: {
 				packetType: PacketType.DISCONNECT,
@@ -194,12 +194,37 @@ export class MqttManager {
 			throw new DisconnectException('The Client specified a QoS greater than the QoS specified in a Maximum QoS in the CONNACK.', DisconnectReasonCode.QoSNotSupported);
 		}
 
-		// 添加主题别名映射
-		if (pubData.header.topicName && pubData.properties.topicAlias) {
-			this.topicAliasNameMap[pubData.properties.topicAlias] = pubData.header.topicName;
-		} else if (pubData.properties.topicAlias) {
-			pubData.header.topicName = this.topicAliasNameMap[pubData.properties.topicAlias];
+		if (pubData.header.qosLevel > QoSType.QoS0) {
+			this.receiveCounter++;
+			// publish 消息数量校验,限流控制
+			if (this.receiveCounter > (this.connData.properties.receiveMaximum ?? 0xffff)) {
+				throw new DisconnectException(
+					'The Client MUST NOT send more than Receive Maximum QoS 1 and QoS 2 PUBLISH packets for which it has not received PUBACK, PUBCOMP, or PUBREC with a Reason Code of 128 or greater from the Server.',
+					DisconnectReasonCode.ReceiveMaximumExceeded,
+				);
+			}
 		}
+
+		// TODO 最大报文长度校验
+		// if((pubData.header.remainingLength ?? 0)  > (this.connData.properties.maximumPacketSize ?? 1 << 20)) {
+		// 	throw new DisconnectException('The Server has received a Control Packet during the current Connection that contains more data than it was willing to process.', DisconnectReasonCode.PacketTooLarge);
+		// }
+
+		if (pubData.properties.topicAlias) {
+			if (pubData.properties.topicAlias > (this.options.topicAliasMaximum ?? 0xffff)) {
+				throw new DisconnectException(
+					'The Client or Server has received a PUBLISH packet containing a Topic Alias which is greater than the Maximum Topic Alias it sent in the CONNECT or CONNACK packet.',
+					DisconnectReasonCode.TopicAliasInvalid,
+				);
+			}
+			// 添加主题别名映射
+			if (pubData.header.topicName) {
+				this.topicAliasNameMap[pubData.properties.topicAlias] = pubData.header.topicName;
+			} else {
+				pubData.header.topicName = this.topicAliasNameMap[pubData.properties.topicAlias];
+			}
+		}
+
 		// 保留消息处理
 		if (this.options.retainAvailable && pubData.header.retain) {
 			if (pubData.payload) {
@@ -212,15 +237,14 @@ export class MqttManager {
 		}
 
 		delete pubData.properties.topicAlias;
-		// TODO 向订阅者发布消息，未启动通配符订阅
-		// 拷贝数据，隔离服务端和客户端 PUBACK 报文
+
 		this.clientManager.publish(this.clientIdentifier, pubData.header.topicName, pubData);
 
 		// 响应推送者
 		if (pubData.header.qosLevel === QoSType.QoS1) {
-			this.handlePubAck(pubData);
+			await this.handlePubAck(pubData);
 		} else if (pubData.header.qosLevel === QoSType.QoS2) {
-			this.handlePubRec(pubData);
+			await this.handlePubRec(pubData);
 		}
 	}
 
@@ -235,14 +259,6 @@ export class MqttManager {
 	}
 
 	private async handlePubAck(pubData: IPublishData) {
-		this.receiveCounter++;
-		if (this.receiveCounter > (this.connData.properties.receiveMaximum ?? 0xffff)) {
-			throw new DisconnectException(
-				'The Client MUST NOT send more than Receive Maximum QoS 1 and QoS 2 PUBLISH packets for which it has not received PUBACK, PUBCOMP, or PUBREC with a Reason Code of 128 or greater from the Server.',
-				DisconnectReasonCode.ReceiveMaximumExceeded,
-			);
-		}
-
 		const pubAckData: IPubAckData = {
 			header: {
 				packetType: PacketType.PUBACK,
@@ -284,17 +300,10 @@ export class MqttManager {
 			// TODO 未知的处理方式
 			// throw new
 		}
-		this.handlePubComp(pubRelData);
+		await this.handlePubComp(pubRelData);
 	}
 
 	private async handlePubComp(pubRelData: IPubRelData) {
-		this.receiveCounter++;
-		if (this.receiveCounter > (this.connData.properties.receiveMaximum ?? 0xffff)) {
-			throw new DisconnectException(
-				'The Client MUST NOT send more than Receive Maximum QoS 1 and QoS 2 PUBLISH packets for which it has not received PUBACK, PUBCOMP, or PUBREC with a Reason Code of 128 or greater from the Server.',
-				DisconnectReasonCode.ReceiveMaximumExceeded,
-			);
-		}
 		const properties = new EncoderProperties();
 		const compPacket = Buffer.from([
 			PacketType.PUBCOMP << 4,
@@ -487,9 +496,9 @@ export class MqttServer extends net.Server {
 					} catch (error) {
 						console.log('Capture Error:', error);
 						if (error instanceof DisconnectException) {
-							mqttManager.handleDisconnect(error.code as DisconnectReasonCode, { reasonString: error.msg });
+							await mqttManager.handleDisconnect(error.code as DisconnectReasonCode, { reasonString: error.msg });
 						} else if (error instanceof ConnectAckException) {
-							mqttManager.handleConnAck(data as IConnectData, error.code as ConnectAckReasonCode, error.msg);
+							await mqttManager.handleConnAck(data as IConnectData, error.code as ConnectAckReasonCode, error.msg);
 						} else if (error instanceof SubscribeAckException) {
 							const subAckData: ISubAckData = {
 								header: {
@@ -502,7 +511,7 @@ export class MqttServer extends net.Server {
 								},
 								reasonCode: error.code as SubscribeAckReasonCode,
 							};
-							mqttManager.handleSubAck(subAckData);
+							await mqttManager.handleSubAck(subAckData);
 						} else if (error instanceof PubAckException) {
 							const pubAckData: IPubAckData = {
 								header: {
@@ -524,9 +533,9 @@ export class MqttServer extends net.Server {
 				}
 			} catch (error) {
 				if (error instanceof DisconnectException) {
-					mqttManager.handleDisconnect(error.code as DisconnectReasonCode, { reasonString: error.msg });
+					await mqttManager.handleDisconnect(error.code as DisconnectReasonCode, { reasonString: error.msg });
 				} else {
-					mqttManager.handleDisconnect(DisconnectReasonCode.UnspecifiedError, { reasonString: 'Internal Server Error.' });
+					await mqttManager.handleDisconnect(DisconnectReasonCode.UnspecifiedError, { reasonString: 'Internal Server Error.' });
 				}
 			}
 		});
