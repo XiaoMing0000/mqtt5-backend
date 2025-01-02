@@ -13,6 +13,9 @@ interface IRoute {
 export class MemoryManager extends Manager {
 	clientIdentifierManager: ClientIdentifierManager;
 	private retainMessage = new Map<string, { data: IPublishData; TTL: number }>();
+	private connectDataMap = new Map<TClient, { data: IConnectData; expire: number }>();
+	// TODO ratainMessage 做定时任务清理，防止数据过多
+	// TODO 连接 keepalive 超时断开
 
 	private clientDataMap = new Map<
 		TClient,
@@ -25,6 +28,27 @@ export class MemoryManager extends Manager {
 	constructor() {
 		super();
 		this.clientIdentifierManager = new ClientIdentifierManager();
+
+		// 定时清理过期的 retainMessage
+		setInterval(() => {
+			const timestamp = Math.floor(Date.now() / 1000);
+			this.retainMessage.forEach((value, key) => {
+				if (timestamp > value.TTL) {
+					this.retainMessage.delete(key);
+				}
+			});
+		}, 1000 * 60);
+
+		// 定时清理过期的 retainMessage
+		setInterval(() => {
+			const timestamp = Math.floor(Date.now() / 1000);
+			this.connectDataMap.forEach((value, key) => {
+				if (timestamp > value.expire) {
+					this.disconnect(key);
+				}
+			});
+			// }, 1000 * 60);
+		}, 1000);
 	}
 
 	getClient(clientIdentifier: TIdentifier) {
@@ -47,6 +71,7 @@ export class MemoryManager extends Manager {
 
 	public async connect(clientIdentifier: string, connData: IConnectData, client: TClient): Promise<void> {
 		this.clientIdentifierManager.set(client, clientIdentifier);
+		this.connectDataMap.set(client, { data: connData, expire: Date.now() / 1000 + connData.header.keepAlive * 1.5 });
 		if (!this.clientDataMap.has(client)) {
 			this.clientDataMap.set(client, {
 				subscription: new Map(),
@@ -54,14 +79,27 @@ export class MemoryManager extends Manager {
 		}
 	}
 
-	disconnect(clientIdentifier: TIdentifier): void;
-	disconnect(client: TClient): void;
-	disconnect(client: TClient | TIdentifier): void {
-		if (typeof client === 'string') {
+	public async ping(clientIdentifier: string): Promise<void> {
+		const client = this.clientIdentifierManager.getIdendifier(clientIdentifier);
+		if (client) {
+			const connData = this.connectDataMap.get(client);
+			if (connData) {
+				connData.expire = Date.now() / 1000 + connData.data.header.keepAlive * 1.5;
+			}
 		}
 	}
 
-	async clear(clientIdentifier: string): Promise<void> {
+	clearConnect(clientIdentifier: TClient | TIdentifier): void {
+		const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : this.clientIdentifierManager.getClient(clientIdentifier)?.identifier;
+		const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdendifier(clientIdentifier) : clientIdentifier;
+		if (client && identifier) {
+			this.connectDataMap.delete(client);
+			this.clearSubscribe(identifier);
+			this.clientIdentifierManager.delete(client);
+		}
+	}
+
+	async clearSubscribe(clientIdentifier: string): Promise<void> {
 		const client = this.clientIdentifierManager.getIdendifier(clientIdentifier);
 		if (client) {
 			this.clientDataMap.get(client)?.subscription.forEach((value, key) => {
@@ -247,12 +285,19 @@ export class MemoryManager extends Manager {
 	}
 
 	public async getRetainMessage(topic: string) {
-		return this.retainMessage.get(topic)?.data;
+		const ratainData = this.retainMessage.get(topic);
+		if (ratainData && ratainData.TTL < Math.floor(Date.now() / 1000)) {
+			return this.retainMessage.get(topic)?.data;
+		}
+		return undefined;
 	}
 
 	public async forEachRetainMessage(callbackfn: (topic: string, data: IPublishData) => Promise<void>) {
+		const nowDate = Math.floor(Date.now() / 1000);
 		this.retainMessage.forEach(async (value, key) => {
-			await callbackfn(key, value.data);
+			if (value.TTL < nowDate) {
+				await callbackfn(key, value.data);
+			}
 		});
 	}
 }

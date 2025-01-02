@@ -17,7 +17,9 @@ export class RedisManager extends Manager {
 		this.redisSub = new Redis(options);
 		this.clientIdentifierManager = new ClientIdentifierManager();
 		this.redisSub.subscribe('publish');
-		this.public2();
+		// 订阅redis过期事件，需要在redis.conf中配置notify-keyspace-events Ex
+		this.redisSub.subscribe('__keyevent@0__:expired'); // 处理 key 过期事件
+		this.redisMessage();
 	}
 
 	private connectKey(clientIdentifier: string) {
@@ -36,16 +38,30 @@ export class RedisManager extends Manager {
 		return `retain:${topic}`;
 	}
 
-	async clear(clientIdentifier: string, match = '*'): Promise<void> {
-		await this.redis.scan(0, 'MATCH', `${clientIdentifier}:${match}`, (err, matchData) => {
+	private async deleteMatch(key: string, callbackfn?: (matchedKey: string) => Promise<void>): Promise<void> {
+		await this.redis.scan(0, 'MATCH', key, async (err, matchData) => {
 			if (err) {
 			}
 			if (matchData) {
 				const [cursor, elements] = matchData;
 				for (const key of elements) {
-					this.redis.del(key);
+					if (callbackfn) {
+						await callbackfn(key);
+					}
+					await this.redis.del(key);
 				}
 			}
+		});
+	}
+
+	async clearSubscribe(clientIdentifier: string, match = '*'): Promise<void> {
+		await this.deleteMatch(`subscribe:${clientIdentifier}:${match}`, (matchKey) => {
+			const topic = matchKey.substring(`subscribe:${clientIdentifier}:`.length);
+			this.subMap.get(topic)?.delete(clientIdentifier);
+			if (this.subMap.get(topic)?.size === 0) {
+				this.subMap.delete(topic);
+			}
+			return Promise.resolve();
 		});
 	}
 
@@ -71,31 +87,46 @@ export class RedisManager extends Manager {
 	public async connect(clientIdentifier: string, connData: IConnectData, client: TClient) {
 		this.clientIdentifierManager.set(client, clientIdentifier);
 		await this.redis.set(this.connectKey(clientIdentifier), JSON.stringify(connData));
+		if (connData.header.keepAlive) {
+			await this.redis.expire(this.connectKey(clientIdentifier), connData.header.keepAlive * 1.5);
+		}
 	}
 
-	public async disconnect(client: string): Promise<void>;
-	public async disconnect(client: TClient): Promise<void>;
+	public async ping(clientIdentifier: string): Promise<void> {
+		const data = await this.redis.get(this.connectKey(clientIdentifier));
+		if (data) {
+			const connData = JSON.parse(data) as IConnectData;
+			if (connData.header.keepAlive) {
+				await this.redis.expire(this.connectKey(clientIdentifier), connData.header.keepAlive * 1.5);
+			}
+		}
+	}
+
 	public async disconnect(client: string | TClient): Promise<void> {
-		const clientIdentifier = typeof client === 'string' ? client : (this.clientIdentifierManager.getClient(client as TClient)?.identifier ?? '');
-		if (!clientIdentifier) {
+		typeof client === 'string' ? this.clientIdentifierManager.getIdendifier(client)?.end() : client.end();
+	}
+
+	async clearConnect(clientIdentifier: TClient | TIdentifier): Promise<void> {
+		const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : (this.clientIdentifierManager.getClient(clientIdentifier)?.identifier ?? '');
+		if (!identifier) {
 			return;
 		}
 
-		await this.redis.scan(0, 'MATCH', `subscribe:${clientIdentifier}:*`, async (err, matchData) => {
+		await this.redis.scan(0, 'MATCH', `subscribe:${identifier}:*`, async (err, matchData) => {
 			if (err) {
 			} else if (matchData) {
 				const [cursor, elements] = matchData;
-				const delStrSart = `subscribe:${clientIdentifier}:`.length;
+				const delStrSart = `subscribe:${identifier}:`.length;
 				for (const key of elements) {
 					const topic = key.substring(delStrSart);
-					await this.delTopicIdentifier(clientIdentifier, topic);
+					await this.delTopicIdentifier(identifier, topic);
 					await this.redis.del(key);
 				}
 			}
 		});
 
-		await this.redis.del(this.connectKey(clientIdentifier));
-		this.clientIdentifierManager.delete(client);
+		await this.redis.del(this.connectKey(identifier));
+		this.clientIdentifierManager.delete(clientIdentifier);
 	}
 
 	public async subscribe(clientIdentifier: string, topic: TTopic, data: TSubscribeData) {
@@ -158,9 +189,21 @@ export class RedisManager extends Manager {
 		);
 	}
 
-	async public2() {
+	async redisMessage() {
 		this.redisSub.on('message', async (channel, message) => {
 			switch (channel) {
+				// 处理 connect keepAlive 过期事件
+				case '__keyevent@0__:expired': {
+					if (message.startsWith('connect:')) {
+						const clientIdentifier = message.substring('connect:'.length);
+						const client = this.clientIdentifierManager.getIdendifier(clientIdentifier);
+						if (client) {
+							client.end();
+						}
+					}
+					break;
+				}
+				// 处理发布事件
 				case 'publish':
 					{
 						const { pubData, topic, clientIdentifier } = JSON.parse(message) as { pubData: IPublishData; topic: string; clientIdentifier: string };

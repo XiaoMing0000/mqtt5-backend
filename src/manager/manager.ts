@@ -184,17 +184,25 @@ export abstract class Manager {
 	 */
 	abstract connect(clientIdentifier: string, connData: IConnectData, client: TClient): Promise<void>;
 
-	abstract disconnect(clientIdentifier: string): void;
 	/**
-	 * 查询当前进程是否有用户连接
-	 * @param client
+	 * 断开连接
+	 * @param clientIdentifier
 	 */
-	abstract disconnect(client: TClient): void;
+	public disconnect(clientIdentifier: string | TClient): void {
+		typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdendifier(clientIdentifier)?.end() : clientIdentifier.end();
+	}
+
+	/**
+	 * 获取客户端连接的信息
+	 * @param clientIdentifier
+	 */
+	abstract clearConnect(clientIdentifier: TClient | TIdentifier): void;
+
 	/**
 	 * 清除该用户的所有订阅信息
 	 * @param clientIdentifier 订阅者
 	 */
-	abstract clear(clientIdentifier: string): Promise<void>;
+	abstract clearSubscribe(clientIdentifier: string): Promise<void>;
 
 	/**
 	 * 添加主题订阅，订阅信息
@@ -231,6 +239,12 @@ export abstract class Manager {
 	 * @param pubData 推送内容
 	 */
 	abstract publish(clientIdentifier: string, topic: TTopic, pubData: IPublishData): void;
+
+	/**
+	 * 心跳检测,更新 keepalive 时间
+	 * @param clientIdentifier	客户端标识符
+	 */
+	abstract ping(clientIdentifier: string): Promise<void>;
 
 	/**
 	 * 获取客户端使用过个的 id

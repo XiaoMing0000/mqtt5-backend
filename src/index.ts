@@ -76,7 +76,6 @@ export class MqttManager {
 			clientIdentifier: '',
 		},
 	};
-	authMethod: AuthMethod | undefined;
 
 	constructor(
 		private readonly client: TClient,
@@ -133,10 +132,6 @@ export class MqttManager {
 		}
 	}
 
-	public setAuth(callbackfn: AuthMethod) {
-		this.authMethod = callbackfn;
-	}
-
 	/**
 	 * 处理连接报
 	 * @param buffer
@@ -148,15 +143,16 @@ export class MqttManager {
 			throw new DisconnectException('Unsupported Protocol Version.', DisconnectReasonCode.ProtocolError);
 		}
 
-		if (this.authMethod) {
-			this.authMethod(this.client, this.connData);
-		}
 		if (this.connData.connectFlags.cleanStart) {
-			await this.clientManager.clear(this.clientIdentifier || connData.payload.clientIdentifier);
+			await this.clientManager.clearSubscribe(this.clientIdentifier || connData.payload.clientIdentifier);
 			this.receiveCounter = 0;
 		}
 
-		this.clientManager.connect(this.clientIdentifier || connData.payload.clientIdentifier, connData, this.client);
+		if (this.connData.connectFlags.willFlag) {
+			// TODO 遗嘱消息处理
+		}
+
+		await this.clientManager.connect(this.clientIdentifier || connData.payload.clientIdentifier, connData, this.client);
 
 		this.clientIdentifier = connData.payload.clientIdentifier;
 		this.connData.properties.receiveMaximum ??= 0xffff;
@@ -181,6 +177,7 @@ export class MqttManager {
 	}
 
 	public async pingReqHandle() {
+		await this.clientManager.ping(this.clientIdentifier);
 		this.client.write(Buffer.from([PacketType.PINGRESP << 4, 0]));
 	}
 
@@ -488,7 +485,7 @@ export class MqttServer extends net.Server {
 								console.log('Unhandled packet type:', data);
 						}
 					} catch (error) {
-						console.log(error);
+						console.log('Capture Error:', error);
 						if (error instanceof DisconnectException) {
 							mqttManager.handleDisconnect(error.code as DisconnectReasonCode, { reasonString: error.msg });
 						} else if (error instanceof ConnectAckException) {
@@ -536,7 +533,6 @@ export class MqttServer extends net.Server {
 
 		client.on('end', () => {
 			console.log('Client disconnected');
-			client.end();
 		});
 
 		client.on('error', (err) => {
@@ -545,7 +541,7 @@ export class MqttServer extends net.Server {
 		});
 
 		client.on('close', (hadError: boolean) => {
-			this.clientManager.disconnect(client);
+			this.clientManager.clearConnect(client);
 			if (hadError) {
 				console.log('Connection closed due to error!');
 			} else {
