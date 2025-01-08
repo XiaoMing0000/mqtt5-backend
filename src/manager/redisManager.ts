@@ -1,5 +1,5 @@
 import Redis, { RedisOptions } from 'ioredis';
-import { ClientIdentifierManager, Manager, TClient, TClientSubscription, TIdentifier, TSubscribeData, TTopic } from './manager';
+import { ClientIdentifierManager, Manager, TClient, TIdentifier, TSubscribeData, TTopic } from './manager';
 import { IConnectData, IPublishData, QoSType } from '../interface';
 import { topicToRegEx } from '../topicFilters';
 import { encodePublishPacket } from '../parse';
@@ -40,11 +40,10 @@ export class RedisManager extends Manager {
 
 	private async deleteMatch(key: string, callbackfn?: (matchedKey: string) => Promise<void>): Promise<void> {
 		await this.redis.scan(0, 'MATCH', key, async (err, matchData) => {
-			if (err) {
-			}
-			if (matchData) {
-				const [cursor, elements] = matchData;
-				for (const key of elements) {
+			// if (err) {
+			// }
+			if (matchData && matchData[1]) {
+				for (const key of matchData[1]) {
 					if (callbackfn) {
 						await callbackfn(key);
 					}
@@ -66,8 +65,10 @@ export class RedisManager extends Manager {
 	}
 
 	async getRatain() {
+		// TODO
 		return await this.redis.scan(0, 'MATCH', 'retain:*', (err, matchData) => {
 			if (err) {
+				// pass
 			}
 		});
 	}
@@ -114,10 +115,10 @@ export class RedisManager extends Manager {
 
 		await this.redis.scan(0, 'MATCH', `subscribe:${identifier}:*`, async (err, matchData) => {
 			if (err) {
-			} else if (matchData) {
-				const [cursor, elements] = matchData;
+				// pass
+			} else if (matchData && matchData[1]) {
 				const delStrSart = `subscribe:${identifier}:`.length;
-				for (const key of elements) {
+				for (const key of matchData[1]) {
 					const topic = key.substring(delStrSart);
 					await this.delTopicIdentifier(identifier, topic);
 					await this.redis.del(key);
@@ -245,10 +246,9 @@ export class RedisManager extends Manager {
 	public async isSubscribe(topic: TTopic): Promise<boolean> {
 		let isSub = false;
 		await this.redis.scan(0, 'MATCH', `topic:*`, async (err, matchData) => {
-			if (matchData) {
-				const [cursor, elements] = matchData;
+			if (matchData && matchData[1]) {
 				const delStrSart = `topic:`.length;
-				for (const key of elements) {
+				for (const key of matchData[1]) {
 					const keyTopic = key.substring(delStrSart);
 					const reg = topicToRegEx(keyTopic);
 					if (reg && new RegExp(reg).test(topic)) {
@@ -281,9 +281,9 @@ export class RedisManager extends Manager {
 		return ratainData ? JSON.parse(ratainData) : undefined;
 	}
 	async forEachRetainMessage(callbackfn: (topic: string, data: IPublishData) => Promise<void>): Promise<void> {
-		const [cursor, elements] = await this.getRatain();
+		const allRatainData = await this.getRatain();
 
-		for (const key of elements) {
+		for (const key of allRatainData[1]) {
 			const topic = key.substring('retain:'.length);
 			const data = await this.redis.get(key);
 			const pubData = data ? JSON.parse(data) : undefined;

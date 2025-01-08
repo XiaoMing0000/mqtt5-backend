@@ -194,10 +194,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.maximumQoS:
 				data.index++;
 				if (properties.maximumQoS !== undefined || data.buffer[data.index] > 1) {
-					throw new DisconnectException(
-						'It is a Protocol Error to include Maximum QoS more than once, or to have a value other than 0 or 1.',
-						DisconnectReasonCode.ProtocolError,
-					);
+					throw new DisconnectException('It is a Protocol Error to include Maximum QoS more than once, or to have a value other than 0 or 1.', DisconnectReasonCode.ProtocolError);
 				}
 				properties.maximumQoS = !!oneByteInteger(data);
 				break;
@@ -451,10 +448,7 @@ export function parseConnAckProperties(buffer: Buffer, index?: number) {
 			case PropertyIdentifier.maximumQoS:
 				data.index++;
 				if (properties.maximumQoS !== undefined || data.buffer[data.index] > 1) {
-					throw new DisconnectException(
-						'It is a Protocol Error to include Maximum QoS more than once, or to have a value other than 0 or 1.',
-						DisconnectReasonCode.ProtocolError,
-					);
+					throw new DisconnectException('It is a Protocol Error to include Maximum QoS more than once, or to have a value other than 0 or 1.', DisconnectReasonCode.ProtocolError);
 				}
 				properties.maximumQoS = !!oneByteInteger(data);
 				break;

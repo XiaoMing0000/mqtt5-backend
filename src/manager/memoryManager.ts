@@ -1,4 +1,3 @@
-import { MqttManager } from '..';
 import { IConnectData, IPublishData, QoSType } from '../interface';
 import { encodePublishPacket } from '../parse';
 import { ClientIdentifierManager, Manager, TClient, TClientSubscription, TIdentifier, TSubscribeData, TTopic } from './manager';

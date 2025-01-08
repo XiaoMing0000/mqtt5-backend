@@ -1,4 +1,3 @@
-import { RedisOptions } from 'ioredis';
 import {
 	AuthenticateReasonCode,
 	ConnectAckReasonCode,
@@ -9,18 +8,7 @@ import {
 	PubRelReasonCode,
 	SubscribeAckReasonCode,
 } from './exception';
-import { Manager, TClient } from './manager/manager';
-
-export type AuthMethod = (client: TClient, connData: IConnectData) => void;
-
-// 定义事件名称和对应的数据类型
-export interface MqttEvents {
-	publish: IPublishData;
-	connect: IConnectData;
-	subscribe: ISubscribeData;
-	unsubscribe: IUnsubscribeData;
-	disconnect: IDisconnectData;
-}
+import { Manager } from './manager/manager';
 
 export interface IMqttOptions {
 	protocolName?: 'MQTT';
