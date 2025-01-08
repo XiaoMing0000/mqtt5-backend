@@ -1,17 +1,34 @@
 import { MqttServer } from '.';
 import { CONFIG } from './config';
+import { ConnectAckException } from './exception';
 import { MemoryManager } from './manager/memoryManager';
 import { RedisManager } from './manager/redisManager';
 
-const clientManager = new RedisManager({
-	host: CONFIG.redisHost,
-	port: CONFIG.redisPort,
-	password: CONFIG.redisPassword,
-	db: CONFIG.redisDB,
-});
-// const clientManager = new MemoryManager();
+// const clientManager = new RedisManager({
+// 	host: CONFIG.redisHost,
+// 	port: CONFIG.redisPort,
+// 	password: CONFIG.redisPassword,
+// 	db: CONFIG.redisDB,
+// });
+const clientManager = new MemoryManager();
 
 const server = new MqttServer(clientManager);
+
+// 异步错误处理
+// process.on('uncaughtException', (err) => {
+// 	console.error('uncaughtException:', err);
+// });
+
+// 异步错误处理
+// process.on('unhandledRejection', (reason, promise) => {
+// 	console.error('unhandledRejection:', reason, promise);
+// });
+
+// 客户端推送事件
+// server.onPublish(async (data, client, clientManager) => {
+// 	console.log('clientId: ', clientManager.clientIdentifierManager.getClient(client)?.identifier);
+// 	console.log('onPublish: ', data);
+// });
 
 // TODO 支持 Websocket 协议
 // TODO 支持 TLS 协议

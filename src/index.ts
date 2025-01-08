@@ -29,6 +29,7 @@ import {
 	IUnsubscribeData,
 	MqttEvents,
 	PacketType,
+	PacketTypeData,
 	QoSType,
 } from './interface';
 import {
@@ -61,6 +62,7 @@ export class MqttManager {
 	topicAliasNameMap: { [key: number]: string } = {};
 	receiveCounter = 0;
 	clientIdentifier = '';
+	isAuth = false;
 	protected connData: IConnectData = {
 		header: {
 			packetType: PacketType.RESERVED,
@@ -82,6 +84,13 @@ export class MqttManager {
 		private readonly clientManager: Manager,
 		private readonly options: IMqttOptions,
 	) {}
+
+	public async commonHandle(data: PacketTypeData) {
+		if (this.isAuth && data.header.packetType !== PacketType.AUTH) {
+			throw new DisconnectException('The Server is not authorized to accept the CONNECT packet.', DisconnectReasonCode.NotAuthorized);
+		}
+	}
+
 	/**
 	 * 连接响应报文
 	 * @returns
@@ -150,6 +159,10 @@ export class MqttManager {
 
 		if (this.connData.connectFlags.willFlag) {
 			// TODO 遗嘱消息处理
+		}
+
+		if (this.connData.properties.authenticationMethod) {
+			this.isAuth = true;
 		}
 
 		await this.clientManager.connect(this.clientIdentifier || connData.payload.clientIdentifier, connData, this.client);
@@ -431,6 +444,7 @@ export class MqttManager {
 export class MqttServer extends net.Server {
 	clientManager: Manager;
 	options: IMqttOptions;
+	private eventListeners: Array<{ event: string; listener: (...args: any[]) => Promise<void> }> = [];
 	constructor(clientManager: Manager, options: IMqttOptions = {}) {
 		super();
 		this.clientManager = clientManager;
@@ -438,56 +452,123 @@ export class MqttServer extends net.Server {
 		super.on('connection', this.mqttConnection);
 	}
 
-	on<K extends keyof MqttEvents>(event: K, listener: (data: MqttEvents[K]) => void) {
-		return super.on(event, listener);
+	addClientEventListener(event: string, listener: (...args: any[]) => Promise<void>): this {
+		this.eventListeners.push({ event, listener });
+		return this;
+	}
+	async clientEmitAsync(client: TClient, event: string, ...args: any[]) {
+		const listeners = client.listeners(event);
+		const promises = listeners.map((listener) => listener(...args));
+		await Promise.all(promises);
+	}
+
+	private onClientEventListener(client: TClient) {
+		this.eventListeners.forEach((eventListener) => {
+			const wrappedListener = async (...args: any[]) => {
+				try {
+					await eventListener.listener(...args);
+				} catch (error) {
+					client.emit('error', error);
+				}
+			};
+			client.on(eventListener.event, wrappedListener);
+		});
+		return this;
+	}
+
+	onConnect(listener: (data: IConnectData, client: TClient, clientManager: Manager) => Promise<void>): this {
+		return this.addClientEventListener('connect', listener);
+	}
+	onDisconnect(listener: (data: IDisconnectData, client: TClient, clientManager: Manager) => Promise<void>): this {
+		return this.addClientEventListener('disconnect', listener);
+	}
+
+	onPing(listener: (client: TClient, clientManager: Manager) => Promise<void>): this {
+		return this.addClientEventListener('ping', listener);
+	}
+
+	onPublish(listener: (data: IPublishData, client: TClient, clientManager: Manager) => Promise<void>): this {
+		return this.addClientEventListener('publish', listener);
+	}
+
+	onPubRel(listener: (data: IPubRelData, client: TClient, clientManager: Manager) => Promise<void>): this {
+		return this.addClientEventListener('pubRel', listener);
+	}
+
+	onPubRec(listener: (data: IPubRecData, client: TClient, clientManager: Manager) => Promise<void>): this {
+		return this.addClientEventListener('pubRec', listener);
+	}
+
+	onPubComp(listener: (data: IPubRecData, client: TClient, clientManager: Manager) => Promise<void>): this {
+		return this.addClientEventListener('pubComp', listener);
+	}
+
+	onSubscribe(listener: (data: ISubscribeData, client: TClient, clientManager: Manager) => Promise<void>): this {
+		return this.addClientEventListener('subscribe', listener);
+	}
+
+	onUnsubscribe(listener: (data: IUnsubscribeData, client: TClient, clientManager: Manager) => Promise<void>): this {
+		return this.addClientEventListener('unsubscribe', listener);
+	}
+
+	onAuth(listener: (data: IAuthData, client: TClient, clientManager: Manager) => Promise<void>): this {
+		return this.addClientEventListener('auth', listener);
 	}
 
 	private mqttConnection(client: TClient) {
 		const mqttManager = new MqttManager(client, this.clientManager, this.options);
+		this.onClientEventListener(client);
 		client.on('data', async (buffer) => {
 			try {
 				// 这一层捕获协议错误和未知错误
 				const allPacketData = parseAllPacket(buffer);
 				for (const data of allPacketData) {
 					try {
+						await mqttManager.commonHandle(data);
+
 						switch (data.header.packetType) {
 							case PacketType.CONNECT:
-								this.emit('connect', data as IConnAckData);
+								this.clientEmitAsync(client, 'connect', data, client, this.clientManager);
 								await mqttManager.connectHandle(data as IConnectData);
 								break;
 							case PacketType.PUBLISH:
-								this.emit('publish', data as IPublishData);
+								await this.clientEmitAsync(client, 'publish', data, client, this.clientManager);
 								await mqttManager.publishHandle(data as IPublishData);
 								break;
 							case PacketType.PUBACK:
+								await this.clientEmitAsync(client, 'pubAck', data, client, this.clientManager);
 								await mqttManager.pubAckHandle(data as IPubAckData);
 								break;
 							case PacketType.PUBREC:
+								await this.clientEmitAsync(client, 'pubRec', data, client, this.clientManager);
 								await mqttManager.pubRecHandle(data as IPubRecData);
 								break;
 							case PacketType.PUBREL:
+								await this.clientEmitAsync(client, 'pubRel', data, client, this.clientManager);
 								await mqttManager.pubRelHandle(data as IPubRelData);
 								break;
 							case PacketType.PUBCOMP:
+								await this.clientEmitAsync(client, 'pubComp', data, client, this.clientManager);
 								await mqttManager.pubCompHandle(data as IPubRecData);
 								break;
 							case PacketType.SUBSCRIBE:
-								this.emit('subscribe', data as ISubscribeData);
+								await this.clientEmitAsync(client, 'subscribe', data, client, this.clientManager);
 								await mqttManager.subscribeHandle(data as ISubscribeData);
 								break;
 							case PacketType.UNSUBSCRIBE:
-								this.emit('unsubscribe', data as IUnsubscribeData);
+								await this.clientEmitAsync(client, 'unsubscribe', data, client, this.clientManager);
 								await mqttManager.unsubscribeHandle(data as IUnsubscribeData);
 								break;
 							case PacketType.PINGREQ:
+								await this.clientEmitAsync(client, 'ping', client, this.clientManager);
 								await mqttManager.pingReqHandle();
 								break;
 							case PacketType.DISCONNECT:
-								this.emit('disconnect', data as IDisconnectData);
+								await this.clientEmitAsync(client, 'disconnect', data, client, this.clientManager);
 								await mqttManager.disconnectHandle(data as IDisconnectData);
 								break;
 							case PacketType.AUTH:
-								this.emit('connect', data as IConnAckData);
+								await this.clientEmitAsync(client, 'auth', data, client, this.clientManager);
 								await mqttManager.authHandle(data as IAuthData);
 								break;
 							default:
