@@ -24,11 +24,16 @@ const server = new MqttServer(clientManager);
 // 	console.error('unhandledRejection:', reason, promise);
 // });
 
+console.log((() => {})());
+
 // 客户端推送事件
-// server.onPublish(async (data, client, clientManager) => {
-// 	console.log('clientId: ', clientManager.clientIdentifierManager.getClient(client)?.identifier);
-// 	console.log('onPublish: ', data);
-// });
+server.onPublish(async (data, client, clientManager) => {
+	console.log('clientId: ', clientManager.clientIdentifierManager.getClient(client)?.identifier);
+	console.log('onPublish: ', data);
+	// throw new Error('test');
+	return false;
+	// return true;
+});
 
 // TODO 支持 Websocket 协议
 // TODO 支持 TLS 协议

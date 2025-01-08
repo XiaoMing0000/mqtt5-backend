@@ -441,10 +441,11 @@ export class MqttManager {
 		// TODO auth 报文处理
 	}
 }
+
 export class MqttServer extends net.Server {
 	clientManager: Manager;
 	options: IMqttOptions;
-	private eventListeners: Array<{ event: string; listener: (...args: any[]) => Promise<void> }> = [];
+	private eventListeners: Array<{ event: string; listener: (...args: any[]) => Promise<boolean> }> = [];
 	constructor(clientManager: Manager, options: IMqttOptions = {}) {
 		super();
 		this.clientManager = clientManager;
@@ -452,66 +453,62 @@ export class MqttServer extends net.Server {
 		super.on('connection', this.mqttConnection);
 	}
 
-	addClientEventListener(event: string, listener: (...args: any[]) => Promise<void>): this {
+	addClientEventListener(event: string, listener: (...args: any[]) => Promise<boolean>): this {
 		this.eventListeners.push({ event, listener });
 		return this;
 	}
 	async clientEmitAsync(client: TClient, event: string, ...args: any[]) {
-		const listeners = client.listeners(event);
-		const promises = listeners.map((listener) => listener(...args));
-		await Promise.all(promises);
+		for (const listener of client.listeners(event)) {
+			if (!(await listener(...args))) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private onClientEventListener(client: TClient) {
 		this.eventListeners.forEach((eventListener) => {
-			const wrappedListener = async (...args: any[]) => {
-				try {
-					await eventListener.listener(...args);
-				} catch (error) {
-					client.emit('error', error);
-				}
-			};
-			client.on(eventListener.event, wrappedListener);
+			client.on(eventListener.event, eventListener.listener);
 		});
 		return this;
 	}
 
-	onConnect(listener: (data: IConnectData, client: TClient, clientManager: Manager) => Promise<void>): this {
+	onConnect(listener: (data: IConnectData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
 		return this.addClientEventListener('connect', listener);
 	}
-	onDisconnect(listener: (data: IDisconnectData, client: TClient, clientManager: Manager) => Promise<void>): this {
+	onDisconnect(listener: (data: IDisconnectData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
 		return this.addClientEventListener('disconnect', listener);
 	}
 
-	onPing(listener: (client: TClient, clientManager: Manager) => Promise<void>): this {
+	onPing(listener: (client: TClient, clientManager: Manager) => Promise<boolean>): this {
 		return this.addClientEventListener('ping', listener);
 	}
 
-	onPublish(listener: (data: IPublishData, client: TClient, clientManager: Manager) => Promise<void>): this {
+	onPublish(listener: (data: IPublishData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
 		return this.addClientEventListener('publish', listener);
 	}
 
-	onPubRel(listener: (data: IPubRelData, client: TClient, clientManager: Manager) => Promise<void>): this {
+	onPubRel(listener: (data: IPubRelData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
 		return this.addClientEventListener('pubRel', listener);
 	}
 
-	onPubRec(listener: (data: IPubRecData, client: TClient, clientManager: Manager) => Promise<void>): this {
+	onPubRec(listener: (data: IPubRecData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
 		return this.addClientEventListener('pubRec', listener);
 	}
 
-	onPubComp(listener: (data: IPubRecData, client: TClient, clientManager: Manager) => Promise<void>): this {
+	onPubComp(listener: (data: IPubRecData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
 		return this.addClientEventListener('pubComp', listener);
 	}
 
-	onSubscribe(listener: (data: ISubscribeData, client: TClient, clientManager: Manager) => Promise<void>): this {
+	onSubscribe(listener: (data: ISubscribeData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
 		return this.addClientEventListener('subscribe', listener);
 	}
 
-	onUnsubscribe(listener: (data: IUnsubscribeData, client: TClient, clientManager: Manager) => Promise<void>): this {
+	onUnsubscribe(listener: (data: IUnsubscribeData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
 		return this.addClientEventListener('unsubscribe', listener);
 	}
 
-	onAuth(listener: (data: IAuthData, client: TClient, clientManager: Manager) => Promise<void>): this {
+	onAuth(listener: (data: IAuthData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
 		return this.addClientEventListener('auth', listener);
 	}
 
@@ -528,32 +525,25 @@ export class MqttServer extends net.Server {
 
 						switch (data.header.packetType) {
 							case PacketType.CONNECT:
-								this.clientEmitAsync(client, 'connect', data, client, this.clientManager);
-								await mqttManager.connectHandle(data as IConnectData);
+								(await this.clientEmitAsync(client, 'connect', data, client, this.clientManager)) && (await mqttManager.connectHandle(data as IConnectData));
 								break;
 							case PacketType.PUBLISH:
-								await this.clientEmitAsync(client, 'publish', data, client, this.clientManager);
-								await mqttManager.publishHandle(data as IPublishData);
+								(await this.clientEmitAsync(client, 'publish', data, client, this.clientManager)) && (await mqttManager.publishHandle(data as IPublishData));
 								break;
 							case PacketType.PUBACK:
-								await this.clientEmitAsync(client, 'pubAck', data, client, this.clientManager);
-								await mqttManager.pubAckHandle(data as IPubAckData);
+								(await this.clientEmitAsync(client, 'pubAck', data, client, this.clientManager)) && (await mqttManager.pubAckHandle(data as IPubAckData));
 								break;
 							case PacketType.PUBREC:
-								await this.clientEmitAsync(client, 'pubRec', data, client, this.clientManager);
-								await mqttManager.pubRecHandle(data as IPubRecData);
+								(await this.clientEmitAsync(client, 'pubRec', data, client, this.clientManager)) && (await mqttManager.pubRecHandle(data as IPubRecData));
 								break;
 							case PacketType.PUBREL:
-								await this.clientEmitAsync(client, 'pubRel', data, client, this.clientManager);
-								await mqttManager.pubRelHandle(data as IPubRelData);
+								(await this.clientEmitAsync(client, 'pubRel', data, client, this.clientManager)) && (await mqttManager.pubRelHandle(data as IPubRelData));
 								break;
 							case PacketType.PUBCOMP:
-								await this.clientEmitAsync(client, 'pubComp', data, client, this.clientManager);
-								await mqttManager.pubCompHandle(data as IPubRecData);
+								(await this.clientEmitAsync(client, 'pubComp', data, client, this.clientManager)) && (await mqttManager.pubCompHandle(data as IPubRecData));
 								break;
 							case PacketType.SUBSCRIBE:
-								await this.clientEmitAsync(client, 'subscribe', data, client, this.clientManager);
-								await mqttManager.subscribeHandle(data as ISubscribeData);
+								(await this.clientEmitAsync(client, 'subscribe', data, client, this.clientManager)) && (await mqttManager.subscribeHandle(data as ISubscribeData));
 								break;
 							case PacketType.UNSUBSCRIBE:
 								await this.clientEmitAsync(client, 'unsubscribe', data, client, this.clientManager);
