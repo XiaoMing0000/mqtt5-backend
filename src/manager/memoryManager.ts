@@ -13,8 +13,6 @@ export class MemoryManager extends Manager {
 	clientIdentifierManager: ClientIdentifierManager;
 	private retainMessage = new Map<string, { data: IPublishData; TTL: number }>();
 	private connectDataMap = new Map<TClient, { data: IConnectData; expire: number }>();
-	// TODO ratainMessage 做定时任务清理，防止数据过多
-	// TODO 连接 keepalive 超时断开
 
 	private clientDataMap = new Map<
 		TClient,
@@ -69,7 +67,7 @@ export class MemoryManager extends Manager {
 	}
 
 	public async connect(clientIdentifier: string, connData: IConnectData, client: TClient): Promise<void> {
-		this.clientIdentifierManager.set(client, clientIdentifier);
+		this.clientIdentifierManager.set(clientIdentifier, client);
 		this.connectDataMap.set(client, { data: connData, expire: Date.now() / 1000 + connData.header.keepAlive * 1.5 });
 		if (!this.clientDataMap.has(client)) {
 			this.clientDataMap.set(client, {

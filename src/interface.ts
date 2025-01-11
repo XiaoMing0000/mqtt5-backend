@@ -13,7 +13,7 @@ import { Manager } from './manager/manager';
 export interface IMqttOptions {
 	protocolName?: 'MQTT';
 	protocolVersion?: 5;
-	clientManager?: Manager;
+	assignedClientIdentifier?: boolean; // 自动分配客户端 id
 	maximumQoS?: QoSType; // 最大 QoS
 	retainAvailable?: true; // 保留消息
 	retainTTL?: number; // 保留消息过期时间

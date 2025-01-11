@@ -9,6 +9,7 @@ import {
 	SubscribeAckException,
 	SubscribeAckReasonCode,
 	UnsubscribeAckReasonCode,
+	ConnectAckException,
 } from './exception';
 import {
 	IConnectData,
@@ -40,6 +41,15 @@ import {
 	encodeSubAckPacket,
 } from './parse';
 import { verifyTopic, isWildcardTopic, topicToRegEx } from './topicFilters';
+import { generateClientIdentifier } from './utils';
+
+/**
+ * 报文消息处理方法命名规则
+ * 1. 服务端接口客户端报文： packetType + Handle
+ * 		e.g. connectHandle、subscribeHandle、publishHandle
+ * 2. 服务端向客户端发送报文：handle + PacketType
+ * 		e.g. handleConnAck、handleDisconnect、handlePublish
+ */
 
 export class MqttManager {
 	// 当前客户推送消息的 topic alisa name
@@ -97,9 +107,9 @@ export class MqttManager {
 		if (this.connData.connectFlags.cleanStart) {
 			connAckData.acknowledgeFlags.SessionPresent = false;
 		} else {
-			// TODO 校验服务端是否已经保存了此客户端表示的 ClientID 的 会话状态 Session State
-
-			connAckData.acknowledgeFlags.SessionPresent = true;
+			if (this.clientManager.clientIdentifierManager.getIdendifier(this.connData.payload.clientIdentifier)) {
+				connAckData.acknowledgeFlags.SessionPresent = true;
+			}
 		}
 
 		if (!this.connData.properties.requestProblemInformation) {
@@ -115,8 +125,15 @@ export class MqttManager {
 			subscriptionIdentifierAvailable: true,
 			sharedSubscriptionAvailable: true,
 		};
+		if (this.options.maximumQoS !== QoSType.QoS2) {
+			connAckData.properties.maximumQoS = !!this.options.maximumQoS;
+		}
+		if (this.options.assignedClientIdentifier && !this.connData.payload.clientIdentifier) {
+			connAckData.properties.clientIdentifier = this.clientIdentifier;
+			this.connData.payload.clientIdentifier = this.clientIdentifier;
+		}
+
 		// TODO 是否支持订阅，需要在 subscribe 报文中校验
-		// TODO 未作通配符
 
 		const connPacket = encodeConnAck(connAckData);
 		this.client.write(connPacket);
@@ -132,12 +149,22 @@ export class MqttManager {
 	public async connectHandle(connData: IConnectData) {
 		this.connData = connData;
 
+		if (!connData.payload.clientIdentifier) {
+			if (this.options.assignedClientIdentifier) {
+				this.clientIdentifier = generateClientIdentifier();
+			} else {
+				throw new ConnectAckException('Client Identifier not valid', ConnectAckReasonCode.ClientIdentifierNotValid);
+			}
+		} else {
+			this.clientIdentifier = connData.payload.clientIdentifier;
+		}
+
 		if (connData.header.protocolName !== this.options.protocolName || connData.header.protocolVersion !== this.options.protocolVersion) {
 			throw new DisconnectException('Unsupported Protocol Version.', DisconnectReasonCode.ProtocolError);
 		}
 
 		if (this.connData.connectFlags.cleanStart) {
-			await this.clientManager.clearSubscribe(this.clientIdentifier || connData.payload.clientIdentifier);
+			await this.clientManager.clearSubscribe(this.clientIdentifier);
 			this.receiveCounter = 0;
 		}
 
@@ -149,11 +176,10 @@ export class MqttManager {
 			this.isAuth = true;
 		}
 
-		await this.clientManager.connect(this.clientIdentifier || connData.payload.clientIdentifier, connData, this.client);
-
-		this.clientIdentifier = connData.payload.clientIdentifier;
 		this.connData.properties.receiveMaximum ??= 0xffff;
 		await this.handleConnAck(this.connData);
+
+		await this.clientManager.connect(this.clientIdentifier || connData.payload.clientIdentifier, connData, this.client);
 	}
 
 	public async disconnectHandle(disconnectData: IDisconnectData) {

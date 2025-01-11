@@ -1,15 +1,15 @@
 import { MqttServer } from '.';
 import { CONFIG } from './config';
 import { MemoryManager } from './manager/memoryManager';
-// import { RedisManager } from './manager/redisManager';
+import { RedisManager } from './manager/redisManager';
 
-// const clientManager = new RedisManager({
-// 	host: CONFIG.redisHost,
-// 	port: CONFIG.redisPort,
-// 	password: CONFIG.redisPassword,
-// 	db: CONFIG.redisDB,
-// });
-const clientManager = new MemoryManager();
+const clientManager = new RedisManager({
+	host: CONFIG.redisHost,
+	port: CONFIG.redisPort,
+	password: CONFIG.redisPassword,
+	db: CONFIG.redisDB,
+});
+// const clientManager = new MemoryManager();
 
 const server = new MqttServer(clientManager);
 

@@ -31,6 +31,7 @@ import { MqttManager } from './mqttManager';
 const mqttDefaultOptions: IMqttOptions = {
 	protocolName: 'MQTT',
 	protocolVersion: 5,
+	assignedClientIdentifier: false,
 	maximumQoS: QoSType.QoS2,
 	retainAvailable: true,
 	retainTTL: 30 * 60,

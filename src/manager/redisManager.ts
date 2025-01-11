@@ -4,7 +4,6 @@ import { IConnectData, IPublishData, QoSType } from '../interface';
 import { topicToRegEx } from '../topicFilters';
 import { encodePublishPacket } from '../parse';
 
-// TODO redis 管理客户端
 export class RedisManager extends Manager {
 	clientIdentifierManager: ClientIdentifierManager;
 	private redis: Redis;
@@ -86,7 +85,7 @@ export class RedisManager extends Manager {
 	}
 
 	public async connect(clientIdentifier: string, connData: IConnectData, client: TClient) {
-		this.clientIdentifierManager.set(client, clientIdentifier);
+		this.clientIdentifierManager.set(clientIdentifier, client);
 		await this.redis.set(this.connectKey(clientIdentifier), JSON.stringify(connData));
 		if (connData.header.keepAlive) {
 			await this.redis.expire(this.connectKey(clientIdentifier), connData.header.keepAlive * 1.5);

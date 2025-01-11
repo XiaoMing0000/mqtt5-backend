@@ -42,16 +42,9 @@ export class ClientIdentifierManager {
 		return this.identifierMap.get(identifier);
 	}
 
-	set(key: TClient, value: TIdentifier): void;
-	set(key: TIdentifier, value: TClient): void;
-	set(key: TClient | TIdentifier, value: TIdentifier | TClient): void {
-		if (typeof key === 'string' && value instanceof net.Socket) {
-			this.identifierMap.set(key, value);
-			this.clientMap.set(value, { identifier: key, packetIdentifier: new Set(), dynamicId: 1 });
-		} else if (typeof value === 'string' && key instanceof net.Socket) {
-			this.identifierMap.set(value, key);
-			this.clientMap.set(key, { identifier: value, packetIdentifier: new Set(), dynamicId: 1 });
-		}
+	set(key: TIdentifier, value: TClient): void {
+		this.identifierMap.set(key, value);
+		this.clientMap.set(value, { identifier: key, packetIdentifier: new Set(), dynamicId: 1 });
 	}
 
 	delete(key: TClient | TIdentifier) {
