@@ -5,7 +5,7 @@ import {
 	IConnAckProperties,
 	IConnectProperties,
 	IDisconnectProperties,
-	IPPubCompProperties,
+	IPubCompProperties,
 	IProperties,
 	IPubAckProperties,
 	IPublishProperties,
@@ -880,7 +880,7 @@ export function parsePubRelProperties(buffer: Buffer, index?: number) {
 }
 
 export function parsePubCompProperties(buffer: Buffer, index?: number) {
-	const properties: IPPubCompProperties = {};
+	const properties: IPubCompProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {

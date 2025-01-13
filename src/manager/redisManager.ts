@@ -213,6 +213,7 @@ export class RedisManager extends Manager {
 								const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
 								value.forEach(async (publishIdentifier) => {
 									try {
+										delete distributeData.properties.subscriptionIdentifier;
 										const client = this.clientIdentifierManager.getIdendifier(publishIdentifier);
 										const subFlags = await this.getSubscription(publishIdentifier, key);
 										if (subFlags && client) {
@@ -227,6 +228,7 @@ export class RedisManager extends Manager {
 											}
 											distributeData.header.qosLevel = minQoS;
 											distributeData.header.retain = subFlags.retainAsPublished ? distributeData.header.retain : false;
+											subFlags.subscriptionIdentifier && (distributeData.properties.subscriptionIdentifier = [subFlags.subscriptionIdentifier]);
 											const pubPacket = encodePublishPacket(distributeData);
 											client.write(pubPacket);
 										}

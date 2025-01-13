@@ -148,26 +148,71 @@ export class MqttBasicException extends Error {
 	}
 }
 
+/**
+ * 应用在 connect packet 处理的异常
+ */
 export class ConnectAckException extends MqttBasicException {
 	constructor(msg: string, code: ConnectAckReasonCode = ConnectAckReasonCode.UnspecifiedError) {
 		super(msg, code);
 	}
 }
 
+/**
+ * 应用在 disconnect packet 处理的异常
+ */
 export class DisconnectException extends MqttBasicException {
 	constructor(msg: string, code: DisconnectReasonCode = DisconnectReasonCode.UnspecifiedError) {
 		super(msg, code);
 	}
 }
 
+/**
+ * 应用在 subscribe packet 处理的异常
+ */
 export class SubscribeAckException extends MqttBasicException {
 	constructor(msg: string, code: SubscribeAckReasonCode = SubscribeAckReasonCode.UnspecifiedError) {
 		super(msg, code);
 	}
 }
 
+/**
+ * 应用在 publish packet 处理的异常 （qos = 1）
+ */
 export class PubAckException extends MqttBasicException {
 	constructor(msg: string, code: PubAckReasonCode = PubAckReasonCode.UnspecifiedError) {
+		super(msg, code);
+	}
+}
+
+/**
+ * 应用在 publish packet 处理结束后的异常
+ */
+export class PubRecException extends MqttBasicException {
+	constructor(msg: string, code: PubRecReasonCode = PubRecReasonCode.UnspecifiedError) {
+		super(msg, code);
+	}
+}
+
+/**
+ * 应用在服务端处理客户端的 pubrec packet 的异常
+ */
+export class PubRelException extends MqttBasicException {
+	constructor(msg: string, code: PubRelReasonCode = PubRelReasonCode.PacketIdentifierNotFound) {
+		super(msg, code);
+	}
+}
+
+/**
+ * 应用在服务端解析客户端 pubrel packet 的异常
+ */
+export class PubCompException extends MqttBasicException {
+	constructor(msg: string, code: PubCompReasonCode = PubCompReasonCode.PacketIdentifierNotFound) {
+		super(msg, code);
+	}
+}
+
+export class AuthenticateException extends MqttBasicException {
+	constructor(msg: string, code: AuthenticateReasonCode = AuthenticateReasonCode.ContinueAuthentication) {
 		super(msg, code);
 	}
 }

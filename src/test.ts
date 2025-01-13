@@ -1,6 +1,6 @@
 import { MqttServer } from '.';
 import { CONFIG } from './config';
-import { MemoryManager } from './manager/memoryManager';
+// import { MemoryManager } from './manager/memoryManager';
 import { RedisManager } from './manager/redisManager';
 
 const clientManager = new RedisManager({

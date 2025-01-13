@@ -28,6 +28,7 @@ import {
 	ISubAckData,
 	IUnsubscribeData,
 	IAuthData,
+	IPubCompData,
 } from './interface';
 import { TClient, Manager } from './manager/manager';
 import {
@@ -323,15 +324,15 @@ export class MqttManager {
 			// TODO 未知的处理方式
 			// throw new
 		}
-		await this.handlePubComp(pubRelData);
+		await this.handlePubComp(pubRelData as any);
 	}
 
-	private async handlePubComp(pubRelData: IPubRelData) {
+	async handlePubComp(pubCompData: IPubCompData) {
 		const properties = new EncoderProperties();
 		const compPacket = Buffer.from([
 			PacketType.PUBCOMP << 4,
 			...encodeVariableByteInteger(3 + properties.length),
-			...integerToTwoUint8(pubRelData.header.packetIdentifier),
+			...integerToTwoUint8(pubCompData.header.packetIdentifier),
 			PubCompReasonCode.Success,
 			...properties.buffer,
 		]);
@@ -369,6 +370,9 @@ export class MqttManager {
 	}
 
 	public async subscribeHandle(subData: ISubscribeData) {
+		if (!this.options.wildcardSubscriptionAvailable && isWildcardTopic(subData.payload)) {
+			throw new SubscribeAckException('The server does not support wildcard subscriptions.', SubscribeAckReasonCode.WildcardSubscriptionsNotSupported);
+		}
 		const topic = verifyTopic(subData.payload);
 		if (!topic) {
 			throw new SubscribeAckException('The topic filter format is incorrect and cannot be received by the server.', SubscribeAckReasonCode.TopicFilterInvalid);

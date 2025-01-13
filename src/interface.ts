@@ -8,7 +8,6 @@ import {
 	PubRelReasonCode,
 	SubscribeAckReasonCode,
 } from './exception';
-import { Manager } from './manager/manager';
 
 export interface IMqttOptions {
 	protocolName?: 'MQTT';
@@ -20,6 +19,7 @@ export interface IMqttOptions {
 	maximumPacketSize?: number; // 最大报文长度
 	topicAliasMaximum?: number; // 主题别名最大值
 	wildcardSubscriptionAvailable?: boolean; // 通配符订阅
+	sendReasonMessage?: boolean;
 }
 
 // MQTT 报文类型
@@ -274,7 +274,7 @@ export interface IPubRelProperties {
 	userProperty?: { [key: string]: any };
 }
 
-export interface IPPubCompProperties {
+export interface IPubCompProperties {
 	reasonString?: string;
 	userProperty?: { [key: string]: any };
 }
@@ -452,7 +452,7 @@ export interface IPubCompData {
 		packetIdentifier: number;
 		reasonCode: PubCompReasonCode;
 	};
-	properties: IPPubCompProperties;
+	properties: IPubCompProperties;
 }
 
 export interface IAuthData {
