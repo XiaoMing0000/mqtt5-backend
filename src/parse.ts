@@ -239,6 +239,11 @@ export class EncoderProperties {
 	}
 }
 
+/**
+ * 解析所有报文,一个数据包可能存在多个报文
+ * @param allBuffer
+ * @returns
+ */
 export function parseAllPacket(allBuffer: Buffer): Array<PacketTypeData> {
 	const allPacket: Array<PacketTypeData> = [];
 	for (let i = 0; i < allBuffer.length; i) {
@@ -252,6 +257,12 @@ export function parseAllPacket(allBuffer: Buffer): Array<PacketTypeData> {
 }
 
 // TODO 报文解析（只做了服务端用到的报文类型）
+
+/**
+ * mqtt 报文解析
+ * @param buffer
+ * @returns
+ */
 export function parsePacket(buffer: Buffer): PacketTypeData {
 	const packetType = (buffer[0] >> 4) as PacketType;
 
@@ -475,6 +486,12 @@ export function parseConnect(buffer: Buffer): IConnectData {
 	return connData;
 }
 
+/**
+ * 解析 publish 报文
+ * @param buffer
+ * @param pubData
+ * @returns
+ */
 export function parsePublish(buffer: Buffer, pubData: IPublishData) {
 	pubData.header.packetType = (buffer[0] >> 4) as PacketType;
 	pubData.header.udpFlag = !!(buffer[0] & 0x8);
@@ -503,6 +520,11 @@ export function parsePublish(buffer: Buffer, pubData: IPublishData) {
 	return pubData;
 }
 
+/**
+ * 解析 puback 报文
+ * @param buffer
+ * @param pubAckData
+ */
 export function parsePubAck(buffer: Buffer, pubAckData: IPubAckData) {
 	pubAckData.header.packetType = (buffer[0] >> 4) as PacketType;
 	pubAckData.header.received = buffer[0] & 0xf;
@@ -518,6 +540,11 @@ export function parsePubAck(buffer: Buffer, pubAckData: IPubAckData) {
 	pubAckData.properties = parsePubAckProperties(propertiesBuffer);
 }
 
+/**
+ * 解析 pubrel 报文
+ * @param buffer
+ * @param pubRelData
+ */
 export function parsePubRel(buffer: Buffer, pubRelData: IPubRelData) {
 	pubRelData.header.packetType = (buffer[0] >> 4) as PacketType;
 	pubRelData.header.received = buffer[0] & 0xf;
@@ -533,6 +560,11 @@ export function parsePubRel(buffer: Buffer, pubRelData: IPubRelData) {
 	pubRelData.properties = parsePubRelProperties(propertiesBuffer);
 }
 
+/**
+ * 解析 pubrec 报文
+ * @param buffer
+ * @param pubRecData
+ */
 export function parsePubRec(buffer: Buffer, pubRecData: IPubRecData) {
 	pubRecData.header.packetType = (buffer[0] >> 4) as PacketType;
 	pubRecData.header.received = buffer[0] & 0xf;
@@ -563,6 +595,11 @@ export function parsePubComp(buffer: Buffer, pubCompData: IPubRecData) {
 	pubCompData.properties = parsePubCompProperties(propertiesBuffer);
 }
 
+/**
+ * 解析 subscribe 报文
+ * @param buffer
+ * @param subData
+ */
 export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
 	subData.header.packetType = (buffer[0] >> 4) as PacketType;
 	subData.header.received = buffer[0] & 0xf;
@@ -607,6 +644,11 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
 	}
 }
 
+/**
+ * 解析 unsubscribe 报文
+ * @param buffer
+ * @param unsubscribeData
+ */
 export function parseUnsubscribe(buffer: Buffer, unsubscribeData: IUnsubscribeData) {
 	unsubscribeData.header.packetType = (buffer[0] >> 4) as PacketType;
 	unsubscribeData.header.received = buffer[0] & 0xf;
@@ -627,6 +669,11 @@ export function parseUnsubscribe(buffer: Buffer, unsubscribeData: IUnsubscribeDa
 	unsubscribeData.payload = utf8DecodedString(data);
 }
 
+/**
+ * 解析 disconnect 报文
+ * @param buffer
+ * @param disconnectData
+ */
 export function parseDisconnect(buffer: Buffer, disconnectData: IDisconnectData) {
 	disconnectData.header.packetType = buffer[0] >> 4;
 	disconnectData.header.received = buffer[0] & 0xf;
@@ -641,6 +688,11 @@ export function parseDisconnect(buffer: Buffer, disconnectData: IDisconnectData)
 	disconnectData.properties = parseDisconnectProperties(propertiesBuffer);
 }
 
+/**
+ * 解析 auth 报文
+ * @param buffer
+ * @param authData
+ */
 export function parseAuth(buffer: Buffer, authData: IAuthData) {
 	authData.header.packetType = buffer[0] >> 4;
 	authData.header.received = buffer[0] & 0xf;
@@ -655,6 +707,11 @@ export function parseAuth(buffer: Buffer, authData: IAuthData) {
 	authData.properties = parseAuthProperties(propertiesBuffer);
 }
 
+/**
+ * 对 connack 报文进行编码
+ * @param connAckData
+ * @returns
+ */
 export function encodeConnAck(connAckData: IConnAckData) {
 	const properties = new EncoderProperties();
 	properties.push(connAckData.properties);
@@ -667,6 +724,11 @@ export function encodeConnAck(connAckData: IConnAckData) {
 	]);
 }
 
+/**
+ * 对 disconnect 报文进行编码
+ * @param disconnectData
+ * @returns
+ */
 export function encodeDisconnect(disconnectData: IDisconnectData) {
 	const fixedHeader = (disconnectData.header.packetType << 4) | disconnectData.header.received;
 
@@ -713,6 +775,11 @@ export function encodePubControlPacket(data: IPubAckData | IPubRecData | IPubCom
 	]);
 }
 
+/**
+ * 对 subscribe ack 报文进行编码
+ * @param subAckData
+ * @returns
+ */
 export function encodeSubAckPacket(subAckData: ISubAckData) {
 	const properties = new EncoderProperties();
 	return Buffer.from([

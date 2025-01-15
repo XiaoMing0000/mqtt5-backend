@@ -38,7 +38,7 @@ export class RedisManager extends Manager {
 	}
 
 	private async deleteMatch(key: string, callbackfn?: (matchedKey: string) => Promise<void>): Promise<void> {
-		await this.redis.scan(0, 'MATCH', key, async (err, matchData) => {
+		await this.redis.scan(0, 'MATCH', key, async (_err, matchData) => {
 			// if (err) {
 			// }
 			if (matchData && matchData[1]) {
@@ -246,7 +246,7 @@ export class RedisManager extends Manager {
 
 	public async isSubscribe(topic: TTopic): Promise<boolean> {
 		let isSub = false;
-		await this.redis.scan(0, 'MATCH', `topic:*`, async (err, matchData) => {
+		await this.redis.scan(0, 'MATCH', `topic:*`, async (_err, matchData) => {
 			if (matchData && matchData[1]) {
 				const delStrSart = `topic:`.length;
 				for (const key of matchData[1]) {

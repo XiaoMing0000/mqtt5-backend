@@ -5,12 +5,11 @@
 		"outDir": "./dist",
 		"declaration": true,
 		"strict": true,
-		"esModuleInterop": true
+		"esModuleInterop": true,
+		"sourceMap": true
 	},
 	"include": [
 		"src/**/*"
 	],
-	"exclude": [
-		"src/test.ts"
-	]
+	"exclude": ["nodemodules", "dist", "examples"]
 }

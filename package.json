@@ -4,11 +4,12 @@
 	"description": "后端服务",
 	"main": "index.js",
 	"scripts": {
+		"clean": "rimraf dist",
 		"dev": "rimraf dist && tsx ./config/esbuild.dev.ts --watch",
 		"test": "supervisor -w ./dist -n error -s -- -r dotenv/config ./dist/index.js",
-		"debugger": "nodemon src/test.ts",
+		"debugger": "nodemon examples/test.ts",
 		"build:prod": "rimraf dist && tsx ./config/esbuild.prod.ts",
-		"build": "tsc",
+		"build": "npm run clean && tsc",
 		"prettier:all": "prettier --write ./src",
 		"lint": "eslint -f unix \"src/**/*.{ts,tsx}\""
 	},
@@ -17,6 +18,7 @@
 		"@types/node": "^22.5.1",
 		"@typescript-eslint/eslint-plugin": "^8.3.0",
 		"@typescript-eslint/parser": "^8.3.0",
+		"dotenv": "^16.4.7",
 		"esbuild": "^0.23.1",
 		"eslint": "^9.9.1",
 		"eslint-formatter-unix": "^8.40.0",
@@ -28,19 +30,28 @@
 		"typescript": "^5.5.4",
 		"typescript-eslint": "^8.3.0"
 	},
+	"dependencies": {
+		"ioredis": "^5.4.1"
+	},
+	"author": "XiaoMing0000",
+	"license": "MIT",
 	"keywords": [
 		"server",
 		"nodejs",
-		"router"
+		"router",
+		"mqtt",
+		"TLS",
+		"mqtt5",
+		"mqttv5",
+		"iot",
+		"backend",
+		"mqtt5-backend",
+		"publisher",
+		"subscriber"
 	],
-	"author": "xiaoming0000",
-	"license": "ISC",
 	"repository": {
 		"type": "git",
-		"url": "git@github.com-XiaoMing0000/mqtt-backend.git"
+		"url": "https://github.com/XiaoMing0000/mqtt5-backend.git"
 	},
-	"dependencies": {
-		"dotenv": "^16.4.7",
-		"ioredis": "^5.4.1"
-	}
+	"homepage": "https://github.com/XiaoMing0000/mqtt5-backend"
 }

@@ -1,5 +1,5 @@
 import net, { DropArgument, ListenOptions, Socket } from 'net';
-import tls, { TLSSocket } from 'tls';
+import tls from 'tls';
 import {
 	AuthenticateException,
 	ConnectAckException,
@@ -321,7 +321,7 @@ class MqttEvent {
 	}
 }
 
-export async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: PacketTypeData) {
+async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: PacketTypeData) {
 	if (error instanceof DisconnectException) {
 		await mqttManager.handleDisconnect(error.code as DisconnectReasonCode, { reasonString: error.msg });
 	} else if (error instanceof ConnectAckException) {

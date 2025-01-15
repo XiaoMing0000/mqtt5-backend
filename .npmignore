@@ -1,0 +1,40 @@
+# Ignore these files and directories when publishing to npm
+
+# Ignore all TypeScript files
+*.ts
+
+# Ignore all tests
+__tests__
+
+# Ignore all examples
+examples
+
+# Ignore all documentation
+docs
+
+# Ignore all logs
+logs
+
+# Ignore all node_modules
+node_modules
+
+# Ignore all coverage files and directories
+coverage
+
+# Ignore all config files
+.vscode
+.env
+.eslintrc.js
+.prettierignore
+.prettierrc.js
+eslint.config.mjs
+tsconfig.json
+package-lock.json
+
+# Ignore all eslint cache files
+.eslintcache
+
+
+# Ignore other files
+./config
+./temp

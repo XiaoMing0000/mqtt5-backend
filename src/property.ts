@@ -34,6 +34,12 @@ import {
 	encodeVariableByteInteger,
 } from './parse';
 
+/**
+ * 解析所有报文属性
+ * @param buffer
+ * @param index
+ * @returns
+ */
 export function parseProperties(buffer: Buffer, index?: number) {
 	const properties: IProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
@@ -268,6 +274,12 @@ export function parseProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
+/**
+ * 解析 connect 报文的属性
+ * @param buffer
+ * @param index
+ * @returns
+ */
 export function parseConnectProperties(buffer: Buffer, index?: number) {
 	const properties: IConnectProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
@@ -362,7 +374,7 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 客户端应用
+ * 解析 connack 报文的属性
  * @param buffer
  * @param index
  * @returns
@@ -522,6 +534,12 @@ export function parseConnAckProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
+/**
+ * 解析 disconnect 报文的属性
+ * @param buffer
+ * @param index
+ * @returns
+ */
 export function parseDisconnectProperties(buffer: Buffer, index?: number) {
 	const properties: IDisconnectProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
@@ -568,6 +586,12 @@ export function parseDisconnectProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
+/**
+ * 解析 subscribe 报文的属性
+ * @param buffer
+ * @param index
+ * @returns
+ */
 export function parseSubscribeProperties(buffer: Buffer, index?: number) {
 	const properties: ISubscribeProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
@@ -604,7 +628,7 @@ export function parseSubscribeProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 客户端应用
+ * 解析 suback 报文的属性
  * @param buffer
  * @param index
  * @returns
@@ -641,6 +665,12 @@ export function parseSubAckProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
+/**
+ * 解析 unsubscribe 报文的属性
+ * @param buffer
+ * @param index
+ * @returns
+ */
 export function parseUnsubscribeProperties(buffer: Buffer, index?: number) {
 	const properties: IUnsubscribeProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
@@ -667,7 +697,7 @@ export function parseUnsubscribeProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 客户端应用
+ * 解析 unsubscribe ack 报文的属性
  * @param buffer
  * @param index
  * @returns
@@ -697,6 +727,12 @@ export function parseUnsubscribeAckProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
+/**
+ * 解析 publish 报文的属性
+ * @param buffer
+ * @param index
+ * @returns
+ */
 export function parsePublishProperties(buffer: Buffer, index?: number) {
 	const properties: IPublishProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
@@ -778,7 +814,7 @@ export function parsePublishProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 客户端应用
+ * 解析 puback 报文的属性
  * @param buffer
  * @param index
  * @returns
@@ -815,6 +851,12 @@ export function parsePubAckProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
+/**
+ * 解析 pubrec 报文的属性
+ * @param buffer
+ * @param index
+ * @returns
+ */
 export function parsePubRecProperties(buffer: Buffer, index?: number) {
 	const properties: IPubRecProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
@@ -847,6 +889,12 @@ export function parsePubRecProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
+/**
+ * 解析 pubrel 报文的属性
+ * @param buffer
+ * @param index
+ * @returns
+ */
 export function parsePubRelProperties(buffer: Buffer, index?: number) {
 	const properties: IPubRelProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
@@ -879,6 +927,12 @@ export function parsePubRelProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
+/**
+ * 解析 pubcomp 报文的属性
+ * @param buffer
+ * @param index
+ * @returns
+ */
 export function parsePubCompProperties(buffer: Buffer, index?: number) {
 	const properties: IPubCompProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
@@ -911,6 +965,12 @@ export function parsePubCompProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
+/**
+ * 解析 auth 报文的属性
+ * @param buffer
+ * @param index
+ * @returns
+ */
 export function parseAuthProperties(buffer: Buffer, index?: number) {
 	const properties: IAuthProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
@@ -957,6 +1017,12 @@ export function parseAuthProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
+/**
+ * 解析 will 报文的属性
+ * @param buffer
+ * @param index
+ * @returns
+ */
 export function parseWillProperties(buffer: Buffer, index?: number) {
 	const properties: IWillProperties = {};
 	const data: BufferData = { buffer, index: index ? index : 0 };
@@ -1017,6 +1083,12 @@ export function parseWillProperties(buffer: Buffer, index?: number) {
 	return properties;
 }
 
+/**
+ * 解析 subscribe 报文的属性
+ * @param id
+ * @param data
+ * @returns
+ */
 export function encodeProperties<K extends keyof PropertyDataMap>(id: K, data: PropertyDataMap[K]): Array<number> {
 	switch (id) {
 		case PropertyIdentifier.payloadFormatIndicator:
