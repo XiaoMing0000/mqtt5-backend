@@ -1,8 +1,5 @@
 # Ignore these files and directories when publishing to npm
 
-# Ignore all TypeScript files
-*.ts
-
 # Ignore all tests
 __tests__
 

@@ -1,7 +1,7 @@
 {
-	"name": "mqtt-backend",
+	"name": "mqtt5-backend",
 	"version": "1.0.0",
-	"description": "后端服务",
+	"description": "A cloud service based on the mqtt v5 protocol of nodejs.",
 	"main": "index.js",
 	"scripts": {
 		"clean": "rimraf dist",
