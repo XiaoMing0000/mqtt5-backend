@@ -1,4 +1,5 @@
-import net from 'net';
+import net, { DropArgument, ListenOptions, Socket } from 'net';
+import tls, { TLSSocket } from 'tls';
 import {
 	AuthenticateException,
 	ConnectAckException,
@@ -49,15 +50,126 @@ const mqttDefaultOptions: IMqttOptions = {
 	wildcardSubscriptionAvailable: true,
 };
 
-export class MqttServer extends net.Server {
-	clientManager: Manager;
+class MqttEvent {
 	options: IMqttOptions;
 	private eventListeners: Array<{ event: string; listener: (...args: any[]) => Promise<boolean> }> = [];
-	constructor(clientManager: Manager, options: IMqttOptions = {}) {
-		super();
+
+	constructor(
+		readonly server: net.Server,
+		readonly clientManager: Manager,
+		options: IMqttOptions = {},
+	) {
 		this.clientManager = clientManager;
 		this.options = Object.assign({}, mqttDefaultOptions, options);
-		super.on('connection', this.mqttConnection);
+		this.mqttConnection = this.mqttConnection.bind(this);
+	}
+
+	listen(port?: number, hostname?: string, backlog?: number, listeningListener?: () => void): this;
+	listen(port?: number, hostname?: string, listeningListener?: () => void): this;
+	listen(port?: number, backlog?: number, listeningListener?: () => void): this;
+	listen(port?: number, listeningListener?: () => void): this;
+	listen(path: string, backlog?: number, listeningListener?: () => void): this;
+	listen(path: string, listeningListener?: () => void): this;
+	listen(options: ListenOptions, listeningListener?: () => void): this;
+	listen(handle: any, backlog?: number, listeningListener?: () => void): this;
+	listen(handle: any, listeningListener?: () => void): this;
+	listen(...args: any): this {
+		this.server.listen(...args);
+		return this;
+	}
+
+	close(callback?: (err?: Error) => void): this {
+		this.server.close(callback);
+		return this;
+	}
+
+	address() {
+		return this.server.address();
+	}
+
+	getConnections(cb: (error: Error | null, count: number) => void): void {
+		this.server.getConnections(cb);
+	}
+
+	ref(): this {
+		this.server.ref();
+		return this;
+	}
+
+	unref(): this {
+		this.server.unref();
+		return this;
+	}
+
+	get maxConnections() {
+		return this.server.maxConnections;
+	}
+	set maxConnections(maxConnections: number) {
+		this.server.maxConnections = maxConnections;
+	}
+
+	get listening(): boolean {
+		return this.server.listening;
+	}
+
+	addListener(event: string, listener: (...args: any[]) => void): this;
+	addListener(event: 'close', listener: () => void): this;
+	addListener(event: 'connection', listener: (socket: Socket) => void): this;
+	addListener(event: 'error', listener: (err: Error) => void): this;
+	addListener(event: 'listening', listener: () => void): this;
+	addListener(event: 'drop', listener: (data?: DropArgument) => void): this;
+	addListener(event: string, listener: (...args: any[]) => void): this {
+		this.server.addListener(event, listener);
+		return this;
+	}
+
+	emit(event: 'close'): boolean;
+	emit(event: 'connection', socket: Socket): boolean;
+	emit(event: 'error', err: Error): boolean;
+	emit(event: 'listening'): boolean;
+	emit(event: 'drop', data?: DropArgument): boolean;
+	emit(event: string | symbol, ...args: any[]): boolean {
+		return this.server.emit(event, ...args);
+	}
+
+	on(event: 'close', listener: () => void): this;
+	on(event: 'connection', listener: (socket: Socket) => void): this;
+	on(event: 'error', listener: (err: Error) => void): this;
+	on(event: 'listening', listener: () => void): this;
+	on(event: 'drop', listener: (data?: DropArgument) => void): this;
+	on(event: string, listener: (...args: any[]) => void): this {
+		this.server.on(event, listener);
+		return this;
+	}
+
+	once(event: 'close', listener: () => void): this;
+	once(event: 'connection', listener: (socket: Socket) => void): this;
+	once(event: 'error', listener: (err: Error) => void): this;
+	once(event: 'listening', listener: () => void): this;
+	once(event: 'drop', listener: (data?: DropArgument) => void): this;
+	once(event: string, listener: (...args: any[]) => void): this {
+		this.server.once(event, listener);
+		return this;
+	}
+
+	prependListener(event: 'close', listener: () => void): this;
+	prependListener(event: 'connection', listener: (socket: Socket) => void): this;
+	prependListener(event: 'error', listener: (err: Error) => void): this;
+	prependListener(event: 'listening', listener: () => void): this;
+	prependListener(event: 'drop', listener: (data?: DropArgument) => void): this;
+	prependListener(event: string, listener: (...args: any[]) => void): this {
+		this.server.prependListener(event, listener);
+		return this;
+	}
+
+	prependOnceListener(event: 'close', listener: () => void): this;
+	prependOnceListener(event: 'connection', listener: (socket: Socket) => void): this;
+	prependOnceListener(event: 'error', listener: (err: Error) => void): this;
+	prependOnceListener(event: 'listening', listener: () => void): this;
+	prependOnceListener(event: 'drop', listener: (data?: DropArgument) => void): this;
+	prependOnceListener(event: string, listener: (...args: any[]) => void): this {
+		this.server.prependOnceListener(event, listener);
+		return this;
 	}
 
 	addClientEventListener(event: string, listener: (...args: any[]) => Promise<boolean>): this {
@@ -119,7 +231,7 @@ export class MqttServer extends net.Server {
 		return this.addClientEventListener('auth', listener);
 	}
 
-	private mqttConnection(client: TClient) {
+	public mqttConnection(client: TClient) {
 		const mqttManager = new MqttManager(client, this.clientManager, this.options);
 		this.onClientEventListener(client);
 		client.on('data', async (buffer) => {
@@ -168,17 +280,17 @@ export class MqttServer extends net.Server {
 								console.log('Unhandled packet type:', data);
 						}
 					} catch (error) {
-						console.log('Capture Error:', error);
 						if (!this.options.sendReasonMessage) {
 							delete (error as any).msg;
 						}
 						await catchMqttError(error, mqttManager, data);
+						console.log('Capture Evnet Error:', error);
 						break;
 					}
 				}
 			} catch (error) {
 				try {
-					console.log('Capture Error:', error);
+					console.log('Capture Packet Error:', error);
 					if (!this.options.sendReasonMessage) {
 						delete (error as any).msg;
 					}
@@ -292,5 +404,26 @@ export async function catchMqttError(error: unknown, mqttManager: MqttManager, d
 		// await mqttManager.handleAuth(authData);
 	} else {
 		throw error;
+	}
+}
+
+export class MqttServer extends MqttEvent {
+	constructor(clientManager: Manager, options: IMqttOptions = {}) {
+		const server = net.createServer();
+		super(server, clientManager, options);
+		this.server.on('listening', () => {
+			this.server.on('connection', this.mqttConnection);
+		});
+	}
+}
+
+// TODO TLS 支持， 提取 server
+export class MqttServerTLS extends MqttEvent {
+	constructor(tlsOptions: tls.TlsOptions, clientManager: Manager, options: IMqttOptions = {}) {
+		const server = tls.createServer(tlsOptions);
+		super(server, clientManager, options);
+		this.server.on('listening', () => {
+			this.server.on('secureConnection', this.mqttConnection);
+		});
 	}
 }

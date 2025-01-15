@@ -585,6 +585,7 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
 
 	subData.payload = utf8DecodedString(data);
 
+	// TODO 当前之获取一个订阅项， subscribe packet 的载荷包含一个或一列主题过滤器
 	const subscriptionOptions = oneByteInteger(data);
 	subData.options = {
 		qos: subscriptionOptions & 0x3,

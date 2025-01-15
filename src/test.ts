@@ -1,4 +1,8 @@
-import { MqttServer } from '.';
+import tls from 'tls';
+import https from 'https';
+import fs from 'fs';
+import path from 'path';
+import { MqttServer, MqttServerTLS } from '.';
 import { CONFIG } from './config';
 // import { MemoryManager } from './manager/memoryManager';
 import { RedisManager } from './manager/redisManager';
@@ -11,7 +15,18 @@ const clientManager = new RedisManager({
 });
 // const clientManager = new MemoryManager();
 
+const tlsOptions: tls.TlsOptions = {
+	cert: fs.readFileSync(path.join(__dirname, '../temp/test.com.crt')),
+	key: fs.readFileSync(path.join(__dirname, '../temp/test.com.key')),
+	keepAlive: true,
+};
+
+const tlsServer = new MqttServerTLS(tlsOptions, clientManager);
 const server = new MqttServer(clientManager);
+
+// tlsServer.listen(8883, () => {
+// 	console.log(`MQTT server listening on port ${8883}`);
+// });
 
 // 异步错误处理
 // process.on('uncaughtException', (err) => {
@@ -33,8 +48,12 @@ const server = new MqttServer(clientManager);
 // });
 
 // TODO 支持 Websocket 协议
-// TODO 支持 TLS 协议
 
 server.listen(CONFIG.mqttPort, () => {
 	console.log(`MQTT server listening on port ${CONFIG.mqttPort}`);
 });
+tlsServer.listen(8883, () => {
+	console.log(`MQTT server listening on port ${8883}`);
+});
+
+// tlsServer.listen()
