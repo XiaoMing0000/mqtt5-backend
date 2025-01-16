@@ -33,5 +33,6 @@ package-lock.json
 
 
 # Ignore other files
-./config
-./temp
+config
+temp
+src

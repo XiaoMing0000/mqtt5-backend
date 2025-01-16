@@ -1,8 +1,8 @@
 {
-	"name": "mqtt5-backend",
+	"name": "@elfdream/mqtt5-backend",
 	"version": "1.0.0",
 	"description": "A cloud service based on the mqtt v5 protocol of nodejs.",
-	"main": "index.js",
+	"main": "./dist/index.js",
 	"scripts": {
 		"clean": "rimraf dist",
 		"dev": "rimraf dist && tsx ./config/esbuild.dev.ts --watch",
@@ -53,5 +53,5 @@
 		"type": "git",
 		"url": "https://github.com/XiaoMing0000/mqtt5-backend.git"
 	},
-	"homepage": "https://github.com/XiaoMing0000/mqtt5-backend"
+	"homepage": "https://gitlab.soraharu.com/xiaoming0000/mqtt5-backend"
 }
