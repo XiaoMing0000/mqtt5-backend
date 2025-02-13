@@ -4,15 +4,16 @@ import path from 'path';
 import { MqttServer, MqttServerTLS } from '../src';
 import { CONFIG } from './config';
 import { MemoryManager } from '../src/manager/memoryManager';
-// import { RedisManager } from '../src/manager/redisManager';
+import { RedisManager } from '../src/manager/redisManager';
 
-// const clientManager = new RedisManager({
-// 	host: CONFIG.redisHost,
-// 	port: CONFIG.redisPort,
-// 	password: CONFIG.redisPassword,
-// 	db: CONFIG.redisDB,
-// });
-const clientManager = new MemoryManager();
+const clientManager = new RedisManager({
+	host: CONFIG.redisHost,
+	port: CONFIG.redisPort,
+	password: CONFIG.redisPassword,
+	db: CONFIG.redisDB,
+});
+
+// const clientManager = new MemoryManager();
 
 const tlsOptions: tls.TlsOptions = {
 	cert: fs.readFileSync(path.join(__dirname, '../temp/test.com.crt')),
@@ -54,3 +55,6 @@ server.listen(CONFIG.mqttPort, () => {
 tlsServer.listen(8883, () => {
 	console.log(`MQTT server listening on port ${8883}`);
 });
+
+// TODO 共享订阅
+// TODO 遗留消息
