@@ -272,7 +272,7 @@ export class MemoryManager extends Manager {
 
 	public async addRetainMessage(topic: string, pubData: IPublishData, retainTTL?: number) {
 		this.retainMessage.set(topic, {
-			TTL: Math.floor(Date.now()) + (retainTTL ?? 3600),
+			TTL: Math.floor(Date.now() / 1000) + (retainTTL ?? 3600),
 			data: pubData,
 		});
 	}
@@ -282,8 +282,8 @@ export class MemoryManager extends Manager {
 	}
 
 	public async getRetainMessage(topic: string) {
-		const ratainData = this.retainMessage.get(topic);
-		if (ratainData && ratainData.TTL < Math.floor(Date.now() / 1000)) {
+		const ratainData: any = this.retainMessage.get(topic);
+		if (ratainData && ratainData.TTL > Math.floor(Date.now() / 1000)) {
 			return this.retainMessage.get(topic)?.data;
 		}
 		return undefined;
