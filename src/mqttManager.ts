@@ -10,6 +10,7 @@ import {
 	SubscribeAckReasonCode,
 	UnsubscribeAckReasonCode,
 	ConnectAckException,
+	PubRecException,
 } from './exception';
 import {
 	IConnectData,
@@ -86,7 +87,7 @@ export class MqttManager {
 		}
 	}
 
-	/**
+	/** 消息： 服务端 -> 客户端
 	 * 连接响应报文
 	 * @returns
 	 */
@@ -144,7 +145,8 @@ export class MqttManager {
 	}
 
 	/**
-	 * 处理连接报
+	 * 客户端向服务端请求连接
+	 * 方向： 客户端 -> 服务端
 	 * @param buffer
 	 */
 	public async connectHandle(connData: IConnectData) {
@@ -183,10 +185,20 @@ export class MqttManager {
 		await this.clientManager.connect(this.clientIdentifier || connData.payload.clientIdentifier, connData, this.client);
 	}
 
+	/**
+	 * 客户端向服务端请求断开连接
+	 * 方向： 客户端 -> 服务端
+	 * @param disconnectData
+	 */
 	public async disconnectHandle(disconnectData: IDisconnectData) {
 		this.client.end();
 	}
 
+	/**
+	 * 服务端向客户端发起断开连接
+	 * 方向： 服务端 -> 客户端
+	 * @param disconnectData
+	 */
 	public async handleDisconnect(reasonCode: DisconnectReasonCode, properties: IDisconnectProperties) {
 		const disconnectPacket = encodeDisconnect({
 			header: {
@@ -200,64 +212,95 @@ export class MqttManager {
 		this.client.end(Buffer.from(disconnectPacket));
 	}
 
+	/**
+	 * 客户端向服务端请求 ping 响应
+	 * 方向： 客户端 -> 服务端
+	 */
 	public async pingReqHandle() {
 		await this.clientManager.ping(this.clientIdentifier);
 		this.client.write(Buffer.from([PacketType.PINGRESP << 4, 0]));
 	}
 
-	public async publishHandle(pubData: IPublishData) {
-		// 数据校验
-		if (pubData.properties.topicAlias && pubData.properties.topicAlias > (this.options.topicAliasMaximum ?? 0xffff)) {
-			throw new PubAckException(
-				'A Client MUST accept all Topic Alias values greater than 0 and less than or equal to the Topic Alias Maximum value that it sent in the CONNECT packet.',
-				PubAckReasonCode.PacketIdentifierInUse,
-			);
-		}
+	/**
+	 * 客户端向服务端推送消息
+	 * 方向： 客户端 -> 服务端
+	 * @param pubData
+	 * @param emitAsync
+	 * @returns
+	 */
+	public async publishHandle(pubData: IPublishData, emitAsync: (client: TClient, event: string, ...args: any[]) => Promise<boolean>) {
+		// 在订阅消息中异常处理逻辑，qos = 0 或 qos = 1 时，因该抛出 PubAckException 异常
+		// qos = 1 时，因该抛出 PubAckException 异常
 
-		if (pubData.header.qosLevel > (this.options.maximumQoS ?? QoSType.QoS0)) {
-			throw new DisconnectException('The Client specified a QoS greater than the QoS specified in a Maximum QoS in the CONNACK.', DisconnectReasonCode.QoSNotSupported);
-		}
-
-		if (pubData.header.qosLevel > QoSType.QoS0) {
-			this.receiveCounter++;
-			// publish 消息数量校验,限流控制
-			if (this.receiveCounter > (this.connData.properties.receiveMaximum ?? 0xffff)) {
-				throw new DisconnectException(
-					'The Client MUST NOT send more than Receive Maximum QoS 1 and QoS 2 PUBLISH packets for which it has not received PUBACK, PUBCOMP, or PUBREC with a Reason Code of 128 or greater from the Server.',
-					DisconnectReasonCode.ReceiveMaximumExceeded,
+		try {
+			// 数据校验
+			if (pubData.properties.topicAlias && pubData.properties.topicAlias > (this.options.topicAliasMaximum ?? 0xffff)) {
+				throw new PubAckException(
+					'A Client MUST accept all Topic Alias values greater than 0 and less than or equal to the Topic Alias Maximum value that it sent in the CONNECT packet.',
+					PubAckReasonCode.PacketIdentifierInUse,
 				);
 			}
-		}
 
-		// TODO 最大报文长度校验
-		// if((pubData.header.remainingLength ?? 0)  > (this.connData.properties.maximumPacketSize ?? 1 << 20)) {
-		// 	throw new DisconnectException('The Server has received a Control Packet during the current Connection that contains more data than it was willing to process.', DisconnectReasonCode.PacketTooLarge);
-		// }
-
-		if (pubData.properties.topicAlias) {
-			if (pubData.properties.topicAlias > (this.options.topicAliasMaximum ?? 0xffff)) {
-				throw new DisconnectException(
-					'The Client or Server has received a PUBLISH packet containing a Topic Alias which is greater than the Maximum Topic Alias it sent in the CONNECT or CONNACK packet.',
-					DisconnectReasonCode.TopicAliasInvalid,
-				);
+			if (pubData.header.qosLevel > (this.options.maximumQoS ?? QoSType.QoS0)) {
+				throw new DisconnectException('The Client specified a QoS greater than the QoS specified in a Maximum QoS in the CONNACK.', DisconnectReasonCode.QoSNotSupported);
 			}
-			// 添加主题别名映射
-			if (pubData.header.topicName) {
-				this.topicAliasNameMap[pubData.properties.topicAlias] = pubData.header.topicName;
+
+			if (pubData.header.qosLevel > QoSType.QoS0) {
+				this.receiveCounter++;
+				// publish 消息数量校验,限流控制
+				if (this.receiveCounter > (this.connData.properties.receiveMaximum ?? 0xffff)) {
+					throw new DisconnectException(
+						'The Client MUST NOT send more than Receive Maximum QoS 1 and QoS 2 PUBLISH packets for which it has not received PUBACK, PUBCOMP, or PUBREC with a Reason Code of 128 or greater from the Server.',
+						DisconnectReasonCode.ReceiveMaximumExceeded,
+					);
+				}
+			}
+
+			// TODO 最大报文长度校验
+			// if((pubData.header.remainingLength ?? 0)  > (this.connData.properties.maximumPacketSize ?? 1 << 20)) {
+			// 	throw new DisconnectException('The Server has received a Control Packet during the current Connection that contains more data than it was willing to process.', DisconnectReasonCode.PacketTooLarge);
+			// }
+
+			if (pubData.properties.topicAlias) {
+				if (pubData.properties.topicAlias > (this.options.topicAliasMaximum ?? 0xffff)) {
+					throw new DisconnectException(
+						'The Client or Server has received a PUBLISH packet containing a Topic Alias which is greater than the Maximum Topic Alias it sent in the CONNECT or CONNACK packet.',
+						DisconnectReasonCode.TopicAliasInvalid,
+					);
+				}
+				// 添加主题别名映射
+				if (pubData.header.topicName) {
+					this.topicAliasNameMap[pubData.properties.topicAlias] = pubData.header.topicName;
+				} else {
+					pubData.header.topicName = this.topicAliasNameMap[pubData.properties.topicAlias];
+				}
+			}
+
+			if (!(await emitAsync(this.client, 'publish', pubData, this.client, this.clientManager))) {
+				return false;
+			}
+
+			// 保留消息处理
+			if (this.options.retainAvailable && pubData.header.retain) {
+				if (pubData.payload) {
+					this.clientManager.addRetainMessage(pubData.header.topicName, pubData, this.options.retainTTL);
+				} else {
+					this.clientManager.deleteRetainMessage(pubData.header.topicName);
+				}
+			} else if (!this.options.retainAvailable && pubData.header.retain) {
+				throw new DisconnectException('The Server does not support retained messages, and Will Retain was set to 1.', DisconnectReasonCode.RetainNotSupported);
+			}
+		} catch (err: any) {
+			if (err instanceof PubAckException) {
+				if (pubData.header.qosLevel === QoSType.QoS2) {
+					err.code;
+					throw new PubRecException(err.code as any, err.code as any);
+				} else {
+					throw err;
+				}
 			} else {
-				pubData.header.topicName = this.topicAliasNameMap[pubData.properties.topicAlias];
+				throw err;
 			}
-		}
-
-		// 保留消息处理
-		if (this.options.retainAvailable && pubData.header.retain) {
-			if (pubData.payload) {
-				this.clientManager.addRetainMessage(pubData.header.topicName, pubData, this.options.retainTTL);
-			} else {
-				this.clientManager.deleteRetainMessage(pubData.header.topicName);
-			}
-		} else if (!this.options.retainAvailable && pubData.header.retain) {
-			throw new DisconnectException('The Server does not support retained messages, and Will Retain was set to 1.', DisconnectReasonCode.RetainNotSupported);
 		}
 
 		delete pubData.properties.topicAlias;
@@ -266,12 +309,36 @@ export class MqttManager {
 
 		// 响应推送者
 		if (pubData.header.qosLevel === QoSType.QoS1) {
-			await this.handlePubAck(pubData);
+			const pubAckData: IPubAckData = {
+				header: {
+					packetType: PacketType.PUBACK,
+					packetIdentifier: pubData.header.packetIdentifier ?? 0,
+					received: 0x00,
+					reasonCode: 0x00,
+				},
+				properties: {},
+			};
+			await this.handlePubAck(pubAckData);
 		} else if (pubData.header.qosLevel === QoSType.QoS2) {
-			await this.handlePubRec(pubData);
+			const pubRecData: IPubRecData = {
+				header: {
+					packetType: PacketType.PUBREC,
+					packetIdentifier: pubData.header.packetIdentifier ?? 0,
+					received: 0x00,
+					reasonCode: 0x00,
+				},
+				properties: {},
+			};
+			await this.handlePubRec(pubRecData);
 		}
 	}
 
+	/**
+	 * 服务端向客户端推送消息
+	 * 方向： 服务端 -> 客户端
+	 * @param client
+	 * @param pubData
+	 */
 	public async handlePublish(client: TClient, pubData: IPublishData) {
 		if (pubData.header.qosLevel > QoSType.QoS0) {
 			pubData.header.packetIdentifier = this.clientManager.newPacketIdentifier(client);
@@ -282,35 +349,26 @@ export class MqttManager {
 		client.write(pubPacket);
 	}
 
-	private async handlePubAck(pubData: IPublishData) {
-		const pubAckData: IPubAckData = {
-			header: {
-				packetType: PacketType.PUBACK,
-				packetIdentifier: pubData.header.packetIdentifier ?? 0,
-				received: 0x00,
-				reasonCode: 0x00,
-			},
-			properties: {},
-		};
-
+	/**
+	 * 服务端向客户端推送 PUBACK
+	 * 方向： 服务端 -> 客户端
+	 * @param pubAckData
+	 */
+	async handlePubAck(pubAckData: IPubAckData) {
 		const pubAckPacket = encodePubControlPacket(pubAckData);
 		this.client.write(pubAckPacket);
 	}
 
-	private async handlePubRec(pubData: IPublishData) {
-		const pubRecData: IPubRecData = {
-			header: {
-				packetType: PacketType.PUBREC,
-				packetIdentifier: pubData.header.packetIdentifier ?? 0,
-				received: 0x00,
-				reasonCode: 0x00,
-			},
-			properties: {},
-		};
+	async handlePubRec(pubRecData: IPubRecData) {
 		const pubRecPacket = encodePubControlPacket(pubRecData);
 		this.client.write(pubRecPacket);
 	}
 
+	/**
+	 * 服务端接收客户端的 PUBACK
+	 * 方向： 客户端 -> 服务端
+	 * @param pubAckData
+	 */
 	public async pubAckHandle(pubAckData: IPubAckData) {
 		if (!this.clientManager.hasPacketIdentifier(this.client, pubAckData.header.packetIdentifier)) {
 			throw new DisconnectException('PUBACK contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
@@ -319,6 +377,11 @@ export class MqttManager {
 		this.clientManager.deletePacketIdentifier(this.client, pubAckData.header.packetIdentifier);
 	}
 
+	/**
+	 * 服务端接收到客户端的 PUBREL
+	 * 方向： 客户端 -> 服务端
+	 * @param pubRelData
+	 */
 	public async pubRelHandle(pubRelData: IPubRelData) {
 		if (!this.clientManager.hasPacketIdentifier(this.client, pubRelData.header.packetIdentifier)) {
 			// TODO 未知的处理方式
@@ -327,6 +390,11 @@ export class MqttManager {
 		await this.handlePubComp(pubRelData as any);
 	}
 
+	/**
+	 * 服务端向客户端推送 PUBCOMP
+	 * 方向： 服务端 -> 客户端
+	 * @param pubCompData
+	 */
 	async handlePubComp(pubCompData: IPubCompData) {
 		const properties = new EncoderProperties();
 		const compPacket = Buffer.from([
@@ -339,6 +407,11 @@ export class MqttManager {
 		this.client.write(compPacket);
 	}
 
+	/**
+	 * 服务端接收到客户端的 PUBREC
+	 * 方向： 客户端 -> 服务端
+	 * @param pubRecData
+	 */
 	public async pubRecHandle(pubRecData: IPubRecData) {
 		if (!this.clientManager.hasPacketIdentifier(this.client, pubRecData.header.packetIdentifier)) {
 			throw new DisconnectException('PUBREC contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
@@ -361,6 +434,11 @@ export class MqttManager {
 		this.client.write(pubRelPacket);
 	}
 
+	/**
+	 * 服务端接收到客户端的 PUBCOMP
+	 * 方向： 客户端 -> 服务端
+	 * @param pubCompData
+	 */
 	public async pubCompHandle(pubCompData: IPubRecData) {
 		if (!this.clientManager.hasPacketIdentifier(this.client, pubCompData.header.packetIdentifier)) {
 			throw new DisconnectException('PUBCOMP contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
@@ -422,11 +500,21 @@ export class MqttManager {
 		this.handleSubAck(subAckData);
 	}
 
+	/**
+	 * 服务端向客户端发送 SUBACK 报文
+	 * 方向： 服务端 -> 客户端
+	 * @param subAckData
+	 */
 	public async handleSubAck(subAckData: ISubAckData) {
 		const subAckPacket = encodeSubAckPacket(subAckData);
 		this.client.write(subAckPacket);
 	}
 
+	/**
+	 * 服务端接收到客户端的 UNSUBSCRIBE
+	 * 方向： 客户端 -> 服务端
+	 * @param unsubscribeData
+	 */
 	public async unsubscribeHandle(unsubscribeData: IUnsubscribeData) {
 		const topic = verifyTopic(unsubscribeData.payload);
 		if (!topic) {
@@ -437,6 +525,11 @@ export class MqttManager {
 		this.handleUnsubscribeAck(unsubscribeData);
 	}
 
+	/**
+	 * 服务端向客户端发送 UNSUBACK 报文
+	 * 方向： 服务端 -> 客户端
+	 * @param unsubscribeData
+	 */
 	public async handleUnsubscribeAck(unsubscribeData: IUnsubscribeData) {
 		let remainingLength = 1;
 		const properties = new EncoderProperties();

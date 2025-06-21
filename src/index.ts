@@ -246,9 +246,10 @@ class MqttEvent {
 							case PacketType.CONNECT:
 								(await this.clientEmitAsync(client, 'connect', data, client, this.clientManager)) && (await mqttManager.connectHandle(data as IConnectData));
 								break;
-							case PacketType.PUBLISH:
-								(await this.clientEmitAsync(client, 'publish', data, client, this.clientManager)) && (await mqttManager.publishHandle(data as IPublishData));
+							case PacketType.PUBLISH: {
+								await mqttManager.publishHandle(data as IPublishData, this.clientEmitAsync);
 								break;
+							}
 							case PacketType.PUBACK:
 								(await this.clientEmitAsync(client, 'pubAck', data, client, this.clientManager)) && (await mqttManager.pubAckHandle(data as IPubAckData));
 								break;
@@ -331,7 +332,7 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
 			header: {
 				packetType: PacketType.SUBACK,
 				retain: 0x00,
-				packetIdentifier: data.header.packetType ?? 0,
+				packetIdentifier: (data as ISubscribeData).header.packetIdentifier ?? 0,
 			},
 			properties: {
 				reasonString: error.msg,
@@ -340,31 +341,34 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
 		};
 		await mqttManager.handleSubAck(subAckData);
 	} else if (error instanceof PubAckException && data) {
+		if ((data as IPublishData).header.qosLevel === QoSType.QoS0) {
+			return;
+		}
 		const pubAckData: IPubAckData = {
 			header: {
 				packetType: PacketType.PUBACK,
 				received: 0x00,
-				packetIdentifier: data.header.packetType ?? 0,
+				packetIdentifier: (data as IPublishData).header.packetIdentifier ?? 0,
 				reasonCode: error.code as PubAckReasonCode,
 			},
 			properties: {
 				reasonString: error.msg,
 			},
 		};
-		await mqttManager.pubAckHandle(pubAckData);
+		await mqttManager.handlePubAck(pubAckData);
 	} else if (error instanceof PubRecException && data) {
 		const pubRecData: IPubRecData = {
 			header: {
 				packetType: PacketType.PUBREC,
 				received: 0x00,
-				packetIdentifier: data.header.packetType ?? 0,
+				packetIdentifier: (data as IPublishData).header.packetIdentifier ?? 0,
 				reasonCode: error.code as PubRecReasonCode,
 			},
 			properties: {
 				reasonString: error.msg,
 			},
 		};
-		await mqttManager.pubRecHandle(pubRecData);
+		await mqttManager.handlePubRec(pubRecData);
 	} else if (error instanceof PubRelException && data) {
 		const pubRelData: IPubRelData = {
 			header: {
@@ -383,7 +387,7 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
 			header: {
 				packetType: PacketType.PUBREC,
 				received: 0x00,
-				packetIdentifier: data.header.packetType ?? 0,
+				packetIdentifier: (data as IPubCompData).header.packetIdentifier ?? 0,
 				reasonCode: error.code as PubCompReasonCode,
 			},
 			properties: {
