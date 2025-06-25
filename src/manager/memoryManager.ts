@@ -166,68 +166,68 @@ export class MemoryManager extends Manager {
 	}
 	publish(clientIdentifier: string, topic: string, pubData: IPublishData) {
 		const pubClient = this.getClient(clientIdentifier);
-		if (pubClient) {
-			const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
-			const callbackfn = async (client: TClient, subFlags: TSubscribeData) => {
-				if (subFlags.noLocal && client === pubClient) {
-					return;
-				}
+		// if (pubClient) {
+		const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
+		const callbackfn = async (client: TClient, subFlags: TSubscribeData) => {
+			if (subFlags.noLocal && client === pubClient) {
+				return;
+			}
 
-				const minQoS = Math.min(subFlags.qos || 0, pubData.header.qosLevel);
-				if (minQoS > QoSType.QoS0) {
-					// 增加报文标识符，用来做publish消息结束校验数据来源
-					// 向客户端分发 qos1 和 qos2 级别的消息，需要记录 packetIdentifier；
-					// 分发 qos2 消息时当收到客户端返回 pubRec、PubComp 数据包需要校验 packetIdentifier;
-					// 分发 qos1 消息时当收到客户端返回 pubAck 数据包需要校验 packetIdentifier;
-					distributeData.header.packetIdentifier = this.newPacketIdentifier(client);
-					distributeData.header.udpFlag = false;
-				}
-				distributeData.header.qosLevel = minQoS;
-				distributeData.header.retain = subFlags.retainAsPublished ? distributeData.header.retain : false;
-				const pubPacket = encodePublishPacket(distributeData);
-				client.write(pubPacket);
-			};
+			const minQoS = Math.min(subFlags.qos || 0, pubData.header.qosLevel);
+			if (minQoS > QoSType.QoS0) {
+				// 增加报文标识符，用来做publish消息结束校验数据来源
+				// 向客户端分发 qos1 和 qos2 级别的消息，需要记录 packetIdentifier；
+				// 分发 qos2 消息时当收到客户端返回 pubRec、PubComp 数据包需要校验 packetIdentifier;
+				// 分发 qos1 消息时当收到客户端返回 pubAck 数据包需要校验 packetIdentifier;
+				distributeData.header.packetIdentifier = this.newPacketIdentifier(client);
+				distributeData.header.udpFlag = false;
+			}
+			distributeData.header.qosLevel = minQoS;
+			distributeData.header.retain = subFlags.retainAsPublished ? distributeData.header.retain : false;
+			const pubPacket = encodePublishPacket(distributeData);
+			client.write(pubPacket);
+		};
 
-			const match = (nodes: Array<string>, index: number, route: IRoute) => {
-				for (const node of [nodes[index], '+']) {
-					const currentRoute = route[node];
-					if (currentRoute) {
-						if (nodes.length === index + 1) {
-							currentRoute.clients.forEach((topic, client) => {
-								const data = this.clientDataMap.get(client)?.subscription.get(topic);
-								if (data) {
-									callbackfn(client, data);
-								}
-							});
-
-							if (nodes.length == index + 1 && route[nodes[index]]) {
-								const childRoute = route[nodes[index]].child;
-								if (childRoute && childRoute['#']) {
-									childRoute['#'].clients.forEach((topic, client) => {
-										const data = this.clientDataMap.get(client)?.subscription.get(topic);
-										if (data) {
-											callbackfn(client, data);
-										}
-									});
-								}
+		const match = (nodes: Array<string>, index: number, route: IRoute) => {
+			for (const node of [nodes[index], '+']) {
+				const currentRoute = route[node];
+				if (currentRoute) {
+					if (nodes.length === index + 1) {
+						currentRoute.clients.forEach((topic, client) => {
+							const data = this.clientDataMap.get(client)?.subscription.get(topic);
+							if (data) {
+								callbackfn(client, data);
 							}
-						} else if (currentRoute.child) {
-							match(nodes, index + 1, currentRoute.child);
+						});
+
+						if (nodes.length == index + 1 && route[nodes[index]]) {
+							const childRoute = route[nodes[index]].child;
+							if (childRoute && childRoute['#']) {
+								childRoute['#'].clients.forEach((topic, client) => {
+									const data = this.clientDataMap.get(client)?.subscription.get(topic);
+									if (data) {
+										callbackfn(client, data);
+									}
+								});
+							}
 						}
+					} else if (currentRoute.child) {
+						match(nodes, index + 1, currentRoute.child);
 					}
 				}
-				if (route['#']) {
-					route['#'].clients.forEach((topic, client) => {
-						const data = this.clientDataMap.get(client)?.subscription.get(topic);
-						if (data) {
-							callbackfn(client, data);
-						}
-					});
-				}
-			};
-			const nodes = topic.split('/');
-			match(nodes, 0, this.route);
-		}
+			}
+			if (route['#']) {
+				route['#'].clients.forEach((topic, client) => {
+					const data = this.clientDataMap.get(client)?.subscription.get(topic);
+					if (data) {
+						callbackfn(client, data);
+					}
+				});
+			}
+		};
+		const nodes = topic.split('/');
+		match(nodes, 0, this.route);
+		// }
 	}
 
 	/**
