@@ -18,6 +18,7 @@ import {
 	IWillProperties,
 	PropertyDataMap,
 	PropertyIdentifier,
+	IConnectWillProperties,
 } from './interface';
 import {
 	fourByteInteger,
@@ -786,12 +787,88 @@ export function parsePublishProperties(buffer: Buffer, index?: number) {
 				(properties.subscriptionIdentifier ??= []).push(subscriptionIdentifier);
 				break;
 			}
+			case PropertyIdentifier.topicAliasMaximum:
+				data.index++;
+				if (properties.topicAliasMaximum != undefined) {
+					throw new DisconnectException('t is a Protocol Error to include the Topic Alias Maximum value more than once.', DisconnectReasonCode.ProtocolError);
+				}
+				properties.topicAliasMaximum = twoByteInteger(data);
+				break;
+			case PropertyIdentifier.userProperty: {
+				data.index++;
+				const { key, value } = utf8StringPair(data);
+				if (!properties.userProperty) {
+					properties.userProperty = {
+						[key]: value,
+					};
+				} else {
+					properties.userProperty[key] = value;
+				}
+				break;
+			}
 			case PropertyIdentifier.topicAlias:
 				data.index++;
 				if (properties.topicAlias != undefined) {
 					throw new DisconnectException('It is a Protocol Error to include the Topic Alias value more than once.', DisconnectReasonCode.ProtocolError);
 				}
 				properties.topicAlias = twoByteInteger(data);
+				break;
+			default:
+				data.index = buffer.length;
+				break;
+		}
+	}
+	return properties;
+}
+
+/**
+ * 解析 connect 报文的 payload 内部的 will 属性
+ * @param buffer
+ * @param index
+ * @returns
+ */
+export function parseConnectWillProperties(buffer: Buffer, index?: number) {
+	const properties: IConnectWillProperties = {};
+	const data: BufferData = { buffer, index: index ? index : 0 };
+	for (data.index; data.index < buffer.length; data.index) {
+		switch (buffer[data.index]) {
+			case PropertyIdentifier.payloadFormatIndicator:
+				data.index++;
+				if (properties.payloadFormatIndicator !== undefined) {
+					throw new DisconnectException('It is a Protocol Error to include the Payload Format Indicator more than once.', DisconnectReasonCode.ProtocolError);
+				}
+				properties.payloadFormatIndicator = oneByteInteger(data);
+				break;
+			case PropertyIdentifier.messageExpiryInterval:
+				data.index++;
+				if (properties.messageExpiryInterval != undefined) {
+					throw new DisconnectException('It is a Protocol Error to include the Payload Format Indicator more than once.', DisconnectReasonCode.ProtocolError);
+				}
+				properties.messageExpiryInterval = fourByteInteger(data);
+				break;
+			case PropertyIdentifier.contentType:
+				data.index++;
+				if (properties.contentType) {
+					throw new DisconnectException('It is a Protocol Error to include the Content Type more than once.', DisconnectReasonCode.ProtocolError);
+				}
+				properties.contentType = utf8DecodedString(data);
+				break;
+			case PropertyIdentifier.responseTopic:
+				data.index++;
+				if (properties.responseTopic) {
+					throw new DisconnectException('It is a Protocol Error to include the Content Type more than once.', DisconnectReasonCode.ProtocolError);
+				}
+				properties.responseTopic = utf8DecodedString(data);
+				if (/[#+$]/.test(properties.responseTopic)) {
+					throw new DisconnectException('The Response Topic MUST NOT contain wildcard characters.', DisconnectReasonCode.ProtocolError);
+				}
+				break;
+			case PropertyIdentifier.correlationData:
+				data.index++;
+				if (properties.correlationData) {
+					throw new DisconnectException('It is a Protocol Error to include Correlation Data more than once.', DisconnectReasonCode.ProtocolError);
+				}
+				properties.correlationData = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.userProperty: {
 				data.index++;

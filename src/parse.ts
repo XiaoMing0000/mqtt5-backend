@@ -35,6 +35,7 @@ import {
 	encodeProperties,
 	parseAuthProperties,
 	parseConnectProperties,
+	parseConnectWillProperties,
 	parseDisconnectProperties,
 	parseProperties,
 	parsePubAckProperties,
@@ -469,7 +470,7 @@ export function parseConnect(buffer: Buffer): IConnectData {
 	if (connData.connectFlags.willFlag) {
 		const willPropertiesLength = variableByteInteger(data);
 		const willPropertiesBuffer = data.buffer.slice(data.index, (data.index += willPropertiesLength));
-		connData.payload.willProperties = parseProperties(willPropertiesBuffer);
+		connData.payload.willProperties = parseConnectWillProperties(willPropertiesBuffer);
 
 		connData.payload.willTopic = utf8DecodedString(data);
 		connData.payload.willPayload = utf8DecodedString(data);

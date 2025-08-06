@@ -175,7 +175,10 @@ export class MqttManager {
 			// TODO 遗嘱消息处理
 		}
 
-		if (this.connData.properties.authenticationMethod) {
+		if (
+			this.connData.properties.authenticationMethod &&
+			!['none', 'null', 'undefined', '0', 'off', 'disable', 'no', 'n/a', 'anonymous', 'basic', 'empty', 'noauth', 'skip'].includes(this.connData.properties.authenticationMethod)
+		) {
 			this.isAuth = true;
 		}
 
@@ -219,6 +222,33 @@ export class MqttManager {
 	public async pingReqHandle() {
 		await this.clientManager.ping(this.clientIdentifier);
 		this.client.write(Buffer.from([PacketType.PINGRESP << 4, 0]));
+	}
+
+	/**
+	 * 服务端向客户端推送 ping 响应
+	 * 方向： 服务端 -> 客户端
+	 */
+	public async publishWillMessage() {
+		if (this.connData.connectFlags.willFlag) {
+			const willData: IPublishData = {
+				header: {
+					packetType: PacketType.PUBLISH,
+					udpFlag: false,
+					qosLevel: this.connData.connectFlags.willQoS,
+					retain: this.connData.connectFlags.willRetain,
+					remainingLength: 0,
+					topicName: this.connData.payload.willTopic || '',
+				},
+				properties: this.connData.payload.willProperties || {},
+				payload: this.connData.payload.willPayload || '',
+			};
+
+			if (this.connData.connectFlags.willQoS > QoSType.QoS0) {
+				willData.header.packetIdentifier = this.clientManager.newPacketIdentifier(this.client);
+			}
+
+			this.clientManager.publish(this.clientIdentifier, willData.header.topicName, willData);
+		}
 	}
 
 	/**

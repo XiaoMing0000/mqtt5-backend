@@ -138,7 +138,7 @@ export class RedisManager extends Manager {
 		return `connect:${clientIdentifier}`;
 	}
 
-	async isConnected(key: TClient | TIdentifier): Promise<boolean> {
+	public async isConnected(key: TClient | TIdentifier): Promise<boolean> {
 		if (typeof key === 'string') {
 			return !!(await this.redis.exists(this.connectKey(key)));
 		} else {
@@ -168,23 +168,23 @@ export class RedisManager extends Manager {
 		}
 	}
 
-	async subscribe(clientIdentifier: string, topic: TTopic, data: TSubscribeData): Promise<void> {
+	public async subscribe(clientIdentifier: string, topic: TTopic, data: TSubscribeData): Promise<void> {
 		this.subscribeManmager.subscribe(clientIdentifier, topic, data);
 	}
 
-	async unsubscribe(clientIdentifier: string, topic: TTopic): Promise<void> {
+	public async unsubscribe(clientIdentifier: string, topic: TTopic): Promise<void> {
 		this.subscribeManmager.unsubscribe(clientIdentifier, topic);
 	}
 
-	async clearSubscribe(clientIdentifier: string): Promise<void> {
+	public async clearSubscribe(clientIdentifier: string): Promise<void> {
 		this.subscribeManmager.clearSubscribe(clientIdentifier);
 	}
 
-	async isSubscribe(topic: TTopic): Promise<boolean> {
+	public async isSubscribe(topic: TTopic): Promise<boolean> {
 		return this.subscribeManmager.isSubscribe(topic);
 	}
 
-	async clearConnect(clientIdentifier: TClient | TIdentifier): Promise<void> {
+	public async clearConnect(clientIdentifier: TClient | TIdentifier): Promise<void> {
 		const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : this.clientIdentifierManager.getClient(clientIdentifier)?.identifier;
 		const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdendifier(clientIdentifier) : clientIdentifier;
 		if (client && identifier) {
@@ -195,11 +195,11 @@ export class RedisManager extends Manager {
 		}
 	}
 
-	async getSubscription(clientIdentifier: TIdentifier, topic: string): Promise<TSubscribeData | undefined> {
+	public async getSubscription(clientIdentifier: TIdentifier, topic: string): Promise<TSubscribeData | undefined> {
 		return this.subscribeManmager.getSubscribe(clientIdentifier, topic);
 	}
 
-	publish(clientIdentifier: string, topic: TTopic, pubData: IPublishData): void {
+	public publish(clientIdentifier: string, topic: TTopic, pubData: IPublishData): void {
 		this.redis.publish(
 			'publish',
 			JSON.stringify({

@@ -202,6 +202,15 @@ export interface IConnectProperties {
 	maximumPacketSize?: number;
 }
 
+export interface IConnectWillProperties {
+	payloadFormatIndicator?: number;
+	messageExpiryInterval?: number;
+	contentType?: string;
+	responseTopic?: string;
+	correlationData?: string;
+	userProperty?: { [key: string]: any };
+}
+
 export interface IConnAckProperties {
 	sessionExpiryInterval?: number;
 	clientIdentifier?: string;
@@ -328,7 +337,7 @@ export interface IConnectData {
 	properties: IConnectProperties;
 	payload: {
 		clientIdentifier: string;
-		willProperties?: IProperties;
+		willProperties?: IConnectWillProperties;
 		willTopic?: string;
 		willPayload?: string;
 		username?: string;

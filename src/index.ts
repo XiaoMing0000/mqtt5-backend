@@ -312,6 +312,7 @@ class MqttEvent {
 		});
 
 		client.on('close', (hadError: boolean) => {
+			mqttManager.publishWillMessage();
 			this.clientManager.clearConnect(client);
 			if (hadError) {
 				console.log('Connection closed due to error!');

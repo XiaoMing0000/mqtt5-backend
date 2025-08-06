@@ -86,7 +86,7 @@ export class MemoryManager extends Manager {
 		}
 	}
 
-	clearConnect(clientIdentifier: TClient | TIdentifier): void {
+	public clearConnect(clientIdentifier: TClient | TIdentifier): void {
 		const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : this.clientIdentifierManager.getClient(clientIdentifier)?.identifier;
 		const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdendifier(clientIdentifier) : clientIdentifier;
 		if (client && identifier) {
@@ -96,7 +96,7 @@ export class MemoryManager extends Manager {
 		}
 	}
 
-	async clearSubscribe(clientIdentifier: string): Promise<void> {
+	public async clearSubscribe(clientIdentifier: string): Promise<void> {
 		const client = this.clientIdentifierManager.getIdendifier(clientIdentifier);
 		if (client) {
 			this.clientDataMap.get(client)?.subscription.forEach((value, key) => {
@@ -107,7 +107,7 @@ export class MemoryManager extends Manager {
 		}
 	}
 
-	async subscribe(clientIdentifier: string, topic: string, data: TSubscribeData): Promise<void> {
+	public async subscribe(clientIdentifier: string, topic: string, data: TSubscribeData): Promise<void> {
 		const client = this.clientIdentifierManager.getIdendifier(clientIdentifier);
 		if (client) {
 			if (this.clientDataMap.has(client)) {
@@ -138,7 +138,7 @@ export class MemoryManager extends Manager {
 		}
 	}
 
-	async unsubscribe(clientIdentifier: string, topic: string): Promise<void> {
+	public async unsubscribe(clientIdentifier: string, topic: string): Promise<void> {
 		const client = this.clientIdentifierManager.getIdendifier(clientIdentifier);
 		if (client) {
 			if (this.clientDataMap.has(client)) {
@@ -164,7 +164,7 @@ export class MemoryManager extends Manager {
 			pop(nodes, 0, this.route);
 		}
 	}
-	publish(clientIdentifier: string, topic: string, pubData: IPublishData) {
+	public publish(clientIdentifier: string, topic: string, pubData: IPublishData) {
 		const pubClient = this.getClient(clientIdentifier);
 		// if (pubClient) {
 		const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
