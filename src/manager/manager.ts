@@ -38,7 +38,7 @@ export class ClientIdentifierManager {
 	getClient(client: TClient) {
 		return this.clientMap.get(client);
 	}
-	getIdendifier(identifier: TIdentifier) {
+	getIdentifier(identifier: TIdentifier) {
 		return this.identifierMap.get(identifier);
 	}
 
@@ -182,7 +182,7 @@ export abstract class Manager {
 	 * @param clientIdentifier
 	 */
 	public disconnect(clientIdentifier: string | TClient): void {
-		typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdendifier(clientIdentifier)?.end() : clientIdentifier.end();
+		typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdentifier(clientIdentifier)?.end() : clientIdentifier.end();
 	}
 
 	/**

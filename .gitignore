@@ -1,6 +1,5 @@
 node_modules
 /dist
-/.vscode/*
 /logs
 .env
 package-lock.json

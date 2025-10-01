@@ -112,7 +112,7 @@ export class MqttManager {
 		if (this.connData.connectFlags.cleanStart) {
 			connAckData.acknowledgeFlags.SessionPresent = false;
 		} else {
-			if (this.clientManager.clientIdentifierManager.getIdendifier(this.connData.payload.clientIdentifier)) {
+			if (this.clientManager.clientIdentifierManager.getIdentifier(this.connData.payload.clientIdentifier)) {
 				connAckData.acknowledgeFlags.SessionPresent = true;
 			}
 		}

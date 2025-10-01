@@ -49,14 +49,14 @@ export class MemoryManager extends Manager {
 	}
 
 	getClient(clientIdentifier: TIdentifier) {
-		return this.clientIdentifierManager.getIdendifier(clientIdentifier);
+		return this.clientIdentifierManager.getIdentifier(clientIdentifier);
 	}
 
 	isConnected(key: TClient): Promise<boolean>;
 	isConnected(key: TIdentifier): Promise<boolean>;
 	async isConnected(key: TClient | TIdentifier): Promise<boolean> {
 		if (typeof key === 'string') {
-			const client = this.clientIdentifierManager.getIdendifier(key);
+			const client = this.clientIdentifierManager.getIdentifier(key);
 			if (client) {
 				return this.clientDataMap.has(client);
 			}
@@ -77,7 +77,7 @@ export class MemoryManager extends Manager {
 	}
 
 	public async ping(clientIdentifier: string): Promise<void> {
-		const client = this.clientIdentifierManager.getIdendifier(clientIdentifier);
+		const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);
 		if (client) {
 			const connData = this.connectDataMap.get(client);
 			if (connData) {
@@ -88,7 +88,7 @@ export class MemoryManager extends Manager {
 
 	public clearConnect(clientIdentifier: TClient | TIdentifier): void {
 		const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : this.clientIdentifierManager.getClient(clientIdentifier)?.identifier;
-		const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdendifier(clientIdentifier) : clientIdentifier;
+		const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdentifier(clientIdentifier) : clientIdentifier;
 		if (client && identifier) {
 			this.connectDataMap.delete(client);
 			this.clearSubscribe(identifier);
@@ -97,7 +97,7 @@ export class MemoryManager extends Manager {
 	}
 
 	public async clearSubscribe(clientIdentifier: string): Promise<void> {
-		const client = this.clientIdentifierManager.getIdendifier(clientIdentifier);
+		const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);
 		if (client) {
 			this.clientDataMap.get(client)?.subscription.forEach((value, key) => {
 				this.unsubscribe(clientIdentifier, key);
@@ -108,7 +108,7 @@ export class MemoryManager extends Manager {
 	}
 
 	public async subscribe(clientIdentifier: string, topic: string, data: TSubscribeData): Promise<void> {
-		const client = this.clientIdentifierManager.getIdendifier(clientIdentifier);
+		const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);
 		if (client) {
 			if (this.clientDataMap.has(client)) {
 				this.clientDataMap.get(client)?.subscription.set(topic, data);
@@ -139,7 +139,7 @@ export class MemoryManager extends Manager {
 	}
 
 	public async unsubscribe(clientIdentifier: string, topic: string): Promise<void> {
-		const client = this.clientIdentifierManager.getIdendifier(clientIdentifier);
+		const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);
 		if (client) {
 			if (this.clientDataMap.has(client)) {
 				this.clientDataMap.get(client)?.subscription.delete(topic);
@@ -263,7 +263,7 @@ export class MemoryManager extends Manager {
 	 * @returns
 	 */
 	public async getSubscription(clientIdentifier: TIdentifier, topic: string): Promise<TSubscribeData | undefined> {
-		const client = this.clientIdentifierManager.getIdendifier(clientIdentifier);
+		const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);
 		if (client) {
 			return this.clientDataMap.get(client)?.subscription.get(topic);
 		}

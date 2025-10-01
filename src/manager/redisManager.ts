@@ -94,7 +94,7 @@ export class RedisManager extends Manager {
 				case '__keyevent@0__:expired': {
 					if (message.startsWith('connect:')) {
 						const clientIdentifier = message.substring('connect:'.length);
-						const client = this.clientIdentifierManager.getIdendifier(clientIdentifier);
+						const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);
 						if (client) {
 							client.end();
 						}
@@ -108,7 +108,7 @@ export class RedisManager extends Manager {
 					const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
 					await this.subscribeManmager.getMatchTopic(topic, async (publishIdentifier: string, matchTopic: string, subFlags: TSubscribeData) => {
 						try {
-							const client = this.clientIdentifierManager.getIdendifier(publishIdentifier);
+							const client = this.clientIdentifierManager.getIdentifier(publishIdentifier);
 							if (client) {
 								delete distributeData.properties.subscriptionIdentifier;
 								if (subFlags && subFlags.noLocal && publishIdentifier === clientIdentifier) {
@@ -186,7 +186,7 @@ export class RedisManager extends Manager {
 
 	public async clearConnect(clientIdentifier: TClient | TIdentifier): Promise<void> {
 		const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : this.clientIdentifierManager.getClient(clientIdentifier)?.identifier;
-		const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdendifier(clientIdentifier) : clientIdentifier;
+		const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdentifier(clientIdentifier) : clientIdentifier;
 		if (client && identifier) {
 			this.clearSubscribe(identifier);
 			this.clientIdentifierManager.delete(client);
