@@ -180,7 +180,7 @@ export class MemoryManager extends Manager {
 				// 分发 qos2 消息时当收到客户端返回 pubRec、PubComp 数据包需要校验 packetIdentifier;
 				// 分发 qos1 消息时当收到客户端返回 pubAck 数据包需要校验 packetIdentifier;
 				distributeData.header.packetIdentifier = this.newPacketIdentifier(client);
-				distributeData.header.udpFlag = false;
+				distributeData.header.dupFlag = false;
 			}
 			distributeData.header.qosLevel = minQoS;
 			distributeData.header.retain = subFlags.retainAsPublished ? distributeData.header.retain : false;
@@ -236,7 +236,7 @@ export class MemoryManager extends Manager {
 	 * @returns
 	 */
 	public async isSubscribe(topic: string) {
-		const find = (nodes: Array<string>, index: number, route: IRoute) => {
+		const find = (nodes: Array<string>, index: number, route: IRoute): boolean => {
 			for (const node of [nodes[index], '+']) {
 				const currentRoute = route[node];
 				if (currentRoute) {

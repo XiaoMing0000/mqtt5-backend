@@ -1,10 +1,13 @@
 import tls from 'tls';
 import fs from 'fs';
 import path from 'path';
-import { MqttServer, MqttServerTLS } from '../src';
+import { MqttServer, MqttServerTLS, MqttServerWebSocket, MqttServerWebSocketSecure } from '../src';
+import http from 'http';
+import https from 'https';
 import { CONFIG } from './config';
 import { MemoryManager } from '../src/manager/memoryManager';
 import { RedisManager } from '../src/manager/redisManager';
+import { WebSocketServer } from 'ws';
 
 // const clientManager = new RedisManager({
 // 	host: CONFIG.redisHost,
@@ -17,18 +20,14 @@ const clientManager = new MemoryManager();
 
 // const clientManager = new MemoryManager();
 
+const server = new MqttServer(clientManager);
+
 const tlsOptions: tls.TlsOptions = {
 	cert: fs.readFileSync(path.join(__dirname, '../temp/test.com.crt')),
 	key: fs.readFileSync(path.join(__dirname, '../temp/test.com.key')),
 	keepAlive: true,
 };
-
 const tlsServer = new MqttServerTLS(tlsOptions, clientManager);
-const server = new MqttServer(clientManager);
-
-// tlsServer.listen(8883, () => {
-// 	console.log(`MQTT server listening on port ${8883}`);
-// });
 
 // 异步错误处理
 // process.on('uncaughtException', (err) => {
@@ -49,8 +48,6 @@ const server = new MqttServer(clientManager);
 // 	return true;
 // });
 
-// TODO 支持 Websocket 协议
-
 server.onConnect(async (data, client, clientManager) => {
 	console.log('connectionData: ', data);
 	return true;
@@ -60,9 +57,28 @@ server.listen(CONFIG.mqttPort, () => {
 	console.log(`MQTT server listening on port ${CONFIG.mqttPort}`);
 });
 tlsServer.listen(8883, () => {
-	console.log(`MQTT server listening on port ${8883}`);
+	console.log(`MQTT TLS server listening on port ${8883}`);
+});
+
+// MQTT server 支持 HTTP 协议 WebSocket
+const wsServer = new MqttServerWebSocket(clientManager);
+wsServer.onConnect(async (data, client, clientManager) => {
+	console.log('connectionData: ', data);
+	return true;
+});
+wsServer.listen(8083, () => {
+	console.log('MQTT over WebSocket server listening on port 8083');
+});
+
+// MQTT server 支持 TLS 协议 WebSocket
+const wssServer = new MqttServerWebSocketSecure(tlsOptions, clientManager);
+wssServer.onConnect(async (data, client, clientManager) => {
+	console.log('connectionData: ', data);
+	return true;
+});
+wssServer.listen(8084, () => {
+	console.log('MQTT over WebSocket server listening on port 8084');
 });
 
 // TODO 共享订阅
-// TODO 遗留消息
 // TODO 消息队列

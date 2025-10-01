@@ -279,7 +279,7 @@ export function parsePacket(buffer: Buffer): PacketTypeData {
 			const pubData: IPublishData = {
 				header: {
 					packetType: PacketType.RESERVED,
-					udpFlag: false,
+					dupFlag: false,
 					qosLevel: 0,
 					retain: false,
 					remainingLength: 0,
@@ -495,7 +495,7 @@ export function parseConnect(buffer: Buffer): IConnectData {
  */
 export function parsePublish(buffer: Buffer, pubData: IPublishData) {
 	pubData.header.packetType = (buffer[0] >> 4) as PacketType;
-	pubData.header.udpFlag = !!(buffer[0] & 0x8);
+	pubData.header.dupFlag = !!(buffer[0] & 0x8);
 	pubData.header.qosLevel = (buffer[0] >> 1) & 0x3;
 	pubData.header.retain = !!(buffer[0] & 0x1);
 
@@ -741,7 +741,7 @@ export function encodeDisconnect(disconnectData: IDisconnectData) {
 }
 
 export function encodePublishPacket(pubData: IPublishData) {
-	const fixedHeader = (pubData.header.packetType << 4) | ((pubData.header.udpFlag ? 1 : 0) << 3) | (pubData.header.qosLevel << 1) | (pubData.header.retain ? 1 : 0);
+	const fixedHeader = (pubData.header.packetType << 4) | ((pubData.header.dupFlag ? 1 : 0) << 3) | (pubData.header.qosLevel << 1) | (pubData.header.retain ? 1 : 0);
 
 	const topicNameBuffer = encodeUTF8String(pubData.header.topicName);
 

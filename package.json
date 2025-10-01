@@ -20,6 +20,7 @@
 	"devDependencies": {
 		"@eslint/js": "^9.9.1",
 		"@types/node": "^22.5.1",
+		"@types/ws": "^8.18.1",
 		"@typescript-eslint/eslint-plugin": "^8.3.0",
 		"@typescript-eslint/parser": "^8.3.0",
 		"dotenv": "^16.4.7",
@@ -35,7 +36,8 @@
 		"typescript-eslint": "^8.3.0"
 	},
 	"dependencies": {
-		"ioredis": "^5.4.1"
+		"ioredis": "^5.4.1",
+		"ws": "^8.13.0"
 	},
 	"author": "XiaoMing0000",
 	"license": "MIT",

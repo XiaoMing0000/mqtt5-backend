@@ -105,6 +105,9 @@ export class MqttManager {
 				reasonString,
 			},
 		};
+		if (!this.options.retainAvailable) {
+			connAckData.properties.retainAvailable = false;
+		}
 
 		if (this.connData.connectFlags.cleanStart) {
 			connAckData.acknowledgeFlags.SessionPresent = false;
@@ -233,7 +236,7 @@ export class MqttManager {
 			const willData: IPublishData = {
 				header: {
 					packetType: PacketType.PUBLISH,
-					udpFlag: false,
+					dupFlag: false,
 					qosLevel: this.connData.connectFlags.willQoS,
 					retain: this.connData.connectFlags.willRetain,
 					remainingLength: 0,
@@ -372,7 +375,7 @@ export class MqttManager {
 	public async handlePublish(client: TClient, pubData: IPublishData) {
 		if (pubData.header.qosLevel > QoSType.QoS0) {
 			pubData.header.packetIdentifier = this.clientManager.newPacketIdentifier(client);
-			pubData.header.udpFlag = false;
+			pubData.header.dupFlag = false;
 		}
 		pubData.header.retain = false;
 		const pubPacket = encodePublishPacket(pubData);

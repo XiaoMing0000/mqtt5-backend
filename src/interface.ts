@@ -261,10 +261,12 @@ export interface ISubAckProperties {
 }
 
 export interface IUnsubscribeProperties {
+	reasonString?: string;
 	userProperty?: { [key: string]: any };
 }
 
 export interface IUnsubscribeAckProperties {
+	reasonString?: string;
 	userProperty?: { [key: string]: any };
 }
 
@@ -360,8 +362,8 @@ export interface IConnAckData {
 export interface IPublishData {
 	header: {
 		packetType: PacketType;
-		udpFlag: boolean;
-		qosLevel: number;
+		dupFlag: boolean;
+		qosLevel: QoSType;
 		retain: boolean;
 		remainingLength?: number;
 		packetIdentifier?: number;
@@ -396,6 +398,16 @@ export interface ISubAckData {
 		packetIdentifier: number;
 	};
 	properties: ISubAckProperties;
+	reasonCode: SubscribeAckReasonCode;
+}
+
+export interface IUnsubAckData {
+	header: {
+		packetType: PacketType;
+		retain: number;
+		packetIdentifier: number;
+	};
+	properties: IUnsubscribeProperties;
 	reasonCode: SubscribeAckReasonCode;
 }
 

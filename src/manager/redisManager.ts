@@ -117,7 +117,7 @@ export class RedisManager extends Manager {
 								const minQoS = Math.min(subFlags.qos || 0, pubData.header.qosLevel);
 								if (minQoS > QoSType.QoS0) {
 									distributeData.header.packetIdentifier = this.newPacketIdentifier(client);
-									distributeData.header.udpFlag = false;
+									distributeData.header.dupFlag = false;
 								}
 								distributeData.header.qosLevel = minQoS;
 								distributeData.header.retain = subFlags.retainAsPublished ? distributeData.header.retain : false;

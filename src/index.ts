@@ -1,5 +1,9 @@
 import net, { DropArgument, ListenOptions, Socket } from 'net';
 import tls from 'tls';
+import http from 'http';
+import https from 'https';
+import { WebSocketServer } from 'ws';
+import WebSocketAdapter from './websocketAdapter';
 import {
 	AuthenticateException,
 	ConnectAckException,
@@ -178,7 +182,7 @@ class MqttEvent {
 	}
 	async clientEmitAsync(client: TClient, event: string, ...args: any[]) {
 		for (const listener of client.listeners(event)) {
-			if (!(await listener(...args))) {
+			if (!((await listener(...args)) !== false)) {
 				return false;
 			}
 		}
@@ -238,12 +242,14 @@ class MqttEvent {
 			try {
 				// 这一层捕获协议错误和未知错误
 				const allPacketData = parseAllPacket(buffer);
+
 				for (const data of allPacketData) {
 					try {
 						await mqttManager.commonHandle(data);
 
 						switch (data.header.packetType) {
 							case PacketType.CONNECT:
+								console.log('connect', data);
 								(await this.clientEmitAsync(client, 'connect', data, client, this.clientManager)) && (await mqttManager.connectHandle(data as IConnectData));
 								break;
 							case PacketType.PUBLISH: {
@@ -416,20 +422,66 @@ export class MqttServer extends MqttEvent {
 	constructor(clientManager: Manager, options: IMqttOptions = {}) {
 		const server = net.createServer();
 		super(server, clientManager, options);
-		this.server.on('listening', () => {
-			this.server.on('connection', this.mqttConnection);
-		});
+		this.server.on('connection', this.mqttConnection);
+	}
+
+	listen(...args: any): this {
+		this.server.listen(...args);
+		return this;
 	}
 }
 
-// TODO TLS 支持， 提取 server
+// MQTT over TLS/SSL
 export class MqttServerTLS extends MqttEvent {
 	constructor(tlsOptions: tls.TlsOptions, clientManager: Manager, options: IMqttOptions = {}) {
 		const server = tls.createServer(tlsOptions);
 		super(server, clientManager, options);
-		this.server.on('listening', () => {
-			this.server.on('secureConnection', this.mqttConnection);
+		this.server.on('secureConnection', this.mqttConnection);
+	}
+
+	listen(...args: any): this {
+		this.server.listen(...args);
+		return this;
+	}
+}
+
+// MQTT over WebSocket (HTTP)
+export class MqttServerWebSocket extends MqttEvent {
+	private httpServer: http.Server;
+	constructor(clientManager: Manager, options: IMqttOptions = {}) {
+		const httpServer = http.createServer();
+		const wss = new WebSocketServer({ server: httpServer });
+		super(wss as any, clientManager, options);
+		this.httpServer = httpServer;
+		wss.on('connection', (ws) => {
+			const adapter = new WebSocketAdapter(ws as any);
+			this.mqttConnection(adapter);
 		});
+	}
+
+	listen(...args: any): this {
+		this.httpServer.listen(...args);
+		return this;
+	}
+}
+
+// MQTT over WebSocket (HTTPS/TLS)
+export class MqttServerWebSocketSecure extends MqttEvent {
+	private httpServer: https.Server;
+	constructor(httpsOptions: https.ServerOptions, clientManager: Manager, options: IMqttOptions = {}) {
+		const httpServer = https.createServer(httpsOptions);
+		const wss = new WebSocketServer({ server: httpServer });
+		super(wss as any, clientManager, options);
+		this.httpServer = httpServer;
+		wss.on('connection', (ws) => {
+			const adapter = new WebSocketAdapter(ws as any);
+			this.mqttConnection(adapter);
+		});
+	}
+
+	listen(...args: any): this {
+		this.httpServer.listen(...args);
+		return this;
 	}
 }
 
@@ -443,3 +495,4 @@ export * from './property';
 export * from './mqttManager';
 export * from './utils';
 export * from './topicFilters';
+
