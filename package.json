@@ -1,6 +1,6 @@
 {
 	"name": "@elfdream/mqtt5-backend",
-	"version": "1.2.0",
+	"version": "1.2.1",
 	"description": "A cloud service based on the mqtt v5 protocol of nodejs.",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
