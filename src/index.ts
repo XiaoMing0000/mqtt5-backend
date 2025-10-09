@@ -467,7 +467,7 @@ export class MqttServerWebSocket extends MqttEvent {
 
 // MQTT over WebSocket (HTTPS/TLS)
 export class MqttServerWebSocketSecure extends MqttEvent {
-	private httpServer: https.Server;
+	httpServer: https.Server;
 	constructor(httpsOptions: https.ServerOptions, clientManager: Manager, options: IMqttOptions = {}) {
 		const httpServer = https.createServer(httpsOptions);
 		const wss = new WebSocketServer({ server: httpServer });
