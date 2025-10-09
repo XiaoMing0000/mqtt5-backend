@@ -433,9 +433,11 @@ export class MqttServer extends MqttEvent {
 
 // MQTT over TLS/SSL
 export class MqttServerTLS extends MqttEvent {
+	server: tls.Server;
 	constructor(tlsOptions: tls.TlsOptions, clientManager: Manager, options: IMqttOptions = {}) {
 		const server = tls.createServer(tlsOptions);
 		super(server, clientManager, options);
+		this.server = server;
 		this.server.on('secureConnection', this.mqttConnection);
 	}
 
