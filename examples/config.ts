@@ -8,6 +8,7 @@ export const CONFIG = {
 	// redis
 	redisHost: process.env.REDIS_HOST || '127.0.0.1',
 	redisPort: Number(process.env.REDIS_PORT) || 6379,
+	redisUsername: process.env.REDIS_USERNAME || undefined,
 	redisPassword: process.env.REDIS_PASSWORD || '',
 	redisDB: Number(process.env.REDIS_DB) || 0,
 };

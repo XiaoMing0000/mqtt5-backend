@@ -492,6 +492,7 @@ export * from './interface';
 export * from './manager/manager';
 export * from './manager/memoryManager';
 export * from './manager/redisManager';
+export * from './manager/redis2Manager';
 export * from './parse';
 export * from './property';
 export * from './mqttManager';

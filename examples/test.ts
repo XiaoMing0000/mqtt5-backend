@@ -7,6 +7,7 @@ import https from 'https';
 import { CONFIG } from './config';
 import { MemoryManager } from '../src/manager/memoryManager';
 import { RedisManager } from '../src/manager/redisManager';
+import { Redis2Manager } from '../src/manager/redis2Manager';
 import { WebSocketServer } from 'ws';
 
 // const clientManager = new RedisManager({
@@ -16,9 +17,14 @@ import { WebSocketServer } from 'ws';
 // 	db: CONFIG.redisDB,
 // });
 
-const clientManager = new MemoryManager();
-
 // const clientManager = new MemoryManager();
+const clientManager = new Redis2Manager({
+	host: CONFIG.redisHost,
+	port: CONFIG.redisPort,
+	username: CONFIG.redisUsername,
+	password: CONFIG.redisPassword,
+	db: CONFIG.redisDB,
+});
 
 const server = new MqttServer(clientManager);
 
@@ -40,13 +46,13 @@ const tlsServer = new MqttServerTLS(tlsOptions, clientManager);
 // });
 
 // 客户端推送事件
-// server.onPublish(async (data, client, clientManager) => {
-// 	console.log('clientId: ', clientManager.clientIdentifierManager.getClient(client)?.identifier);
-// 	console.log('onPublish: ', data);
-// 	throw new Error('test');
-// 	// return false;
-// 	return true;
-// });
+server.onPublish(async (data, client, clientManager) => {
+	console.log('clientId: ', clientManager.clientIdentifierManager.getClient(client)?.identifier);
+	console.log('onPublish: ', data);
+	// throw new Error('test');
+	// return false;
+	return true;
+});
 
 server.onConnect(async (data, client, clientManager) => {
 	console.log('connectionData: ', data);

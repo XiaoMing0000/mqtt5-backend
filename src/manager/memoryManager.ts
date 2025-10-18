@@ -181,6 +181,8 @@ export class MemoryManager extends Manager {
 				// 分发 qos1 消息时当收到客户端返回 pubAck 数据包需要校验 packetIdentifier;
 				distributeData.header.packetIdentifier = this.newPacketIdentifier(client);
 				distributeData.header.dupFlag = false;
+			} else {
+				delete distributeData.header.packetIdentifier;
 			}
 			distributeData.header.qosLevel = minQoS;
 			distributeData.header.retain = subFlags.retainAsPublished ? distributeData.header.retain : false;

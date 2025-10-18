@@ -262,7 +262,7 @@ export class MqttManager {
 	 * @returns
 	 */
 	public async publishHandle(pubData: IPublishData, emitAsync: (client: TClient, event: string, ...args: any[]) => Promise<boolean>) {
-		// 在订阅消息中异常处理逻辑，qos = 0 或 qos = 1 时，因该抛出 PubAckException 异常
+		// 在订阅消息中异常处理逻辑，qos = 0 或 qos = 1 时，应该抛出 PubAckException 异常
 		// qos = 1 时，因该抛出 PubAckException 异常
 
 		try {
@@ -510,7 +510,7 @@ export class MqttManager {
 							data.header.qosLevel = Math.min(data.header.qosLevel, subData.options.qos);
 							await this.handlePublish(this.client, data);
 						}
-					});
+					}, subData.payload);
 				}
 			}
 		}
