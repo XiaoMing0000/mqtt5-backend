@@ -832,6 +832,13 @@ export function parseConnectWillProperties(buffer: Buffer, index?: number) {
 	const data: BufferData = { buffer, index: index ? index : 0 };
 	for (data.index; data.index < buffer.length; data.index) {
 		switch (buffer[data.index]) {
+			case PropertyIdentifier.willDelayInterval:
+				data.index++;
+				if (properties.willDelayInterval !== undefined) {
+					throw new DisconnectException('It is a Protocol Error to include the Will Delay Interval more than once. ', DisconnectReasonCode.ProtocolError);
+				}
+				properties.willDelayInterval = fourByteInteger(data);
+				break;
 			case PropertyIdentifier.payloadFormatIndicator:
 				data.index++;
 				if (properties.payloadFormatIndicator !== undefined) {
@@ -1073,72 +1080,6 @@ export function parseAuthProperties(buffer: Buffer, index?: number) {
 					throw new DisconnectException('It is a Protocol Error to include Authentication Method more than once.', DisconnectReasonCode.ProtocolError);
 				}
 				properties.reasonString = utf8DecodedString(data);
-				break;
-			case PropertyIdentifier.userProperty: {
-				data.index++;
-				const { key, value } = utf8StringPair(data);
-				if (!properties.userProperty) {
-					properties.userProperty = {
-						[key]: value,
-					};
-				} else {
-					properties.userProperty[key] = value;
-				}
-				break;
-			}
-			default:
-				data.index = buffer.length;
-				break;
-		}
-	}
-	return properties;
-}
-
-/**
- * 解析 will 报文的属性
- * @param buffer
- * @param index
- * @returns
- */
-export function parseWillProperties(buffer: Buffer, index?: number) {
-	const properties: IWillProperties = {};
-	const data: BufferData = { buffer, index: index ? index : 0 };
-	for (data.index; data.index < buffer.length; data.index) {
-		switch (buffer[data.index]) {
-			case PropertyIdentifier.payloadFormatIndicator:
-				data.index++;
-				if (properties.payloadFormatIndicator !== undefined) {
-					throw new DisconnectException('It is a Protocol Error to include the Payload Format Indicator more than once.', DisconnectReasonCode.ProtocolError);
-				}
-				properties.payloadFormatIndicator = oneByteInteger(data);
-				break;
-			case PropertyIdentifier.messageExpiryInterval:
-				data.index++;
-				if (properties.messageExpiryInterval != undefined) {
-					throw new DisconnectException('It is a Protocol Error to include the Payload Format Indicator more than once.', DisconnectReasonCode.ProtocolError);
-				}
-				properties.messageExpiryInterval = fourByteInteger(data);
-				break;
-			case PropertyIdentifier.contentType:
-				data.index++;
-				if (properties.contentType) {
-					throw new DisconnectException('It is a Protocol Error to include the Content Type more than once.', DisconnectReasonCode.ProtocolError);
-				}
-				properties.contentType = utf8DecodedString(data);
-				break;
-			case PropertyIdentifier.responseTopic:
-				data.index++;
-				if (properties.responseTopic) {
-					throw new DisconnectException('It is a Protocol Error to include the Content Type more than once.', DisconnectReasonCode.ProtocolError);
-				}
-				properties.responseTopic = utf8DecodedString(data);
-				break;
-			case PropertyIdentifier.willDelayInterval:
-				data.index++;
-				if (properties.willDelayInterval !== undefined) {
-					throw new DisconnectException('It is a Protocol Error to include the Will Delay Interval more than once. ');
-				}
-				properties.willDelayInterval = fourByteInteger(data);
 				break;
 			case PropertyIdentifier.userProperty: {
 				data.index++;

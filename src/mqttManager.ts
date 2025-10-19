@@ -74,6 +74,7 @@ export class MqttManager {
 			clientIdentifier: '',
 		},
 	};
+	private errorDisconnect = true;
 
 	constructor(
 		private readonly client: TClient,
@@ -197,6 +198,9 @@ export class MqttManager {
 	 * @param disconnectData
 	 */
 	public async disconnectHandle(disconnectData: IDisconnectData) {
+		if (disconnectData.header.reasonCode === 0) {
+			this.errorDisconnect = false;
+		}
 		this.client.end();
 	}
 
@@ -232,7 +236,8 @@ export class MqttManager {
 	 * 方向： 服务端 -> 客户端
 	 */
 	public async publishWillMessage() {
-		if (this.connData.connectFlags.willFlag) {
+		// TODO 遗嘱消息
+		if (this.connData.connectFlags.willFlag && this.errorDisconnect) {
 			const willData: IPublishData = {
 				header: {
 					packetType: PacketType.PUBLISH,
@@ -246,12 +251,40 @@ export class MqttManager {
 				payload: this.connData.payload.willPayload || '',
 			};
 
-			if (this.connData.connectFlags.willQoS > QoSType.QoS0) {
-				willData.header.packetIdentifier = this.clientManager.newPacketIdentifier(this.client);
-			}
+			const delayInterval = this.connData.payload.willProperties?.willDelayInterval ?? 0;
 
-			this.clientManager.publish(this.clientIdentifier, willData.header.topicName, willData);
+			// this.connData.payload.willProperties.messageExpiryInterval
+			// TODO 消息过期时间处理
+			// 1. 客户端端异常断开时，当遗嘱主题已经有客户端订阅时，应立即发出遗嘱消息，发出遗嘱消息后，遗嘱主题消息应该被删除
+			// 2. 客户端端异常断开时，当遗嘱主题没有客户端订阅时，应将遗嘱消息存储起来，在遗嘱消息过期事件范围内有客户端订阅了遗嘱消息，应立即发出遗嘱消息并删除遗嘱消息
+			// 3. 客户端端正常断开时，当遗嘱主题没有客户端订阅时，应将遗嘱消息存储起来，当遗嘱消息过期事件范围内没有客户端订阅了遗嘱消息，应删除遗嘱消息
+			// 处理逻辑
+			// 1. 获取所有订阅的主题，校验是否存在遗嘱主题，如果存在，则立即发出遗嘱消息，并删除遗嘱消息
+			// 2. 获取所有订阅的主题，校验是否存在遗嘱主题，如果不存在，则将遗嘱消息存储起来，做成保留消息类型，当有客户端订阅了遗嘱消息，应立即发出遗嘱消息并删除遗嘱消息
+			// 		需要注意注意消息类型的保留消息与保留消息的区别
+
+			if (delayInterval > 0) {
+				// 使用setTimeout而不是await，避免阻塞主进程
+				setTimeout(() => {
+					if (this.clientIdentifier && !this.clientManager.clientIdentifierManager.getIdentifier(this.clientIdentifier)) {
+						this.sendWillMessage(willData);
+					}
+				}, delayInterval * 1000);
+			} else {
+				// 立即发送will message
+				this.sendWillMessage(willData);
+			}
 		}
+	}
+
+	/**
+	 * 发送will message的辅助方法
+	 */
+	private sendWillMessage(willData: IPublishData) {
+		if (this.connData.connectFlags.willQoS > QoSType.QoS0) {
+			willData.header.packetIdentifier = this.clientManager.newPacketIdentifier(this.client);
+		}
+		this.clientManager.publish(this.clientIdentifier, willData.header.topicName, willData);
 	}
 
 	/**

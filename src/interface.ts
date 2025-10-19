@@ -203,6 +203,7 @@ export interface IConnectProperties {
 }
 
 export interface IConnectWillProperties {
+	willDelayInterval?: number;
 	payloadFormatIndicator?: number;
 	messageExpiryInterval?: number;
 	contentType?: string;
