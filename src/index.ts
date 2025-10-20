@@ -318,14 +318,14 @@ class MqttEvent {
 		});
 
 		client.on('close', (hadError: boolean) => {
+			// 立即清理客户端数据，避免阻塞
+			this.clientManager.clearConnect(client);
 			// 异步处理will message，不阻塞主进程
 			setImmediate(() => {
 				mqttManager.publishWillMessage().catch((err) => {
 					console.error('Error publishing will message:', err);
 				});
 			});
-			// 立即清理客户端数据，避免阻塞
-			this.clientManager.clearConnect(client);
 			if (hadError) {
 				console.log('Connection closed due to error!');
 			} else {

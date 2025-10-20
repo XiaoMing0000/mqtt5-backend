@@ -11,6 +11,8 @@ import {
 	UnsubscribeAckReasonCode,
 	ConnectAckException,
 	PubRecException,
+	PubRelException,
+	PubRelReasonCode,
 } from './exception';
 import {
 	IConnectData,
@@ -175,10 +177,6 @@ export class MqttManager {
 			this.receiveCounter = 0;
 		}
 
-		if (this.connData.connectFlags.willFlag) {
-			// TODO 遗嘱消息处理
-		}
-
 		if (
 			this.connData.properties.authenticationMethod &&
 			!['none', 'null', 'undefined', '0', 'off', 'disable', 'no', 'n/a', 'anonymous', 'basic', 'empty', 'noauth', 'skip'].includes(this.connData.properties.authenticationMethod)
@@ -236,7 +234,6 @@ export class MqttManager {
 	 * 方向： 服务端 -> 客户端
 	 */
 	public async publishWillMessage() {
-		// TODO 遗嘱消息
 		if (this.connData.connectFlags.willFlag && this.errorDisconnect) {
 			const willData: IPublishData = {
 				header: {
@@ -449,10 +446,6 @@ export class MqttManager {
 	 * @param pubRelData
 	 */
 	public async pubRelHandle(pubRelData: IPubRelData) {
-		if (!this.clientManager.hasPacketIdentifier(this.client, pubRelData.header.packetIdentifier)) {
-			// TODO 未知的处理方式
-			// throw new
-		}
 		await this.handlePubComp(pubRelData as any);
 	}
 
@@ -526,7 +519,7 @@ export class MqttManager {
 		// 允许推送保留消息
 		if (
 			this.options.retainAvailable &&
-			(subData.options.retainHandling == 0 || (subData.options.retainHandling == 1 && !(await this.clientManager.isSubscribe(subData.payload))))
+			(subData.options.retainHandling == 0 || (subData.options.retainHandling == 1 && !(await this.clientManager.isSubscribe(this.clientIdentifier, subData.payload))))
 		) {
 			if (!isWildcardTopic(subData.payload)) {
 				const retainData = await this.clientManager.getRetainMessage(subData.payload);

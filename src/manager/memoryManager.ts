@@ -237,26 +237,12 @@ export class MemoryManager extends Manager {
 	 * @param topic
 	 * @returns
 	 */
-	public async isSubscribe(topic: string) {
-		const find = (nodes: Array<string>, index: number, route: IRoute): boolean => {
-			for (const node of [nodes[index], '+']) {
-				const currentRoute = route[node];
-				if (currentRoute) {
-					if (nodes.length == index + 1) {
-						if (currentRoute.clients.size) {
-							return true;
-						}
-						return false;
-					} else if (currentRoute.child) {
-						return find(nodes, index + 1, currentRoute.child);
-					}
-				}
-			}
-			return false;
-		};
-
-		const nodes = topic.split('/');
-		return find(nodes, 0, this.route);
+	public async isSubscribe(clientIdentifier: string, topic: string) {
+		const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);
+		if (client) {
+			return !!this.clientDataMap.get(client)?.subscription.has(topic);
+		}
+		return false;
 	}
 
 	/**

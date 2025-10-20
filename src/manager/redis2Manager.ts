@@ -101,32 +101,29 @@ class SubscribeManager {
 		return this.topicsMap.has(topic);
 	}
 
-	isSubscribe(topic: string) {
-		const topics = this.topicsMap.keys();
-		for (const key of topics) {
-			const reg = topicToRegEx(key);
-			if (topic === topic || (reg && new RegExp(key).test(topic))) {
-				return true;
-			}
-		}
-		return false;
+	isSubscribe(clientIdentifier: string, topic: string) {
+		return !!this.clientIdentifierMap.get(clientIdentifier)?.has(topic);
 	}
 
 	getSubscribe(clientIdentifier: string, topic: string) {
 		return this.clientIdentifierMap.get(clientIdentifier)?.get(topic);
 	}
 
-	clearSubscribe(clientIdentifier: string) {
-		const getClientTopicMap = this.clientIdentifierMap.get(clientIdentifier);
-		if (getClientTopicMap) {
-			getClientTopicMap.forEach((_value, key) => {
-				this.unsubscribe(clientIdentifier, key);
-			});
-		}
-	}
+	// clearSubscribe(clientIdentifier: string) {
+	// 	const getClientTopicMap = this.clientIdentifierMap.get(clientIdentifier);
+	// 	if (getClientTopicMap) {
+	// 		getClientTopicMap.forEach((_value, key) => {
+	// 			this.unsubscribe(clientIdentifier, key);
+	// 		});
+	// 	}
+	// }
 
 	getTopicClientIdentifier(topic: string) {
 		return this.topicsMap.get(topic);
+	}
+
+	getClientAllTopic(clientIdentifier: string) {
+		return this.clientIdentifierMap.get(clientIdentifier);
 	}
 
 	getClientSubscription(clientIdentifier: string, topic: string) {
@@ -267,7 +264,15 @@ export class Redis2Manager extends Manager {
 	}
 
 	async clearSubscribe(clientIdentifier: string): Promise<void> {
-		this.subscribeManager.clearSubscribe(clientIdentifier);
+		this.subscribeManager.getClientAllTopic(clientIdentifier)?.forEach(async (data, redisSubTopic) => {
+			// 清除当前进程的订阅
+			this.subscribeManager.unsubscribe(clientIdentifier, redisSubTopic);
+			// 如果当前进程没有这个订阅主题，则清除 redis 订阅主题
+			if (!this.subscribeManager.topicExists(redisSubTopic)) {
+				await this.redisSub.punsubscribe(redisSubTopic);
+				await this.redisSub.unsubscribe(redisSubTopic);
+			}
+		});
 	}
 	async subscribe(clientIdentifier: string, topic: string, data: TSubscribeData): Promise<void> {
 		const redisSubTopic = mqttTopicToRedisSubTopic(topic);
@@ -281,6 +286,7 @@ export class Redis2Manager extends Manager {
 		}
 		this.subscribeManager.subscribe(clientIdentifier, redisSubTopic, data);
 	}
+
 	async unsubscribe(clientIdentifier: string, topic: string): Promise<void> {
 		let redisSubTopic = mqttTopicToRedisSubTopic(topic);
 		this.subscribeManager.unsubscribe(clientIdentifier, redisSubTopic);
@@ -292,9 +298,9 @@ export class Redis2Manager extends Manager {
 			}
 		}
 	}
-	async isSubscribe(topic: string): Promise<boolean> {
+	async isSubscribe(clientIdentifier: string, topic: string): Promise<boolean> {
 		let redisSubTopic = mqttTopicToRedisSubTopic(topic);
-		return this.subscribeManager.isSubscribe(redisSubTopic);
+		return this.subscribeManager.isSubscribe(clientIdentifier, redisSubTopic);
 	}
 	async getSubscription(clientIdentifier: string, topic: string): Promise<TSubscribeData | undefined> {
 		let redisSubTopic = mqttTopicToRedisSubTopic(topic);

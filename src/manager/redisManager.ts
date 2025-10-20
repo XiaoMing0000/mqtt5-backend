@@ -31,15 +31,8 @@ class SubscribeManager {
 		this.clientIdentifierMap.get(clientIdentifier)?.size === 0 && this.clientIdentifierMap.delete(clientIdentifier);
 	}
 
-	isSubscribe(topic: string) {
-		const topics = this.topicsMap.keys();
-		for (const key of topics) {
-			const reg = topicToRegEx(key);
-			if (topic === topic || (reg && new RegExp(key).test(topic))) {
-				return true;
-			}
-		}
-		return false;
+	isSubscribe(clientIdentifier: string, topic: string) {
+		return !!this.topicsMap.get(topic)?.has(clientIdentifier);
 	}
 
 	getSubscribe(clientIdentifier: string, topic: string) {
@@ -72,7 +65,7 @@ class SubscribeManager {
 
 export class RedisManager extends Manager {
 	clientIdentifierManager: ClientIdentifierManager;
-	private subscribeManmager = new SubscribeManager();
+	private subscribeManager = new SubscribeManager();
 	private redis: Redis;
 	private redisSub: Redis;
 
@@ -106,7 +99,7 @@ export class RedisManager extends Manager {
 					const { pubData, topic, clientIdentifier } = JSON.parse(message) as { pubData: IPublishData; topic: string; clientIdentifier: string };
 
 					const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
-					await this.subscribeManmager.getMatchTopic(topic, async (publishIdentifier: string, matchTopic: string, subFlags: TSubscribeData) => {
+					await this.subscribeManager.getMatchTopic(topic, async (publishIdentifier: string, matchTopic: string, subFlags: TSubscribeData) => {
 						try {
 							const client = this.clientIdentifierManager.getIdentifier(publishIdentifier);
 							if (client) {
@@ -169,19 +162,19 @@ export class RedisManager extends Manager {
 	}
 
 	public async subscribe(clientIdentifier: string, topic: TTopic, data: TSubscribeData): Promise<void> {
-		this.subscribeManmager.subscribe(clientIdentifier, topic, data);
+		this.subscribeManager.subscribe(clientIdentifier, topic, data);
 	}
 
 	public async unsubscribe(clientIdentifier: string, topic: TTopic): Promise<void> {
-		this.subscribeManmager.unsubscribe(clientIdentifier, topic);
+		this.subscribeManager.unsubscribe(clientIdentifier, topic);
 	}
 
 	public async clearSubscribe(clientIdentifier: string): Promise<void> {
-		this.subscribeManmager.clearSubscribe(clientIdentifier);
+		this.subscribeManager.clearSubscribe(clientIdentifier);
 	}
 
-	public async isSubscribe(topic: TTopic): Promise<boolean> {
-		return this.subscribeManmager.isSubscribe(topic);
+	public async isSubscribe(clientIdentifier: string, topic: TTopic): Promise<boolean> {
+		return this.subscribeManager.isSubscribe(clientIdentifier, topic);
 	}
 
 	public async clearConnect(clientIdentifier: TClient | TIdentifier): Promise<void> {
@@ -196,7 +189,7 @@ export class RedisManager extends Manager {
 	}
 
 	public async getSubscription(clientIdentifier: TIdentifier, topic: string): Promise<TSubscribeData | undefined> {
-		return this.subscribeManmager.getSubscribe(clientIdentifier, topic);
+		return this.subscribeManager.getSubscribe(clientIdentifier, topic);
 	}
 
 	public publish(clientIdentifier: string, topic: TTopic, pubData: IPublishData): void {

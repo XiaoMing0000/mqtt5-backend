@@ -217,7 +217,7 @@ export abstract class Manager {
 	 * @param topic
 	 * @returns
 	 */
-	abstract isSubscribe(topic: TTopic): Promise<boolean>;
+	abstract isSubscribe(clientIdentifier: string, topic: TTopic): Promise<boolean>;
 
 	/**
 	 * 获取客户端订阅信息
