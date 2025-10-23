@@ -249,8 +249,10 @@ class MqttEvent {
 
 						switch (data.header.packetType) {
 							case PacketType.CONNECT:
-								console.log('connect', data);
-								(await this.clientEmitAsync(client, 'connect', data, client, this.clientManager)) && (await mqttManager.connectHandle(data as IConnectData));
+								if (!(await this.clientEmitAsync(client, 'connect', data, client, this.clientManager))) {
+									throw new DisconnectException('Client disconnected', DisconnectReasonCode.UnspecifiedError);
+								}
+								await mqttManager.connectHandle(data as IConnectData);
 								break;
 							case PacketType.PUBLISH: {
 								await mqttManager.publishHandle(data as IPublishData, this.clientEmitAsync);
@@ -309,7 +311,7 @@ class MqttEvent {
 		});
 
 		client.on('end', () => {
-			console.log('Client disconnected');
+			// console.log('Client disconnected');
 		});
 
 		client.on('error', (err) => {
@@ -328,8 +330,6 @@ class MqttEvent {
 			});
 			if (hadError) {
 				console.log('Connection closed due to error!');
-			} else {
-				console.log('The connection was closed properly!');
 			}
 		});
 	}
@@ -428,6 +428,7 @@ export class MqttServer extends MqttEvent {
 	constructor(clientManager: Manager, options: IMqttOptions = {}) {
 		const server = net.createServer();
 		super(server, clientManager, options);
+
 		this.server.on('connection', this.mqttConnection);
 	}
 

@@ -1,7 +1,7 @@
 import tls from 'tls';
 import fs from 'fs';
 import path from 'path';
-import { MqttServer, MqttServerTLS, MqttServerWebSocket, MqttServerWebSocketSecure } from '../src';
+import { IConnectData, IPublishData, Manager, MqttServer, MqttServerTLS, MqttServerWebSocket, MqttServerWebSocketSecure, TClient } from '../src';
 import http from 'http';
 import https from 'https';
 import { CONFIG } from './config';
@@ -44,6 +44,26 @@ const tlsServer = new MqttServerTLS(tlsOptions, clientManager);
 // process.on('unhandledRejection', (reason, promise) => {
 // 	console.error('unhandledRejection:', reason, promise);
 // });
+
+/**
+ * 监听连接事件，通过客户端连接事件进行注册客户端监听事件，实现客户端多个事件的上下文隔离
+ *
+ * mqtt 消息监听方式1: 通过 server.onConnect, server.onDisconnect, server.onPing, server.onPublish, server.onPubRel, server.onPubRec, server.onPubComp, server.onSubscribe, server.onAuth 监听
+ * mqtt 消息监听方式2: 通过 client.on 监听 'connect', 'disconnect', 'ping', 'publish', 'pubRel', 'pubRec', 'pubComp', 'subscribe', 'auth' 事件
+ * 监听方式1 优先级高于监听方式2, 如果监听方式1 或监听方式2 返回 false 或抛出异常，则客户端连接失败，并断开连接
+ */
+server.on('connection', (client) => {
+	let identifier = '';
+	client.on('connect', (data: IConnectData, client: TClient, clientManager: Manager) => {
+		identifier = data.payload.clientIdentifier;
+		console.log('connect', data);
+	});
+
+	client.on('publish', (data: IPublishData, client: TClient, clientManager: Manager) => {
+		console.log('clientId: ', identifier);
+		console.log('publish: ', data);
+	});
+});
 
 // 客户端推送事件
 server.onPublish(async (data, client, clientManager) => {
