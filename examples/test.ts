@@ -52,7 +52,7 @@ const tlsServer = new MqttServerTLS(tlsOptions, clientManager);
  * mqtt 消息监听方式2: 通过 client.on 监听 'connect', 'disconnect', 'ping', 'publish', 'pubRel', 'pubRec', 'pubComp', 'subscribe', 'auth' 事件
  * 监听方式1 优先级高于监听方式2, 如果监听方式1 或监听方式2 返回 false 或抛出异常，则客户端连接失败，并断开连接
  */
-server.on('connection', (client) => {
+server.onConnection(async (client) => {
 	let identifier = '';
 	client.on('connect', (data: IConnectData, client: TClient, clientManager: Manager) => {
 		identifier = data.payload.clientIdentifier;

@@ -56,7 +56,7 @@ const mqttDefaultOptions: IMqttOptions = {
 
 class MqttEvent {
 	options: IMqttOptions;
-	private eventListeners: Array<{ event: string; listener: (...args: any[]) => Promise<boolean> }> = [];
+	private eventListeners: Array<{ event: string; listener: (...args: any[]) => Promise<boolean | void> }> = [];
 
 	constructor(
 		readonly server: net.Server,
@@ -176,7 +176,7 @@ class MqttEvent {
 		return this;
 	}
 
-	addClientEventListener(event: string, listener: (...args: any[]) => Promise<boolean>): this {
+	addClientEventListener(event: string, listener: (...args: any[]) => Promise<boolean | void>): this {
 		this.eventListeners.push({ event, listener });
 		return this;
 	}
@@ -194,6 +194,10 @@ class MqttEvent {
 			client.on(eventListener.event, eventListener.listener);
 		});
 		return this;
+	}
+
+	onConnection(listener: (client: TClient) => Promise<void>): this {
+		return this.addClientEventListener('connection', listener);
 	}
 
 	onConnect(listener: (data: IConnectData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
@@ -235,9 +239,11 @@ class MqttEvent {
 		return this.addClientEventListener('auth', listener);
 	}
 
-	public mqttConnection(client: TClient) {
+	public async mqttConnection(client: TClient) {
 		const mqttManager = new MqttManager(client, this.clientManager, this.options);
 		this.onClientEventListener(client);
+
+		await this.clientEmitAsync(client, 'connection', client);
 		client.on('data', async (buffer) => {
 			try {
 				// 这一层捕获协议错误和未知错误
