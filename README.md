@@ -474,6 +474,22 @@ npm run dev
 npm run build:prod
 ```
 
+## 📊 Performance Testing
+
+### Benchmark Results
+
+We have conducted comprehensive performance testing on the MQTT5 backend service. The test results show excellent performance characteristics:
+
+- **Connection Handling**: 960 cps (connections per second)
+- **Subscription Processing**: 923 cps (subscriptions per second)
+- **Message Publishing**: 12,124 qps (messages per second)
+- **Maximum Connections**: 28,232 concurrent connections
+- **Resource Efficiency**: Low CPU usage (0.14% idle) and memory consumption (< 21%)
+
+📋 **[View Complete Performance Test Report](simple-test.md)**
+
+The test report includes detailed analysis, comparison with other MQTT brokers, and optimization recommendations.
+
 ## 📊 Performance Optimization
 
 ### Redis Optimization
@@ -564,6 +580,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [MQTT v5 Specification](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html)
 - [Project Homepage](https://gitlab.soraharu.com/xiaoming0000/mqtt5-backend)
 - [GitHub Repository](https://github.com/XiaoMing0000/mqtt5-backend.git)
+- [Performance Test Report](simple-test.md)
 
 ## 📞 Support
 
