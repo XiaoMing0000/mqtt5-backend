@@ -252,7 +252,9 @@ class MqttEvent {
 				for (const data of allPacketData) {
 					try {
 						await mqttManager.commonHandle(data);
-
+						if (!(data.header.packetType === PacketType.PINGREQ || data.header.packetType === PacketType.PINGRESP)) {
+							await mqttManager.updateKeepaliveTime();
+						}
 						switch (data.header.packetType) {
 							case PacketType.CONNECT:
 								if (!(await this.clientEmitAsync(client, 'connect', data, client, this.clientManager))) {

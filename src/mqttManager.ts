@@ -230,6 +230,13 @@ export class MqttManager {
 	}
 
 	/**
+	 * 服务端更新客户端的 keepalive 时间
+	 */
+	public async updateKeepaliveTime() {
+		await this.clientManager.ping(this.clientIdentifier);
+	}
+
+	/**
 	 * 服务端向客户端推送 ping 响应
 	 * 方向： 服务端 -> 客户端
 	 */
