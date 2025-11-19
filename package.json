@@ -12,6 +12,7 @@
 		"dev": "rimraf dist && tsx ./config/esbuild.dev.ts --watch",
 		"test": "supervisor -w ./dist -n error -s -- -r dotenv/config ./dist/index.js",
 		"debugger": "nodemon examples/test.ts",
+		"inspect": "tsx --inspect examples/test.ts",
 		"build:prod": "rimraf dist && tsx ./config/esbuild.prod.ts",
 		"build": "npm run clean && tsc",
 		"prettier:all": "prettier --write ./src",
@@ -49,11 +50,16 @@
 		"TLS",
 		"mqtt5",
 		"mqttv5",
+		"mqtt-server",
+		"mqtt-broker",
 		"iot",
 		"backend",
 		"mqtt5-backend",
 		"publisher",
-		"subscriber"
+		"subscriber",
+		"websocket",
+		"wss",
+		"ws"
 	],
 	"repository": {
 		"type": "git",

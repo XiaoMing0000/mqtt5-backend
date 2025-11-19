@@ -208,7 +208,6 @@ export class RedisManager extends Manager {
 	}
 
 	async getRatain() {
-		// TODO
 		return await this.redis.scan(0, 'MATCH', 'retain:*', (err, matchData) => {
 			if (err) {
 				// pass

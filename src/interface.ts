@@ -12,14 +12,19 @@ import {
 export interface IMqttOptions {
 	protocolName?: 'MQTT';
 	protocolVersion?: 5;
-	assignedClientIdentifier?: boolean; // 自动分配客户端 id
+	automaticallyAssignedClientIdentifier?: boolean; // 自动分配客户端 id
 	maximumQoS?: QoSType; // 最大 QoS
-	retainAvailable?: true; // 保留消息
+	retainAvailable?: boolean; // 保留消息
 	retainTTL?: number; // 保留消息过期时间
 	maximumPacketSize?: number; // 最大报文长度
-	topicAliasMaximum?: number; // 主题别名最大值
+	topicAliasMaximum?: number; // 主题别名最大值， 0 表示禁止客户端 publish 报文使用主题别名
 	wildcardSubscriptionAvailable?: boolean; // 通配符订阅
+	subscriptionIdentifierAvailable?: boolean; // 订阅标识符可用， false 禁止客户端订阅报文
+	sharedSubscriptionAvailable?: boolean; // 共享订阅可用， false 禁止客户端订阅报文
+	sessionExpiryInterval?: number; // 会话过期时间
 	sendReasonMessage?: boolean;
+	receiveMaximum?: number; // 接收最大值, 控制接受 PUBLISH QoS 1 和 QoS 2 报文数量
+	serverKeepAlive?: number; // 服务端保持连接时间
 }
 
 // MQTT 报文类型
@@ -88,7 +93,7 @@ export enum PropertyIdentifier {
 	correlationData = 0x09,
 	subscriptionIdentifier = 0x0b,
 	sessionExpiryInterval = 0x11,
-	clientIdentifier = 0x12,
+	assignedClientIdentifier = 0x12,
 	serverKeepAlive = 0x13,
 	authenticationMethod = 0x15,
 	authenticationData = 0x16,
@@ -112,7 +117,7 @@ export enum PropertyIdentifier {
 
 export enum ConnAckPropertyIdentifier {
 	sessionExpiryInterval = 0x11,
-	clientIdentifier = 0x12,
+	assignedClientIdentifier = 0x12,
 	serverKeepAlive = 0x13,
 	authenticationMethod = 0x15,
 	authenticationData = 0x16,
@@ -170,9 +175,9 @@ export interface IProperties {
 	receiveMaximum?: number;
 	maximumPacketSize?: number;
 	topicAliasMaximum?: number;
+	assignedClientIdentifier?: string;
 	requestResponseInformation?: boolean;
 	requestProblemInformation?: boolean;
-	clientIdentifier?: string;
 	userProperty?: { [key: string]: any };
 	authenticationMethod?: string;
 	authenticationData?: string;
@@ -214,13 +219,13 @@ export interface IConnectWillProperties {
 
 export interface IConnAckProperties {
 	sessionExpiryInterval?: number;
-	clientIdentifier?: string;
 	serverKeepAlive?: number;
 	authenticationMethod?: string;
 	authenticationData?: string;
 	responseInformation?: string;
 	serverReference?: string;
 	reasonString?: string;
+	assignedClientIdentifier?: string;
 	receiveMaximum?: number;
 	topicAliasMaximum?: number;
 	maximumQoS?: boolean;

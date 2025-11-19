@@ -125,23 +125,36 @@ export class MqttManager {
 		}
 
 		connAckData.properties = {
-			receiveMaximum: this.connData.properties.receiveMaximum,
-			retainAvailable: this.options.retainAvailable,
+			receiveMaximum: this.options.receiveMaximum,
 			maximumPacketSize: this.options.maximumPacketSize,
-			topicAliasMaximum: this.options.topicAliasMaximum,
-			wildcardSubscriptionAvailable: this.options.wildcardSubscriptionAvailable,
-			subscriptionIdentifierAvailable: true,
-			sharedSubscriptionAvailable: true,
 		};
+		if (this.options.wildcardSubscriptionAvailable === false) {
+			connAckData.properties.wildcardSubscriptionAvailable = false;
+		}
+		if (this.options.subscriptionIdentifierAvailable === false) {
+			connAckData.properties.subscriptionIdentifierAvailable = false;
+		}
+		if (this.options.topicAliasMaximum) {
+			connAckData.properties.topicAliasMaximum = this.options.topicAliasMaximum;
+		}
+		if (this.options.retainAvailable !== false) {
+			connAckData.properties.retainAvailable = true;
+		}
 		if (this.options.maximumQoS !== QoSType.QoS2) {
 			connAckData.properties.maximumQoS = !!this.options.maximumQoS;
 		}
-		if (this.options.assignedClientIdentifier && !this.connData.payload.clientIdentifier) {
-			connAckData.properties.clientIdentifier = this.clientIdentifier;
-			this.connData.payload.clientIdentifier = this.clientIdentifier;
+		if (this.options.sharedSubscriptionAvailable === false) {
+			connAckData.properties.sharedSubscriptionAvailable = false;
+		}
+		if ((this.options.serverKeepAlive ?? 0) > 0) {
+			connAckData.properties.serverKeepAlive = this.options.serverKeepAlive;
 		}
 
-		// TODO 是否支持订阅，需要在 subscribe 报文中校验
+		if (!this.clientIdentifier) {
+			// 如果客户端标识符为空，则生成客户端标识符
+			connAckData.properties.assignedClientIdentifier = connData.payload.clientIdentifier;
+			this.clientIdentifier = connData.payload.clientIdentifier;
+		}
 
 		const connPacket = encodeConnAck(connAckData);
 		this.client.write(connPacket);
@@ -155,17 +168,15 @@ export class MqttManager {
 	 * 方向： 客户端 -> 服务端
 	 * @param buffer
 	 */
-	public async connectHandle(connData: IConnectData) {
+	public async connectHandle(connData: IConnectData, emitAsync?: (client: TClient, event: string, ...args: any[]) => Promise<boolean>) {
 		this.connData = connData;
 
 		if (!connData.payload.clientIdentifier) {
-			if (this.options.assignedClientIdentifier) {
-				this.clientIdentifier = generateClientIdentifier();
+			if (this.options.automaticallyAssignedClientIdentifier !== false) {
+				connData.payload.clientIdentifier = generateClientIdentifier();
 			} else {
 				throw new ConnectAckException('Client Identifier not valid', ConnectAckReasonCode.ClientIdentifierNotValid);
 			}
-		} else {
-			this.clientIdentifier = connData.payload.clientIdentifier;
 		}
 
 		if (connData.header.protocolName !== this.options.protocolName || connData.header.protocolVersion !== this.options.protocolVersion) {
@@ -173,7 +184,7 @@ export class MqttManager {
 		}
 
 		if (this.connData.connectFlags.cleanStart) {
-			await this.clientManager.clearSubscribe(this.clientIdentifier);
+			await this.clientManager.clearSubscribe(connData.payload.clientIdentifier);
 			this.receiveCounter = 0;
 		}
 
@@ -184,7 +195,10 @@ export class MqttManager {
 			this.isAuth = true;
 		}
 
-		this.connData.properties.receiveMaximum ??= 0xffff;
+		this.connData.properties.receiveMaximum ??= this.options.receiveMaximum ?? 0xffff;
+		if (emitAsync && !(await emitAsync(this.client, 'connect', this.connData, this.client, this.clientManager))) {
+			throw new DisconnectException('Client connection failed.', DisconnectReasonCode.UnspecifiedError);
+		}
 		await this.handleConnAck(this.connData);
 
 		await this.clientManager.connect(this.clientIdentifier || connData.payload.clientIdentifier, connData, this.client);
@@ -326,13 +340,16 @@ export class MqttManager {
 				}
 			}
 
-			// TODO 最大报文长度校验
-			// if((pubData.header.remainingLength ?? 0)  > (this.connData.properties.maximumPacketSize ?? 1 << 20)) {
-			// 	throw new DisconnectException('The Server has received a Control Packet during the current Connection that contains more data than it was willing to process.', DisconnectReasonCode.PacketTooLarge);
-			// }
+			// 校验最大报文长度，当最大报文长度为0时，不进行校验
+			if (this.connData.properties.maximumPacketSize && (pubData.header.remainingLength ?? 0) > (this.connData.properties.maximumPacketSize ?? 1 << 20)) {
+				throw new DisconnectException(
+					'The Server has received a Control Packet during the current Connection that contains more data than it was willing to process.',
+					DisconnectReasonCode.PacketTooLarge,
+				);
+			}
 
 			if (pubData.properties.topicAlias) {
-				if (pubData.properties.topicAlias > (this.options.topicAliasMaximum ?? 0xffff)) {
+				if (this.options.topicAliasMaximum && pubData.properties.topicAlias > (this.options.topicAliasMaximum ?? 0xffff)) {
 					throw new DisconnectException(
 						'The Client or Server has received a PUBLISH packet containing a Topic Alias which is greater than the Maximum Topic Alias it sent in the CONNECT or CONNACK packet.',
 						DisconnectReasonCode.TopicAliasInvalid,
@@ -351,14 +368,15 @@ export class MqttManager {
 			}
 
 			// 保留消息处理
-			if (this.options.retainAvailable && pubData.header.retain) {
+			if (pubData.header.retain) {
+				if (this.options.retainAvailable === false) {
+					throw new DisconnectException('The Server does not support retained messages, and Will Retain was set to 1.', DisconnectReasonCode.RetainNotSupported);
+				}
 				if (pubData.payload) {
 					this.clientManager.addRetainMessage(pubData.header.topicName, pubData, this.options.retainTTL);
 				} else {
 					this.clientManager.deleteRetainMessage(pubData.header.topicName);
 				}
-			} else if (!this.options.retainAvailable && pubData.header.retain) {
-				throw new DisconnectException('The Server does not support retained messages, and Will Retain was set to 1.', DisconnectReasonCode.RetainNotSupported);
 			}
 		} catch (err: any) {
 			if (err instanceof PubAckException) {
@@ -482,9 +500,7 @@ export class MqttManager {
 		if (!this.clientManager.hasPacketIdentifier(this.client, pubRecData.header.packetIdentifier)) {
 			throw new DisconnectException('PUBREC contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
 		}
-		if (pubRecData.header.reasonCode >= PubRecReasonCode.UnspecifiedError) {
-			// TODO 数据错误如何处理
-		}
+
 		this.handlePubRel(pubRecData);
 	}
 
@@ -514,18 +530,20 @@ export class MqttManager {
 	}
 
 	public async subscribeHandle(subData: ISubscribeData) {
+		// 校验订阅标识符是否可用
+		if (this.options.subscriptionIdentifierAvailable === false) {
+			throw new DisconnectException('Subscription Identifiers not supported.', DisconnectReasonCode.SubscriptionIdentifiersNotSupported);
+		}
 		if (!this.options.wildcardSubscriptionAvailable && isWildcardTopic(subData.payload)) {
-			throw new SubscribeAckException('The server does not support wildcard subscriptions.', SubscribeAckReasonCode.WildcardSubscriptionsNotSupported);
+			throw new SubscribeAckException('Wildcard Subscriptions not supported.', SubscribeAckReasonCode.WildcardSubscriptionsNotSupported);
 		}
 		const topic = verifyTopic(subData.payload);
 		if (!topic) {
 			throw new SubscribeAckException('The topic filter format is incorrect and cannot be received by the server.', SubscribeAckReasonCode.TopicFilterInvalid);
 		}
 
-		// TODO 3.8.4 SUBSCRIBE Actions
-		// 允许推送保留消息
 		if (
-			this.options.retainAvailable &&
+			this.options.retainAvailable !== false &&
 			(subData.options.retainHandling == 0 || (subData.options.retainHandling == 1 && !(await this.clientManager.isSubscribe(this.clientIdentifier, subData.payload))))
 		) {
 			if (!isWildcardTopic(subData.payload)) {

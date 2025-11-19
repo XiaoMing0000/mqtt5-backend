@@ -221,6 +221,9 @@ export class EncoderProperties {
 	 */
 	push(properties: IProperties) {
 		for (const key in properties) {
+			if (properties[key as keyof IProperties] === undefined) {
+				continue;
+			}
 			this.add(PropertyIdentifier[key as keyof typeof PropertyIdentifier], properties[key as keyof IProperties] as any);
 		}
 	}
@@ -623,7 +626,7 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
 
 	subData.payload = utf8DecodedString(data);
 
-	// TODO 当前之获取一个订阅项， subscribe packet 的载荷包含一个或一列主题过滤器
+	// TODO 当前只获取一个订阅项， 实际的 subscribe packet 的载荷包含一个或一列主题过滤器
 	const subscriptionOptions = oneByteInteger(data);
 	subData.options = {
 		qos: subscriptionOptions & 0x3,

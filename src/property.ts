@@ -98,12 +98,12 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				}
 				properties.sessionExpiryInterval = fourByteInteger(data);
 				break;
-			case PropertyIdentifier.clientIdentifier:
+			case PropertyIdentifier.assignedClientIdentifier:
 				data.index++;
-				if (properties.sessionExpiryInterval != undefined) {
+				if (properties.assignedClientIdentifier != undefined) {
 					throw new DisconnectException('It is a Protocol Error to include the Assigned Client Identifier more than once.', DisconnectReasonCode.ProtocolError);
 				}
-				properties.clientIdentifier = utf8DecodedString(data);
+				properties.assignedClientIdentifier = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.serverKeepAlive:
 				data.index++;
@@ -392,12 +392,12 @@ export function parseConnAckProperties(buffer: Buffer, index?: number) {
 				}
 				properties.sessionExpiryInterval = fourByteInteger(data);
 				break;
-			case PropertyIdentifier.clientIdentifier:
+			case PropertyIdentifier.assignedClientIdentifier:
 				data.index++;
-				if (properties.sessionExpiryInterval != undefined) {
+				if (properties.assignedClientIdentifier != undefined) {
 					throw new DisconnectException('It is a Protocol Error to include the Assigned Client Identifier more than once.', DisconnectReasonCode.ProtocolError);
 				}
-				properties.clientIdentifier = utf8DecodedString(data);
+				properties.assignedClientIdentifier = utf8DecodedString(data);
 				break;
 			case PropertyIdentifier.serverKeepAlive:
 				data.index++;
@@ -1128,8 +1128,8 @@ export function encodeProperties<K extends keyof PropertyDataMap>(id: K, data: P
 			return [PropertyIdentifier.subscriptionIdentifier, ...stringToVariableByteInteger(data as string)];
 		case PropertyIdentifier.sessionExpiryInterval:
 			return [PropertyIdentifier.sessionExpiryInterval, ...integerToFourUint8(data as number)];
-		case PropertyIdentifier.clientIdentifier:
-			return [PropertyIdentifier.clientIdentifier, ...encodeUTF8String(data as string)];
+		case PropertyIdentifier.assignedClientIdentifier:
+			return [PropertyIdentifier.assignedClientIdentifier, ...encodeUTF8String(data as string)];
 		case PropertyIdentifier.serverKeepAlive:
 			return [PropertyIdentifier.serverKeepAlive, ...integerToTwoUint8(data as number)];
 		case PropertyIdentifier.authenticationMethod:

@@ -45,13 +45,18 @@ import { MqttManager } from './mqttManager';
 const mqttDefaultOptions: IMqttOptions = {
 	protocolName: 'MQTT',
 	protocolVersion: 5,
-	assignedClientIdentifier: false,
+	automaticallyAssignedClientIdentifier: true,
 	maximumQoS: QoSType.QoS2,
 	retainAvailable: true,
 	retainTTL: 30 * 60,
 	maximumPacketSize: 1 << 20,
 	topicAliasMaximum: 0xffff,
 	wildcardSubscriptionAvailable: true,
+	subscriptionIdentifierAvailable: true,
+	sharedSubscriptionAvailable: false,
+	sessionExpiryInterval: 0,
+	receiveMaximum: 0xffff,
+	serverKeepAlive: 0,
 };
 
 class MqttEvent {
@@ -200,42 +205,42 @@ class MqttEvent {
 		return this.addClientEventListener('connection', listener);
 	}
 
-	onConnect(listener: (data: IConnectData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
+	onConnect(listener: (data: IConnectData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('connect', listener);
 	}
-	onDisconnect(listener: (data: IDisconnectData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
+	onDisconnect(listener: (data: IDisconnectData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('disconnect', listener);
 	}
 
-	onPing(listener: (client: TClient, clientManager: Manager) => Promise<boolean>): this {
+	onPing(listener: (client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('ping', listener);
 	}
 
-	onPublish(listener: (data: IPublishData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
+	onPublish(listener: (data: IPublishData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('publish', listener);
 	}
 
-	onPubRel(listener: (data: IPubRelData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
+	onPubRel(listener: (data: IPubRelData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('pubRel', listener);
 	}
 
-	onPubRec(listener: (data: IPubRecData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
+	onPubRec(listener: (data: IPubRecData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('pubRec', listener);
 	}
 
-	onPubComp(listener: (data: IPubRecData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
+	onPubComp(listener: (data: IPubRecData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('pubComp', listener);
 	}
 
-	onSubscribe(listener: (data: ISubscribeData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
+	onSubscribe(listener: (data: ISubscribeData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('subscribe', listener);
 	}
 
-	onUnsubscribe(listener: (data: IUnsubscribeData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
+	onUnsubscribe(listener: (data: IUnsubscribeData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('unsubscribe', listener);
 	}
 
-	onAuth(listener: (data: IAuthData, client: TClient, clientManager: Manager) => Promise<boolean>): this {
+	onAuth(listener: (data: IAuthData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('auth', listener);
 	}
 
@@ -257,10 +262,7 @@ class MqttEvent {
 						}
 						switch (data.header.packetType) {
 							case PacketType.CONNECT:
-								if (!(await this.clientEmitAsync(client, 'connect', data, client, this.clientManager))) {
-									throw new DisconnectException('Client disconnected', DisconnectReasonCode.UnspecifiedError);
-								}
-								await mqttManager.connectHandle(data as IConnectData);
+								await mqttManager.connectHandle(data as IConnectData, this.clientEmitAsync);
 								break;
 							case PacketType.PUBLISH: {
 								await mqttManager.publishHandle(data as IPublishData, this.clientEmitAsync);
@@ -433,7 +435,10 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
 }
 
 export class MqttServer extends MqttEvent {
-	constructor(clientManager: Manager, options: IMqttOptions = {}) {
+	constructor(
+		readonly clientManager: Manager,
+		options: IMqttOptions = {},
+	) {
 		const server = net.createServer();
 		super(server, clientManager, options);
 

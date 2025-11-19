@@ -10,11 +10,11 @@ interface IRoute {
 }
 
 export class MemoryManager extends Manager {
-	clientIdentifierManager: ClientIdentifierManager;
-	private retainMessage = new Map<string, { data: IPublishData; TTL: number }>();
-	private connectDataMap = new Map<TClient, { data: IConnectData; expire: number }>();
+	readonly clientIdentifierManager: ClientIdentifierManager;
+	private readonly retainMessage = new Map<string, { data: IPublishData; TTL: number }>();
+	private readonly connectDataMap = new Map<TClient, { data: IConnectData; expire: number }>();
 
-	private clientDataMap = new Map<
+	private readonly clientDataMap = new Map<
 		TClient,
 		{
 			subscription: TClientSubscription;
