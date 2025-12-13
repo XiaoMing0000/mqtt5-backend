@@ -1,5 +1,8 @@
 export enum ConnectAckReasonCode {
 	Success = 0x00,
+	ConnectionRefused = 0x01,
+	ConnectIdentifierRejected = 0x02,
+	ServerUnavailable = 0x03,
 	UnspecifiedError = 0x80,
 	MalformedPacket = 0x81,
 	ProtocolError = 0x82,

@@ -10,8 +10,8 @@ import {
 } from './exception';
 
 export interface IMqttOptions {
-	protocolName?: 'MQTT';
-	protocolVersion?: 5;
+	protocolName?: 'MQTT' | 'MQIsdp';
+	protocolVersions?: Array<number>;
 	automaticallyAssignedClientIdentifier?: boolean; // 自动分配客户端 id
 	maximumQoS?: QoSType; // 最大 QoS
 	retainAvailable?: boolean; // 保留消息
@@ -332,12 +332,18 @@ export interface IPingData {
 	};
 }
 
+export enum ProtocolVersion {
+	V3_1 = 3,
+	V3_1_1 = 4,
+	V5 = 5,
+}
+
 export interface IConnectData {
 	header: {
 		packetType: PacketType;
 		packetFlags: number;
 		remainingLength?: number;
-		protocolName: string;
+		protocolName: 'MQTT' | 'MQIsdp' | string;
 		protocolVersion: number;
 		keepAlive: number;
 	};

@@ -3,11 +3,12 @@
 [![npm version](https://badge.fury.io/js/%40elfdream%2Fmqtt5-backend.svg)](https://badge.fury.io/js/%40elfdream%2Fmqtt5-backend)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A Node.js-based MQTT v5 protocol cloud service backend implementation with support for multiple transport protocols and storage backends.
+A Node.js-based MQTT protocol cloud service backend implementation with support for MQTT v3.1, v3.1.1, and v5.0 protocols, supporting multiple transport protocols and storage backends.
 
 ## ✨ Features
 
-- 🚀 **Complete MQTT v5 Protocol Support** - Implements all MQTT v5 specification features
+- 🚀 **Complete MQTT Protocol Support** - Supports MQTT v3.1, v3.1.1, and v5.0 protocols
+- 🔄 **Backward Compatible** - Default support for MQTT v3.1, v3.1.1, and v5.0 client connections
 - 🔒 **Multiple Transport Protocols** - Supports TCP, TLS/SSL, WebSocket, WSS
 - 💾 **Multiple Storage Backends** - Memory storage, Redis single-instance, Redis distributed
 - 📡 **Distributed Architecture** - Supports horizontal scaling and cluster deployment
@@ -82,6 +83,26 @@ const server = new MqttServerWebSocket(clientManager);
 
 server.listen(8083, () => {
 	console.log('MQTT WebSocket server listening on port 8083');
+});
+```
+
+### WebSocket Secure (WSS) Server
+
+```typescript
+import { MqttServerWebSocketSecure, MemoryManager } from '@elfdream/mqtt5-backend';
+import fs from 'fs';
+
+const clientManager = new MemoryManager();
+
+const httpsOptions = {
+	cert: fs.readFileSync('cert.pem'),
+	key: fs.readFileSync('key.pem'),
+};
+
+const server = new MqttServerWebSocketSecure(httpsOptions, clientManager);
+
+server.listen(8084, () => {
+	console.log('MQTT WebSocket Secure server listening on port 8084');
 });
 ```
 
@@ -177,8 +198,8 @@ server.onAuth(listener: (data: IAuthData, client: TClient, clientManager: Manage
 
 **Event Listener Notes**:
 
-- All event listeners return `Promise<boolean>`
-- Return `true` to allow the operation to continue
+- All event listeners return `Promise<boolean | void>`
+- Return `true` or `void` (no return value) to allow the operation to continue
 - Return `false` or throw an exception to reject the operation
 - Can throw appropriate exceptions to return error codes and error messages
 
@@ -202,17 +223,119 @@ server.getConnections(callback: (error: Error | null, count: number) => void)
 
 ```typescript
 interface IMqttOptions {
-	protocolName?: string; // Protocol name, default 'MQTT'
-	protocolVersion?: number; // Protocol version, default 5
-	assignedClientIdentifier?: boolean; // Whether to assign client ID
-	maximumQoS?: QoSType; // Maximum QoS level
-	retainAvailable?: boolean; // Whether to support retained messages
-	retainTTL?: number; // Retained message TTL (seconds)
-	maximumPacketSize?: number; // Maximum packet size
-	topicAliasMaximum?: number; // Maximum topic alias
-	wildcardSubscriptionAvailable?: boolean; // Whether to support wildcard subscriptions
-	sendReasonMessage?: boolean; // Whether to send reason messages
+	protocolName?: 'MQTT' | 'MQIsdp'; // Protocol name, default 'MQTT'
+	// MQTT v3.1 uses 'MQIsdp', MQTT v3.1.1 and v5.0 use 'MQTT'
+	protocolVersions?: Array<number>; // Protocol versions, default [3, 4, 5]
+	// 3 = MQTT v3.1, 4 = MQTT v3.1.1, 5 = MQTT v5.0
+	// Can be set to [3, 4] to support only v3.1 and v3.1.1, or [5] to support only v5.0
+	automaticallyAssignedClientIdentifier?: boolean; // Whether to automatically assign client ID, default true
+	maximumQoS?: QoSType; // Maximum QoS level, default QoS2
+	retainAvailable?: boolean; // Whether to support retained messages, default true
+	retainTTL?: number; // Retained message TTL (seconds), default 1800
+	maximumPacketSize?: number; // Maximum packet size, default 1MB
+	topicAliasMaximum?: number; // Maximum topic alias, default 65535 (MQTT v5.0 only)
+	wildcardSubscriptionAvailable?: boolean; // Whether to support wildcard subscriptions, default true
+	subscriptionIdentifierAvailable?: boolean; // Subscription identifier available, default true (MQTT v5.0 only)
+	sharedSubscriptionAvailable?: boolean; // Shared subscription available, default false (MQTT v5.0 only)
+	sessionExpiryInterval?: number; // Session expiry interval (seconds), default 0 (MQTT v5.0 only)
+	sendReasonMessage?: boolean; // Whether to send reason messages (MQTT v5.0 only)
+	receiveMaximum?: number; // Receive maximum, controls the number of PUBLISH QoS 1 and QoS 2 packets accepted, default 65535 (MQTT v5.0 only)
+	serverKeepAlive?: number; // Server keep alive time (seconds), default 0 (MQTT v5.0 only)
 }
+```
+
+## 📡 Protocol Version Compatibility
+
+### Supported Protocol Versions
+
+This library supports the following MQTT protocol versions by default:
+
+- **MQTT v3.1** (Protocol version: 3) - Uses protocol name `MQIsdp`
+- **MQTT v3.1.1** (Protocol version: 4) - Uses protocol name `MQTT`
+- **MQTT v5.0** (Protocol version: 5) - Uses protocol name `MQTT`
+
+### Version Differences
+
+#### MQTT v3.1 and v3.1.1
+
+- No User Properties support
+- No Reason String support
+- No Topic Alias support
+- No Subscription Identifier support
+- No Session Expiry Interval support
+- No Shared Subscription support
+- No Enhanced Authentication support
+
+#### MQTT v5.0 Features
+
+MQTT v5.0 adds the following features on top of v3.1.1:
+
+- ✅ User Properties
+- ✅ Reason String
+- ✅ Topic Alias
+- ✅ Subscription Identifier
+- ✅ Session Expiry Interval
+- ✅ Shared Subscription
+- ✅ Enhanced Authentication
+- ✅ Server Keep Alive
+- ✅ Request/Response Information
+
+### Configuring Protocol Version Support
+
+#### Default Configuration (All Versions)
+
+```typescript
+const server = new MqttServer(clientManager);
+// Default supports [3, 4, 5], i.e., MQTT v3.1, v3.1.1, and v5.0
+```
+
+#### Support Only MQTT v3.1 and v3.1.1
+
+```typescript
+const server = new MqttServer(clientManager, {
+	protocolVersions: [3, 4], // Support only v3.1 and v3.1.1
+});
+```
+
+#### Support Only MQTT v5.0
+
+```typescript
+const server = new MqttServer(clientManager, {
+	protocolVersions: [5], // Support only v5.0
+});
+```
+
+### Protocol Name Notes
+
+- **MQTT v3.1**: Uses protocol name `MQIsdp`
+- **MQTT v3.1.1**: Uses protocol name `MQTT`
+- **MQTT v5.0**: Uses protocol name `MQTT`
+
+In configuration, the `protocolName` option is mainly used for compatibility checking, with a default value of `'MQTT'`. The server automatically identifies the protocol version based on the protocol name and version number sent by the client during connection.
+
+### Mixed Version Deployment
+
+The server can handle client connections from different protocol versions simultaneously. After each client connects, the server uses the corresponding packet format and features based on its protocol version:
+
+```typescript
+// Support v3.1, v3.1.1, and v5.0 clients simultaneously
+const server = new MqttServer(clientManager, {
+	protocolVersions: [3, 4, 5], // Default value
+});
+
+server.onConnect(async (data, client, clientManager) => {
+	const version = data.header.protocolVersion;
+	if (version === 3) {
+		console.log('MQTT v3.1 client connected');
+	} else if (version === 4) {
+		console.log('MQTT v3.1.1 client connected');
+	} else if (version === 5) {
+		console.log('MQTT v5.0 client connected');
+		// Can use v5.0-specific features
+		console.log('Session expiry interval:', data.properties.sessionExpiryInterval);
+	}
+	return true;
+});
 ```
 
 ## 🔧 Advanced Usage

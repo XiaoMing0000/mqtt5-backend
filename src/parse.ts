@@ -28,6 +28,7 @@ import {
 	PacketTypeData,
 	PropertyDataMap,
 	PropertyIdentifier,
+	ProtocolVersion,
 	QoSType,
 	TPropertyIdentifier,
 } from './interface';
@@ -248,14 +249,14 @@ export class EncoderProperties {
  * @param allBuffer
  * @returns
  */
-export function parseAllPacket(allBuffer: Buffer): Array<PacketTypeData> {
+export function parseAllPacket(allBuffer: Buffer, protocolVersion: ProtocolVersion): Array<PacketTypeData> {
 	const allPacket: Array<PacketTypeData> = [];
 	for (let i = 0; i < allBuffer.length; i) {
 		const remainingLength = variableByteInteger({ buffer: allBuffer, index: i + 1 });
 		const offset = variableByteIntegerLength(remainingLength);
 		const buffer = allBuffer.slice(i, i + remainingLength + 1 + offset);
 		i += remainingLength + 1 + offset;
-		allPacket.push(parsePacket(buffer));
+		allPacket.push(parsePacket(buffer, protocolVersion));
 	}
 	return allPacket;
 }
@@ -267,7 +268,7 @@ export function parseAllPacket(allBuffer: Buffer): Array<PacketTypeData> {
  * @param buffer
  * @returns
  */
-export function parsePacket(buffer: Buffer): PacketTypeData {
+export function parsePacket(buffer: Buffer, protocolVersion: ProtocolVersion): PacketTypeData {
 	const packetType = (buffer[0] >> 4) as PacketType;
 
 	switch (packetType) {
@@ -291,7 +292,7 @@ export function parsePacket(buffer: Buffer): PacketTypeData {
 				properties: {},
 				payload: '',
 			};
-			parsePublish(buffer, pubData);
+			parsePublish(buffer, pubData, protocolVersion);
 			return pubData;
 		}
 		case PacketType.PUBACK: {
@@ -305,7 +306,7 @@ export function parsePacket(buffer: Buffer): PacketTypeData {
 				},
 				properties: {},
 			};
-			parsePubAck(buffer, pubAckData);
+			parsePubAck(buffer, pubAckData, protocolVersion);
 			return pubAckData;
 		}
 		case PacketType.PUBREC: {
@@ -319,7 +320,7 @@ export function parsePacket(buffer: Buffer): PacketTypeData {
 				},
 				properties: {},
 			};
-			parsePubRec(buffer, pubRecData);
+			parsePubRec(buffer, pubRecData, protocolVersion);
 			return pubRecData;
 		}
 		case PacketType.PUBREL: {
@@ -333,7 +334,7 @@ export function parsePacket(buffer: Buffer): PacketTypeData {
 				},
 				properties: {},
 			};
-			parsePubRel(buffer, pubRelData);
+			parsePubRel(buffer, pubRelData, protocolVersion);
 			return pubRelData;
 		}
 		case PacketType.PUBCOMP: {
@@ -347,7 +348,7 @@ export function parsePacket(buffer: Buffer): PacketTypeData {
 				},
 				properties: {},
 			};
-			parsePubRec(buffer, pubCompData);
+			parsePubRec(buffer, pubCompData, protocolVersion);
 			return pubCompData;
 		}
 		case PacketType.SUBSCRIBE: {
@@ -368,7 +369,7 @@ export function parsePacket(buffer: Buffer): PacketTypeData {
 					retain: 0,
 				},
 			};
-			parseSubscribe(buffer, subData);
+			parseSubscribe(buffer, subData, protocolVersion);
 			return subData;
 		}
 		case PacketType.UNSUBSCRIBE: {
@@ -382,7 +383,7 @@ export function parsePacket(buffer: Buffer): PacketTypeData {
 				properties: {},
 				payload: '',
 			};
-			parseUnsubscribe(buffer, unsubscribeData);
+			parseUnsubscribe(buffer, unsubscribeData, protocolVersion);
 			return unsubscribeData;
 		}
 		case PacketType.DISCONNECT: {
@@ -395,7 +396,7 @@ export function parsePacket(buffer: Buffer): PacketTypeData {
 				},
 				properties: {},
 			};
-			parseDisconnect(buffer, disconnectData);
+			parseDisconnect(buffer, disconnectData, protocolVersion);
 			return disconnectData;
 		}
 		case PacketType.AUTH: {
@@ -408,7 +409,7 @@ export function parsePacket(buffer: Buffer): PacketTypeData {
 				},
 				properties: {},
 			};
-			parseAuth(buffer, authData);
+			parseAuth(buffer, authData, protocolVersion);
 			return authData;
 		}
 		default:
@@ -428,7 +429,7 @@ export function parseConnect(buffer: Buffer): IConnectData {
 			packetFlags: 0,
 			remainingLength: 0,
 			protocolName: '',
-			protocolVersion: 0,
+			protocolVersion: ProtocolVersion.V5,
 			keepAlive: 0,
 		},
 		connectFlags: {} as any,
@@ -461,10 +462,12 @@ export function parseConnect(buffer: Buffer): IConnectData {
 	}
 	connData.header.keepAlive = twoByteInteger(data);
 
-	// 获取属性
-	const propertyLength = variableByteInteger(data);
-	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
-	connData.properties = parseConnectProperties(propertiesBuffer);
+	if (connData.header.protocolVersion === ProtocolVersion.V5) {
+		// 获取属性
+		const propertyLength = variableByteInteger(data);
+		const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+		connData.properties = parseConnectProperties(propertiesBuffer);
+	}
 
 	// Connect Payload
 	// 客户端 id
@@ -496,7 +499,7 @@ export function parseConnect(buffer: Buffer): IConnectData {
  * @param pubData
  * @returns
  */
-export function parsePublish(buffer: Buffer, pubData: IPublishData) {
+export function parsePublish(buffer: Buffer, pubData: IPublishData, protocolVersion: ProtocolVersion) {
 	pubData.header.packetType = (buffer[0] >> 4) as PacketType;
 	pubData.header.dupFlag = !!(buffer[0] & 0x8);
 	pubData.header.qosLevel = (buffer[0] >> 1) & 0x3;
@@ -515,10 +518,12 @@ export function parsePublish(buffer: Buffer, pubData: IPublishData) {
 		pubData.header.packetIdentifier = twoByteInteger(data);
 	}
 
-	// 获取属性
-	const propertyLength = variableByteInteger(data);
-	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
-	pubData.properties = parsePublishProperties(propertiesBuffer);
+	if (protocolVersion === ProtocolVersion.V5) {
+		// 获取属性
+		const propertyLength = variableByteInteger(data);
+		const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+		pubData.properties = parsePublishProperties(propertiesBuffer);
+	}
 	pubData.payload = data.buffer.slice(data.index).toString();
 
 	return pubData;
@@ -529,7 +534,7 @@ export function parsePublish(buffer: Buffer, pubData: IPublishData) {
  * @param buffer
  * @param pubAckData
  */
-export function parsePubAck(buffer: Buffer, pubAckData: IPubAckData) {
+export function parsePubAck(buffer: Buffer, pubAckData: IPubAckData, protocolVersion: ProtocolVersion) {
 	pubAckData.header.packetType = (buffer[0] >> 4) as PacketType;
 	pubAckData.header.received = buffer[0] & 0xf;
 
@@ -539,9 +544,11 @@ export function parsePubAck(buffer: Buffer, pubAckData: IPubAckData) {
 	pubAckData.header.packetIdentifier = twoByteInteger(data);
 	pubAckData.header.reasonCode = oneByteInteger(data) ?? PubAckReasonCode.Success;
 	// 获取属性
-	const propertyLength = variableByteInteger(data);
-	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
-	pubAckData.properties = parsePubAckProperties(propertiesBuffer);
+	if (protocolVersion === ProtocolVersion.V5) {
+		const propertyLength = variableByteInteger(data);
+		const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+		pubAckData.properties = parsePubAckProperties(propertiesBuffer);
+	}
 }
 
 /**
@@ -549,7 +556,7 @@ export function parsePubAck(buffer: Buffer, pubAckData: IPubAckData) {
  * @param buffer
  * @param pubRelData
  */
-export function parsePubRel(buffer: Buffer, pubRelData: IPubRelData) {
+export function parsePubRel(buffer: Buffer, pubRelData: IPubRelData, protocolVersion: ProtocolVersion) {
 	pubRelData.header.packetType = (buffer[0] >> 4) as PacketType;
 	pubRelData.header.received = buffer[0] & 0xf;
 
@@ -558,10 +565,12 @@ export function parsePubRel(buffer: Buffer, pubRelData: IPubRelData) {
 	pubRelData.header.remainingLength = variableByteInteger(data);
 	pubRelData.header.packetIdentifier = twoByteInteger(data);
 	pubRelData.header.reasonCode = oneByteInteger(data) ?? PubRelReasonCode.Success;
-	// 获取属性
-	const propertyLength = variableByteInteger(data);
-	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
-	pubRelData.properties = parsePubRelProperties(propertiesBuffer);
+	if (protocolVersion === ProtocolVersion.V5) {
+		// 获取属性
+		const propertyLength = variableByteInteger(data);
+		const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+		pubRelData.properties = parsePubRelProperties(propertiesBuffer);
+	}
 }
 
 /**
@@ -569,7 +578,7 @@ export function parsePubRel(buffer: Buffer, pubRelData: IPubRelData) {
  * @param buffer
  * @param pubRecData
  */
-export function parsePubRec(buffer: Buffer, pubRecData: IPubRecData) {
+export function parsePubRec(buffer: Buffer, pubRecData: IPubRecData, protocolVersion: ProtocolVersion) {
 	pubRecData.header.packetType = (buffer[0] >> 4) as PacketType;
 	pubRecData.header.received = buffer[0] & 0xf;
 
@@ -578,10 +587,13 @@ export function parsePubRec(buffer: Buffer, pubRecData: IPubRecData) {
 	pubRecData.header.remainingLength = variableByteInteger(data);
 	pubRecData.header.packetIdentifier = twoByteInteger(data);
 	pubRecData.header.reasonCode = oneByteInteger(data) ?? PubRelReasonCode.Success;
-	// 获取属性
-	const propertyLength = variableByteInteger(data);
-	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
-	pubRecData.properties = parsePubRecProperties(propertiesBuffer);
+
+	if (protocolVersion === ProtocolVersion.V5) {
+		// 获取属性
+		const propertyLength = variableByteInteger(data);
+		const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+		pubRecData.properties = parsePubRecProperties(propertiesBuffer);
+	}
 }
 
 export function parsePubComp(buffer: Buffer, pubCompData: IPubRecData) {
@@ -604,7 +616,7 @@ export function parsePubComp(buffer: Buffer, pubCompData: IPubRecData) {
  * @param buffer
  * @param subData
  */
-export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
+export function parseSubscribe(buffer: Buffer, subData: ISubscribeData, protocolVersion: ProtocolVersion) {
 	subData.header.packetType = (buffer[0] >> 4) as PacketType;
 	subData.header.received = buffer[0] & 0xf;
 
@@ -619,10 +631,12 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
 	// 获取数据长度
 	subData.header.remainingLength = variableByteInteger(data);
 	subData.header.packetIdentifier = twoByteInteger(data);
-	// 获取属性
-	const propertyLength = variableByteInteger(data);
-	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
-	subData.properties = parseSubscribeProperties(propertiesBuffer);
+	if (protocolVersion === ProtocolVersion.V5) {
+		// 获取属性
+		const propertyLength = variableByteInteger(data);
+		const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+		subData.properties = parseSubscribeProperties(propertiesBuffer);
+	}
 
 	subData.payload = utf8DecodedString(data);
 
@@ -653,7 +667,7 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData) {
  * @param buffer
  * @param unsubscribeData
  */
-export function parseUnsubscribe(buffer: Buffer, unsubscribeData: IUnsubscribeData) {
+export function parseUnsubscribe(buffer: Buffer, unsubscribeData: IUnsubscribeData, protocolVersion: ProtocolVersion) {
 	unsubscribeData.header.packetType = (buffer[0] >> 4) as PacketType;
 	unsubscribeData.header.received = buffer[0] & 0xf;
 
@@ -665,10 +679,12 @@ export function parseUnsubscribe(buffer: Buffer, unsubscribeData: IUnsubscribeDa
 	// 获取数据长度
 	unsubscribeData.header.remainingLength = variableByteInteger(data);
 	unsubscribeData.header.packetIdentifier = twoByteInteger(data);
-	// 获取属性
-	const propertyLength = variableByteInteger(data);
-	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
-	unsubscribeData.properties = parseSubscribeProperties(propertiesBuffer);
+	if (protocolVersion === ProtocolVersion.V5) {
+		// 获取属性
+		const propertyLength = variableByteInteger(data);
+		const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+		unsubscribeData.properties = parseSubscribeProperties(propertiesBuffer);
+	}
 
 	unsubscribeData.payload = utf8DecodedString(data);
 }
@@ -678,7 +694,7 @@ export function parseUnsubscribe(buffer: Buffer, unsubscribeData: IUnsubscribeDa
  * @param buffer
  * @param disconnectData
  */
-export function parseDisconnect(buffer: Buffer, disconnectData: IDisconnectData) {
+export function parseDisconnect(buffer: Buffer, disconnectData: IDisconnectData, protocolVersion: ProtocolVersion) {
 	disconnectData.header.packetType = buffer[0] >> 4;
 	disconnectData.header.received = buffer[0] & 0xf;
 
@@ -697,7 +713,7 @@ export function parseDisconnect(buffer: Buffer, disconnectData: IDisconnectData)
  * @param buffer
  * @param authData
  */
-export function parseAuth(buffer: Buffer, authData: IAuthData) {
+export function parseAuth(buffer: Buffer, authData: IAuthData, protocolVersion: ProtocolVersion) {
 	authData.header.packetType = buffer[0] >> 4;
 	authData.header.received = buffer[0] & 0xf;
 
@@ -705,10 +721,12 @@ export function parseAuth(buffer: Buffer, authData: IAuthData) {
 	authData.header.remainingLength = variableByteInteger(data);
 	authData.header.reasonCode = oneByteInteger(data);
 
-	// 获取属性
-	const propertyLength = variableByteInteger(data);
-	const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
-	authData.properties = parseAuthProperties(propertiesBuffer);
+	if (protocolVersion === ProtocolVersion.V5) {
+		// 获取属性
+		const propertyLength = variableByteInteger(data);
+		const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+		authData.properties = parseAuthProperties(propertiesBuffer);
+	}
 }
 
 /**
@@ -716,15 +734,15 @@ export function parseAuth(buffer: Buffer, authData: IAuthData) {
  * @param connAckData
  * @returns
  */
-export function encodeConnAck(connAckData: IConnAckData) {
+export function encodeConnAck(connAckData: IConnAckData, protocolVersion: ProtocolVersion) {
 	const properties = new EncoderProperties();
 	properties.push(connAckData.properties);
 	return Buffer.from([
 		(connAckData.header.packetType << 4) | connAckData.header.reserved,
-		...encodeVariableByteInteger(properties.length + 2),
+		...encodeVariableByteInteger(2 + (protocolVersion === ProtocolVersion.V5 ? properties.length : 0)),
 		connAckData.acknowledgeFlags.SessionPresent ? 1 : 0,
 		connAckData.header.reasonCode,
-		...properties.buffer,
+		...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
 	]);
 }
 
@@ -743,7 +761,7 @@ export function encodeDisconnect(disconnectData: IDisconnectData) {
 	return Buffer.from([fixedHeader, ...encodeVariableByteInteger(remainingBuffer.length), ...remainingBuffer]);
 }
 
-export function encodePublishPacket(pubData: IPublishData) {
+export function encodePublishPacket(pubData: IPublishData, protocolVersion: ProtocolVersion) {
 	const fixedHeader = (pubData.header.packetType << 4) | ((pubData.header.dupFlag ? 1 : 0) << 3) | (pubData.header.qosLevel << 1) | (pubData.header.retain ? 1 : 0);
 
 	const topicNameBuffer = encodeUTF8String(pubData.header.topicName);
@@ -756,7 +774,7 @@ export function encodePublishPacket(pubData: IPublishData) {
 	const properties = new EncoderProperties();
 	properties.push(pubData.properties);
 
-	const remainingBuffer = [...topicNameBuffer, ...packetIdentifierBuffer, ...properties.buffer, ...Buffer.from(pubData.payload)];
+	const remainingBuffer = [...topicNameBuffer, ...packetIdentifierBuffer, ...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : []), ...Buffer.from(pubData.payload)];
 	const publishedPacket = Buffer.from([fixedHeader, ...encodeVariableByteInteger(remainingBuffer.length), ...remainingBuffer]);
 
 	return publishedPacket;
@@ -767,15 +785,15 @@ export function encodePublishPacket(pubData: IPublishData) {
  * @param pubAckData
  * @returns
  */
-export function encodePubControlPacket(data: IPubAckData | IPubRecData | IPubCompData) {
+export function encodePubControlPacket(data: IPubAckData | IPubRecData | IPubCompData, protocolVersion: ProtocolVersion) {
 	const properties = new EncoderProperties();
 	properties.push(data.properties);
 	return Buffer.from([
 		(data.header.packetType << 4) | data.header.received,
-		...encodeVariableByteInteger(3 + properties.length),
+		...encodeVariableByteInteger(3 + (protocolVersion === ProtocolVersion.V5 ? properties.length : 0)),
 		...integerToTwoUint8(data.header.packetIdentifier),
 		0x00,
-		...properties.buffer,
+		...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
 	]);
 }
 
@@ -784,13 +802,13 @@ export function encodePubControlPacket(data: IPubAckData | IPubRecData | IPubCom
  * @param subAckData
  * @returns
  */
-export function encodeSubAckPacket(subAckData: ISubAckData) {
+export function encodeSubAckPacket(subAckData: ISubAckData, protocolVersion: ProtocolVersion) {
 	const properties = new EncoderProperties();
 	return Buffer.from([
 		PacketType.SUBACK << 4,
-		...encodeVariableByteInteger(properties.length + 3),
+		...encodeVariableByteInteger(3 + (protocolVersion === ProtocolVersion.V5 ? properties.length : 0)),
 		...integerToTwoUint8(subAckData.header.packetIdentifier),
-		...properties.buffer,
+		...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
 		subAckData.reasonCode,
 	]);
 }

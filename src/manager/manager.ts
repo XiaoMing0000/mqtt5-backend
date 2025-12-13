@@ -1,5 +1,5 @@
 import net from 'net';
-import { IConnectData, IPublishData, QoSType } from '../interface';
+import { IConnectData, IPublishData, ProtocolVersion, QoSType } from '../interface';
 
 export type TTopic = string;
 export type TClient = net.Socket;
@@ -15,6 +15,7 @@ export type TSubscribeData = {
 	subscriptionIdentifier?: number;
 	noLocal: boolean;
 	retainAsPublished: boolean;
+	protocolVersion: ProtocolVersion;
 };
 export type TClientSubscription = Map<TTopic, TSubscribeData>;
 /**

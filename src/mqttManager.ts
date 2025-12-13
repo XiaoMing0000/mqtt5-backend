@@ -32,6 +32,7 @@ import {
 	IUnsubscribeData,
 	IAuthData,
 	IPubCompData,
+	ProtocolVersion,
 } from './interface';
 import { TClient, Manager } from './manager/manager';
 import {
@@ -156,7 +157,7 @@ export class MqttManager {
 			this.clientIdentifier = connData.payload.clientIdentifier;
 		}
 
-		const connPacket = encodeConnAck(connAckData);
+		const connPacket = encodeConnAck(connAckData, this.connData.header.protocolVersion);
 		this.client.write(connPacket);
 		if (reasonCode === ConnectAckReasonCode.UnsupportedProtocolVersion) {
 			this.client.end();
@@ -179,7 +180,7 @@ export class MqttManager {
 			}
 		}
 
-		if (connData.header.protocolName !== this.options.protocolName || connData.header.protocolVersion !== this.options.protocolVersion) {
+		if (!this.options.protocolVersions?.includes(connData.header.protocolVersion)) {
 			throw new DisconnectException('Unsupported Protocol Version.', DisconnectReasonCode.ProtocolError);
 		}
 
@@ -433,7 +434,7 @@ export class MqttManager {
 			pubData.header.dupFlag = false;
 		}
 		pubData.header.retain = false;
-		const pubPacket = encodePublishPacket(pubData);
+		const pubPacket = encodePublishPacket(pubData, this.connData.header.protocolVersion);
 		client.write(pubPacket);
 	}
 
@@ -443,12 +444,12 @@ export class MqttManager {
 	 * @param pubAckData
 	 */
 	async handlePubAck(pubAckData: IPubAckData) {
-		const pubAckPacket = encodePubControlPacket(pubAckData);
+		const pubAckPacket = encodePubControlPacket(pubAckData, this.connData.header.protocolVersion);
 		this.client.write(pubAckPacket);
 	}
 
 	async handlePubRec(pubRecData: IPubRecData) {
-		const pubRecPacket = encodePubControlPacket(pubRecData);
+		const pubRecPacket = encodePubControlPacket(pubRecData, this.connData.header.protocolVersion);
 		this.client.write(pubRecPacket);
 	}
 
@@ -483,10 +484,10 @@ export class MqttManager {
 		const properties = new EncoderProperties();
 		const compPacket = Buffer.from([
 			PacketType.PUBCOMP << 4,
-			...encodeVariableByteInteger(3 + properties.length),
+			...encodeVariableByteInteger(3 + (this.connData.header.protocolVersion === ProtocolVersion.V5 ? properties.length : 0)),
 			...integerToTwoUint8(pubCompData.header.packetIdentifier),
 			PubCompReasonCode.Success,
-			...properties.buffer,
+			...(this.connData.header.protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
 		]);
 		this.client.write(compPacket);
 	}
@@ -571,6 +572,7 @@ export class MqttManager {
 			subscriptionIdentifier: subData.properties.subscriptionIdentifier,
 			noLocal: subData.options.noLocal,
 			retainAsPublished: subData.options.retainAsPublished,
+			protocolVersion: this.connData.header.protocolVersion,
 		});
 		const subAckData: ISubAckData = {
 			header: {
@@ -590,7 +592,7 @@ export class MqttManager {
 	 * @param subAckData
 	 */
 	public async handleSubAck(subAckData: ISubAckData) {
-		const subAckPacket = encodeSubAckPacket(subAckData);
+		const subAckPacket = encodeSubAckPacket(subAckData, this.connData.header.protocolVersion);
 		this.client.write(subAckPacket);
 	}
 
@@ -606,7 +608,7 @@ export class MqttManager {
 		}
 
 		await this.clientManager.unsubscribe(this.clientIdentifier, unsubscribeData.payload);
-		this.handleUnsubscribeAck(unsubscribeData);
+		this.handleUnsubscribeAck(unsubscribeData, this.connData.header.protocolVersion);
 	}
 
 	/**
@@ -614,15 +616,15 @@ export class MqttManager {
 	 * 方向： 服务端 -> 客户端
 	 * @param unsubscribeData
 	 */
-	public async handleUnsubscribeAck(unsubscribeData: IUnsubscribeData) {
+	public async handleUnsubscribeAck(unsubscribeData: IUnsubscribeData, protocolVersion: ProtocolVersion) {
 		let remainingLength = 1;
 		const properties = new EncoderProperties();
-		remainingLength += properties.length + 2;
+		remainingLength += (this.connData.header.protocolVersion === ProtocolVersion.V5 ? properties.length : 0) + 2;
 		const unsubscribePacket = Buffer.from([
 			PacketType.UNSUBACK << 4,
 			...encodeVariableByteInteger(remainingLength),
 			...integerToTwoUint8(unsubscribeData.header.packetIdentifier),
-			...properties.buffer,
+			...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
 			UnsubscribeAckReasonCode.Success,
 		]);
 		this.client.write(unsubscribePacket);

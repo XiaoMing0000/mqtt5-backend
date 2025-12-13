@@ -186,7 +186,7 @@ export class MemoryManager extends Manager {
 			}
 			distributeData.header.qosLevel = minQoS;
 			distributeData.header.retain = subFlags.retainAsPublished ? distributeData.header.retain : false;
-			const pubPacket = encodePublishPacket(distributeData);
+			const pubPacket = encodePublishPacket(distributeData, subFlags.protocolVersion);
 			client.write(pubPacket);
 		};
 

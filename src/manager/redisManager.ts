@@ -115,7 +115,7 @@ export class RedisManager extends Manager {
 								distributeData.header.qosLevel = minQoS;
 								distributeData.header.retain = subFlags.retainAsPublished ? distributeData.header.retain : false;
 								subFlags.subscriptionIdentifier && (distributeData.properties.subscriptionIdentifier = [subFlags.subscriptionIdentifier]);
-								const pubPacket = encodePublishPacket(distributeData);
+								const pubPacket = encodePublishPacket(distributeData, subFlags.protocolVersion);
 								client.write(pubPacket);
 							}
 						} catch (error) {

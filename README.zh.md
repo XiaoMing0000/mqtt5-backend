@@ -3,11 +3,12 @@
 [![npm version](https://badge.fury.io/js/%40elfdream%2Fmqtt5-backend.svg)](https://badge.fury.io/js/%40elfdream%2Fmqtt5-backend)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-一个基于 Node.js 的 MQTT v5 协议云服务后端实现，支持多种传输协议和存储后端。
+一个基于 Node.js 的 MQTT 协议云服务后端实现，支持 MQTT v3.1、v3.1.1 和 v5.0 协议，支持多种传输协议和存储后端。
 
 ## ✨ 特性
 
-- 🚀 **完整的 MQTT v5 协议支持** - 实现所有 MQTT v5 规范功能
+- 🚀 **完整的 MQTT 协议支持** - 支持 MQTT v3.1、v3.1.1 和 v5.0 协议
+- 🔄 **向后兼容** - 默认同时支持 MQTT v3.1、v3.1.1 和 v5.0 客户端连接
 - 🔒 **多种传输协议** - 支持 TCP、TLS/SSL、WebSocket、WSS
 - 💾 **多种存储后端** - 内存存储、Redis 单机、Redis 分布式
 - 📡 **分布式架构** - 支持水平扩展和集群部署
@@ -82,6 +83,26 @@ const server = new MqttServerWebSocket(clientManager);
 
 server.listen(8083, () => {
 	console.log('MQTT WebSocket 服务器启动在端口 8083');
+});
+```
+
+### WebSocket Secure (WSS) 服务器
+
+```typescript
+import { MqttServerWebSocketSecure, MemoryManager } from '@elfdream/mqtt5-backend';
+import fs from 'fs';
+
+const clientManager = new MemoryManager();
+
+const httpsOptions = {
+	cert: fs.readFileSync('cert.pem'),
+	key: fs.readFileSync('key.pem'),
+};
+
+const server = new MqttServerWebSocketSecure(httpsOptions, clientManager);
+
+server.listen(8084, () => {
+	console.log('MQTT WebSocket Secure 服务器启动在端口 8084');
 });
 ```
 
@@ -177,8 +198,8 @@ server.onAuth(listener: (data: IAuthData, client: TClient, clientManager: Manage
 
 **事件监听器说明**：
 
-- 所有事件监听器都返回 `Promise<boolean>`
-- 返回 `true` 表示允许操作继续
+- 所有事件监听器都返回 `Promise<boolean | void>`
+- 返回 `true` 或 `void`（不返回值）表示允许操作继续
 - 返回 `false` 或抛出异常表示拒绝操作
 - 可以通过抛出相应的异常来返回错误码和错误信息
 
@@ -202,17 +223,119 @@ server.getConnections(callback: (error: Error | null, count: number) => void)
 
 ```typescript
 interface IMqttOptions {
-	protocolName?: string; // 协议名称，默认 'MQTT'
-	protocolVersion?: number; // 协议版本，默认 5
-	assignedClientIdentifier?: boolean; // 是否分配客户端ID
-	maximumQoS?: QoSType; // 最大QoS级别
-	retainAvailable?: boolean; // 是否支持保留消息
-	retainTTL?: number; // 保留消息TTL（秒）
-	maximumPacketSize?: number; // 最大数据包大小
-	topicAliasMaximum?: number; // 主题别名最大值
-	wildcardSubscriptionAvailable?: boolean; // 是否支持通配符订阅
-	sendReasonMessage?: boolean; // 是否发送原因消息
+	protocolName?: 'MQTT' | 'MQIsdp'; // 协议名称，默认 'MQTT'
+	// MQTT v3.1 使用 'MQIsdp'，MQTT v3.1.1 和 v5.0 使用 'MQTT'
+	protocolVersions?: Array<number>; // 协议版本，默认 [3, 4, 5]
+	// 3 = MQTT v3.1, 4 = MQTT v3.1.1, 5 = MQTT v5.0
+	// 可以设置为 [3, 4] 仅支持 v3.1 和 v3.1.1，或 [5] 仅支持 v5.0
+	automaticallyAssignedClientIdentifier?: boolean; // 是否自动分配客户端ID，默认 true
+	maximumQoS?: QoSType; // 最大QoS级别，默认 QoS2
+	retainAvailable?: boolean; // 是否支持保留消息，默认 true
+	retainTTL?: number; // 保留消息TTL（秒），默认 1800
+	maximumPacketSize?: number; // 最大数据包大小，默认 1MB
+	topicAliasMaximum?: number; // 主题别名最大值，默认 65535（仅 MQTT v5.0）
+	wildcardSubscriptionAvailable?: boolean; // 是否支持通配符订阅，默认 true
+	subscriptionIdentifierAvailable?: boolean; // 订阅标识符可用，默认 true（仅 MQTT v5.0）
+	sharedSubscriptionAvailable?: boolean; // 共享订阅可用，默认 false（仅 MQTT v5.0）
+	sessionExpiryInterval?: number; // 会话过期时间（秒），默认 0（仅 MQTT v5.0）
+	sendReasonMessage?: boolean; // 是否发送原因消息（仅 MQTT v5.0）
+	receiveMaximum?: number; // 接收最大值，控制接受 PUBLISH QoS 1 和 QoS 2 报文数量，默认 65535（仅 MQTT v5.0）
+	serverKeepAlive?: number; // 服务端保持连接时间（秒），默认 0（仅 MQTT v5.0）
 }
+```
+
+## 📡 协议版本兼容性
+
+### 支持的协议版本
+
+本库默认支持以下 MQTT 协议版本：
+
+- **MQTT v3.1** (协议版本号: 3) - 使用协议名称 `MQIsdp`
+- **MQTT v3.1.1** (协议版本号: 4) - 使用协议名称 `MQTT`
+- **MQTT v5.0** (协议版本号: 5) - 使用协议名称 `MQTT`
+
+### 版本差异说明
+
+#### MQTT v3.1 和 v3.1.1
+
+- 不支持用户属性（User Properties）
+- 不支持原因字符串（Reason String）
+- 不支持主题别名（Topic Alias）
+- 不支持订阅标识符（Subscription Identifier）
+- 不支持会话过期时间（Session Expiry Interval）
+- 不支持共享订阅（Shared Subscription）
+- 不支持增强认证（Enhanced Authentication）
+
+#### MQTT v5.0 特性
+
+MQTT v5.0 在 v3.1.1 基础上新增了以下特性：
+
+- ✅ 用户属性（User Properties）
+- ✅ 原因字符串（Reason String）
+- ✅ 主题别名（Topic Alias）
+- ✅ 订阅标识符（Subscription Identifier）
+- ✅ 会话过期时间（Session Expiry Interval）
+- ✅ 共享订阅（Shared Subscription）
+- ✅ 增强认证（Enhanced Authentication）
+- ✅ 服务器保持连接（Server Keep Alive）
+- ✅ 请求/响应信息（Request/Response Information）
+
+### 配置协议版本支持
+
+#### 默认配置（支持所有版本）
+
+```typescript
+const server = new MqttServer(clientManager);
+// 默认支持 [3, 4, 5]，即 MQTT v3.1、v3.1.1 和 v5.0
+```
+
+#### 仅支持 MQTT v3.1 和 v3.1.1
+
+```typescript
+const server = new MqttServer(clientManager, {
+	protocolVersions: [3, 4], // 仅支持 v3.1 和 v3.1.1
+});
+```
+
+#### 仅支持 MQTT v5.0
+
+```typescript
+const server = new MqttServer(clientManager, {
+	protocolVersions: [5], // 仅支持 v5.0
+});
+```
+
+### 协议名称说明
+
+- **MQTT v3.1**: 使用协议名称 `MQIsdp`
+- **MQTT v3.1.1**: 使用协议名称 `MQTT`
+- **MQTT v5.0**: 使用协议名称 `MQTT`
+
+在配置中，`protocolName` 选项主要用于兼容性检查，默认值为 `'MQTT'`。服务器会根据客户端连接时发送的协议名称和版本号自动识别协议版本。
+
+### 混合版本部署
+
+服务器可以同时处理不同协议版本的客户端连接。每个客户端连接后，服务器会根据其协议版本使用相应的报文格式和特性：
+
+```typescript
+// 同时支持 v3.1、v3.1.1 和 v5.0 客户端
+const server = new MqttServer(clientManager, {
+	protocolVersions: [3, 4, 5], // 默认值
+});
+
+server.onConnect(async (data, client, clientManager) => {
+	const version = data.header.protocolVersion;
+	if (version === 3) {
+		console.log('MQTT v3.1 客户端连接');
+	} else if (version === 4) {
+		console.log('MQTT v3.1.1 客户端连接');
+	} else if (version === 5) {
+		console.log('MQTT v5.0 客户端连接');
+		// 可以使用 v5.0 特有特性
+		console.log('会话过期时间:', data.properties.sessionExpiryInterval);
+	}
+	return true;
+});
 ```
 
 ## 🔧 高级用法

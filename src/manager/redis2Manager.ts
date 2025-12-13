@@ -220,7 +220,7 @@ export class Redis2Manager extends Manager {
 					pubData.header.qosLevel = minQoS;
 					pubData.header.retain = subFlags.retainAsPublished ? staticSourceData.retain : false;
 					subFlags.subscriptionIdentifier && (pubData.properties.subscriptionIdentifier = [subFlags.subscriptionIdentifier]);
-					const pubPacket = encodePublishPacket(pubData);
+					const pubPacket = encodePublishPacket(pubData, subFlags.protocolVersion);
 					client.write(pubPacket);
 				}
 			});

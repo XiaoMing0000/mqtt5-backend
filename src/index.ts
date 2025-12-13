@@ -36,6 +36,7 @@ import {
 	IUnsubscribeData,
 	PacketType,
 	PacketTypeData,
+	ProtocolVersion,
 	QoSType,
 } from './interface';
 import { parseAllPacket } from './parse';
@@ -44,7 +45,7 @@ import { MqttManager } from './mqttManager';
 
 const mqttDefaultOptions: IMqttOptions = {
 	protocolName: 'MQTT',
-	protocolVersion: 5,
+	protocolVersions: [3, 4, 5],
 	automaticallyAssignedClientIdentifier: true,
 	maximumQoS: QoSType.QoS2,
 	retainAvailable: true,
@@ -249,10 +250,11 @@ class MqttEvent {
 		this.onClientEventListener(client);
 
 		await this.clientEmitAsync(client, 'connection', client);
+		let protocolVersion = ProtocolVersion.V5;
 		client.on('data', async (buffer) => {
 			try {
 				// 这一层捕获协议错误和未知错误
-				const allPacketData = parseAllPacket(buffer);
+				const allPacketData = parseAllPacket(buffer, protocolVersion);
 
 				for (const data of allPacketData) {
 					try {
@@ -262,6 +264,7 @@ class MqttEvent {
 						}
 						switch (data.header.packetType) {
 							case PacketType.CONNECT:
+								protocolVersion = (data as IConnectData).header.protocolVersion;
 								await mqttManager.connectHandle(data as IConnectData, this.clientEmitAsync);
 								break;
 							case PacketType.PUBLISH: {
@@ -313,7 +316,7 @@ class MqttEvent {
 					if (!this.options.sendReasonMessage) {
 						delete (error as any).msg;
 					}
-					await catchMqttError(error, mqttManager);
+					await catchMqttError(error, mqttManager, undefined);
 				} catch (unknownError) {
 					console.log(unknownError);
 				}

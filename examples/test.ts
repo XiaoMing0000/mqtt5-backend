@@ -1,7 +1,7 @@
 import tls from 'tls';
 import fs from 'fs';
 import path from 'path';
-import { IConnectData, IPublishData, Manager, MqttServer, TClient } from '../src';
+import { IConnectData, IPublishData, Manager, MqttServer, MqttServerWebSocket, TClient } from '../src';
 import http from 'http';
 import https from 'https';
 import { CONFIG } from './config';
@@ -28,6 +28,8 @@ const clientManager = new Redis2Manager({
 
 const server = new MqttServer(clientManager);
 
+const wsMqttServer = new MqttServerWebSocket(clientManager);
+
 // 异步错误处理
 // process.on('uncaughtException', (err) => {
 // 	console.error('uncaughtException:', err);
@@ -53,6 +55,9 @@ server.onConnection(async (client) => {
 
 server.listen(CONFIG.mqttPort, () => {
 	console.log(`MQTT server listening on port ${CONFIG.mqttPort}`);
+});
+wsMqttServer.listen(8083, async () => {
+	console.log(`MQTT WebSocket server listening on port ${8083}`);
 });
 
 // TODO 共享订阅
