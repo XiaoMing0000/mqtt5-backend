@@ -38,7 +38,6 @@ import {
 	parseConnectProperties,
 	parseConnectWillProperties,
 	parseDisconnectProperties,
-	parseProperties,
 	parsePubAckProperties,
 	parsePubCompProperties,
 	parsePublishProperties,
@@ -694,7 +693,7 @@ export function parseUnsubscribe(buffer: Buffer, unsubscribeData: IUnsubscribeDa
  * @param buffer
  * @param disconnectData
  */
-export function parseDisconnect(buffer: Buffer, disconnectData: IDisconnectData, protocolVersion: ProtocolVersion) {
+export function parseDisconnect(buffer: Buffer, disconnectData: IDisconnectData, _protocolVersion: ProtocolVersion) {
 	disconnectData.header.packetType = buffer[0] >> 4;
 	disconnectData.header.received = buffer[0] & 0xf;
 

@@ -49,7 +49,7 @@ const wssMqttServer = new MqttServerWebSocketSecure(tlsOptions, clientManager);
  * Server-level listeners have higher priority. Returning false or throwing from either level rejects the client.
  */
 
-const connectListener = async (data: IConnectData, client: TClient, clientManager: Manager) => {
+const connectListener = async (_data: IConnectData, _client: TClient, _clientManager: Manager) => {
 	console.log('MQTT server connected.');
 	return true;
 };
@@ -62,9 +62,9 @@ wssMqttServer.onConnect(connectListener);
 
 // Register packet listeners when a client connects to keep per-client context encapsulated
 mqttServer.onConnection(async (client: TClient) => {
-	let contentData: any = {};
+	const contentData: any = {};
 
-	client.on('connect', (data: IConnectData, client: TClient, clientManager: Manager) => {
+	client.on('connect', (data: IConnectData, _client: TClient, _clientManager: Manager) => {
 		console.log(contentData);
 		console.log('MQTT client connected.', data);
 
@@ -75,41 +75,41 @@ mqttServer.onConnection(async (client: TClient) => {
 		// throw new ConnectAckException('disconnect the client', ConnectAckReasonCode.ProtocolError);
 	});
 
-	client.on('disconnect', (data: IDisconnectData, client: TClient, clientManager: Manager) => {
+	client.on('disconnect', (data: IDisconnectData, _client: TClient, _clientManager: Manager) => {
 		console.log(contentData);
 		console.log('MQTT client disconnected.', data);
 	});
 
-	client.on('publish', (data: IPublishData, client: TClient, clientManager: Manager) => {
+	client.on('publish', (data: IPublishData, _client: TClient, _clientManager: Manager) => {
 		console.log('MQTT client published.', data);
 	});
 
-	client.on('pubAck', (data: IPubAckData, client: TClient, clientManager: Manager) => {
+	client.on('pubAck', (data: IPubAckData, _client: TClient, _clientManager: Manager) => {
 		console.log('MQTT client pubAck.', data);
 	});
 
-	client.on('pubRec', (data: IPubRecData, client: TClient, clientManager: Manager) => {
+	client.on('pubRec', (data: IPubRecData, _client: TClient, _clientManager: Manager) => {
 		console.log('MQTT client pubRec.', data);
 	});
 
-	client.on('pubRel', (data: IPubRelData, client: TClient, clientManager: Manager) => {
+	client.on('pubRel', (data: IPubRelData, _client: TClient, _clientManager: Manager) => {
 		console.log('MQTT client pubRel.', data);
 	});
 
-	client.on('pubComp', (data: IPubCompData, client: TClient, clientManager: Manager) => {
+	client.on('pubComp', (data: IPubCompData, _client: TClient, _clientManager: Manager) => {
 		console.log('MQTT client pubComp.', data);
 	});
 
-	client.on('subscribe', (data: ISubscribeData, client: TClient, clientManager: Manager) => {
+	client.on('subscribe', (data: ISubscribeData, _client: TClient, _clientManager: Manager) => {
 		console.log('MQTT client subscribed.', data);
 	});
-	client.on('unsubscribe', (data: IUnsubscribeData, client: TClient, clientManager: Manager) => {
+	client.on('unsubscribe', (data: IUnsubscribeData, _client: TClient, _clientManager: Manager) => {
 		console.log('MQTT client unsubscribed.', data);
 	});
-	client.on('ping', (data: IPingData, client: TClient, clientManager: Manager) => {
+	client.on('ping', (data: IPingData, _client: TClient, _clientManager: Manager) => {
 		console.log('MQTT client ping.', data);
 	});
-	client.on('auth', (data: IAuthData, client: TClient, clientManager: Manager) => {
+	client.on('auth', (data: IAuthData, _client: TClient, _clientManager: Manager) => {
 		console.log('MQTT client auth.', data);
 	});
 });

@@ -1,8 +1,6 @@
-/* eslint-disable no-undef */
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const os = require('os');
+import os from 'os';
 
-module.exports = {
+export default {
 	singleQuote: true,
 	trailingComma: 'all',
 	endOfLine: os.platform() === 'win32' ? 'crlf' : 'lf',

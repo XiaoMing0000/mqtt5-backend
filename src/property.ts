@@ -15,7 +15,6 @@ import {
 	ISubscribeProperties,
 	IUnsubscribeAckProperties,
 	IUnsubscribeProperties,
-	IWillProperties,
 	PropertyDataMap,
 	PropertyIdentifier,
 	IConnectWillProperties,

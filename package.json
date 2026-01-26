@@ -16,25 +16,26 @@
 		"build:prod": "rimraf dist && tsx ./config/esbuild.prod.ts",
 		"build": "npm run clean && tsc",
 		"prettier:all": "prettier --write ./src",
-		"lint": "eslint -f unix \"src/**/*.{ts,tsx}\""
+		"lint": "eslint .",
+		"postinstall": "simple-git-hooks"
+	},
+	"simple-git-hooks": {
+		"pre-commit": "npm run lint"
 	},
 	"devDependencies": {
-		"@eslint/js": "^9.9.1",
 		"@types/node": "^22.5.1",
 		"@types/ws": "^8.18.1",
-		"@typescript-eslint/eslint-plugin": "^8.3.0",
-		"@typescript-eslint/parser": "^8.3.0",
 		"dotenv": "^16.4.7",
 		"esbuild": "^0.23.1",
-		"eslint": "^9.9.1",
-		"eslint-formatter-unix": "^8.40.0",
+		"eslint": "^9.39.2",
 		"globals": "^15.14.0",
 		"prettier": "^3.3.3",
 		"rimraf": "^6.0.1",
+		"simple-git-hooks": "^2.13.1",
 		"ts-node": "^10.9.2",
 		"tsx": "^4.19.0",
 		"typescript": "^5.5.4",
-		"typescript-eslint": "^8.3.0"
+		"typescript-eslint": "^8.53.1"
 	},
 	"dependencies": {
 		"ioredis": "^5.4.1",

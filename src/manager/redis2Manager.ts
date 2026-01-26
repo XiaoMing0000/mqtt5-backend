@@ -56,7 +56,7 @@ function checkRedisTopic(pattern: string, channel: string) {
 			regStr = regStr.replace(/\[\/\]\*$/, '/[^/]*');
 		} else if (/\*$/.test(pattern)) {
 			// 以 * 结尾对应 mqtt 的 #
-			regStr = regStr.replace(/\*$/, '(\/.*)?');
+			regStr = regStr.replace(/\*$/, '(/.*)?');
 		}
 
 		// 包 */ 对应 mqtt 的 +/
@@ -195,7 +195,7 @@ export class Redis2Manager extends Manager {
 
 	private broadcastMessage(pattern: string, message: string) {
 		try {
-			const { pubData, topic, clientIdentifier: pubClientIdentifier } = JSON.parse(message) as { pubData: IPublishData; topic: string; clientIdentifier: string };
+			const { pubData, clientIdentifier: pubClientIdentifier } = JSON.parse(message) as { pubData: IPublishData; topic: string; clientIdentifier: string };
 			const staticSourceData = {
 				qos: pubData.header.qosLevel,
 				retain: pubData.header.retain,
@@ -264,7 +264,7 @@ export class Redis2Manager extends Manager {
 	}
 
 	async clearSubscribe(clientIdentifier: string): Promise<void> {
-		this.subscribeManager.getClientAllTopic(clientIdentifier)?.forEach(async (data, redisSubTopic) => {
+		this.subscribeManager.getClientAllTopic(clientIdentifier)?.forEach(async (_data, redisSubTopic) => {
 			// 清除当前进程的订阅
 			this.subscribeManager.unsubscribe(clientIdentifier, redisSubTopic);
 			// 如果当前进程没有这个订阅主题，则清除 redis 订阅主题
@@ -288,7 +288,7 @@ export class Redis2Manager extends Manager {
 	}
 
 	async unsubscribe(clientIdentifier: string, topic: string): Promise<void> {
-		let redisSubTopic = mqttTopicToRedisSubTopic(topic);
+		const redisSubTopic = mqttTopicToRedisSubTopic(topic);
 		this.subscribeManager.unsubscribe(clientIdentifier, redisSubTopic);
 		if (!this.subscribeManager.topicExists(redisSubTopic)) {
 			if (isWildcardTopic(topic)) {
@@ -299,11 +299,11 @@ export class Redis2Manager extends Manager {
 		}
 	}
 	async isSubscribe(clientIdentifier: string, topic: string): Promise<boolean> {
-		let redisSubTopic = mqttTopicToRedisSubTopic(topic);
+		const redisSubTopic = mqttTopicToRedisSubTopic(topic);
 		return this.subscribeManager.isSubscribe(clientIdentifier, redisSubTopic);
 	}
 	async getSubscription(clientIdentifier: string, topic: string): Promise<TSubscribeData | undefined> {
-		let redisSubTopic = mqttTopicToRedisSubTopic(topic);
+		const redisSubTopic = mqttTopicToRedisSubTopic(topic);
 		return this.subscribeManager.getSubscribe(clientIdentifier, redisSubTopic);
 	}
 
@@ -367,7 +367,7 @@ export class Redis2Manager extends Manager {
 				return;
 			}
 			if (elements) {
-				const [cursor, keys] = elements;
+				const [_cursor, keys] = elements;
 				if (keys) {
 					keys.forEach(async (key) => {
 						// 使用正则对 mqtt 主题二次过滤

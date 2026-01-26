@@ -99,7 +99,7 @@ export class RedisManager extends Manager {
 					const { pubData, topic, clientIdentifier } = JSON.parse(message) as { pubData: IPublishData; topic: string; clientIdentifier: string };
 
 					const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
-					await this.subscribeManager.getMatchTopic(topic, async (publishIdentifier: string, matchTopic: string, subFlags: TSubscribeData) => {
+					await this.subscribeManager.getMatchTopic(topic, async (publishIdentifier: string, _matchTopic: string, subFlags: TSubscribeData) => {
 						try {
 							const client = this.clientIdentifierManager.getIdentifier(publishIdentifier);
 							if (client) {
@@ -208,7 +208,7 @@ export class RedisManager extends Manager {
 	}
 
 	async getRatain() {
-		return await this.redis.scan(0, 'MATCH', 'retain:*', (err, matchData) => {
+		return await this.redis.scan(0, 'MATCH', 'retain:*', (err, _matchData) => {
 			if (err) {
 				// pass
 			}

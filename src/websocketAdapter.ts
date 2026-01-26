@@ -15,7 +15,7 @@ export class WebSocketAdapter extends net.Socket {
 
 		// try to copy remoteAddress if available from underlying socket
 		try {
-			// @ts-ignore
+			// @typescript-eslint/ban-ts-comment
 			const addr = (ws as any)?._socket?.remoteAddress;
 			if (addr) {
 				// net.Socket.remoteAddress is readonly in typings; assign on the instance as any
@@ -150,7 +150,6 @@ export class WebSocketAdapter extends net.Socket {
 
 		try {
 			const data = typeof buffer === 'string' ? Buffer.from(buffer, encoding) : Buffer.from(buffer);
-			// @ts-ignore readyState
 			if ((this.ws as any).readyState === 1) {
 				// ws.send accepts Buffer
 				(this.ws as any).send(data, (err: Error | undefined) => {

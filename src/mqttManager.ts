@@ -5,14 +5,11 @@ import {
 	PubAckException,
 	PubAckReasonCode,
 	PubCompReasonCode,
-	PubRecReasonCode,
 	SubscribeAckException,
 	SubscribeAckReasonCode,
 	UnsubscribeAckReasonCode,
 	ConnectAckException,
 	PubRecException,
-	PubRelException,
-	PubRelReasonCode,
 } from './exception';
 import {
 	IConnectData,
@@ -630,7 +627,7 @@ export class MqttManager {
 		this.client.write(unsubscribePacket);
 	}
 
-	public async authHandle(authData: IAuthData) {
+	public async authHandle(_authData: IAuthData) {
 		// TODO auth 报文处理
 	}
 }

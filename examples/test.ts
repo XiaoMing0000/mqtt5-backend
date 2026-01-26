@@ -1,14 +1,14 @@
-import tls from 'tls';
-import fs from 'fs';
-import path from 'path';
+// import tls from 'tls';
+// import fs from 'fs';
+// import path from 'path';
 import { IConnectData, IPublishData, Manager, MqttServer, MqttServerWebSocket, TClient } from '../src';
-import http from 'http';
-import https from 'https';
+// import http from 'http';
+// import https from 'https';
 import { CONFIG } from './config';
-import { MemoryManager } from '../src/manager/memoryManager';
-import { RedisManager } from '../src/manager/redisManager';
+// import { MemoryManager } from '../src/manager/memoryManager';
+// import { RedisManager } from '../src/manager/redisManager';
 import { Redis2Manager } from '../src/manager/redis2Manager';
-import { WebSocketServer } from 'ws';
+// import { WebSocketServer } from 'ws';
 
 // const clientManager = new RedisManager({
 // 	host: CONFIG.redisHost,
@@ -42,12 +42,12 @@ const wsMqttServer = new MqttServerWebSocket(clientManager);
 
 server.onConnection(async (client) => {
 	let identifier = '';
-	client.on('connect', (data: IConnectData, client: TClient, clientManager: Manager) => {
+	client.on('connect', (data: IConnectData, _client: TClient, _clientManager: Manager) => {
 		identifier = data.payload.clientIdentifier;
 		console.log('connect', data);
 	});
 
-	client.on('publish', (data: IPublishData, client: TClient, clientManager: Manager) => {
+	client.on('publish', (data: IPublishData, _client: TClient, _clientManager: Manager) => {
 		console.log('clientId: ', identifier);
 		console.log('publish: ', data);
 	});

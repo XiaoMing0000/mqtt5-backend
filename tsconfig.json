@@ -6,10 +6,12 @@
 		"declaration": true,
 		"strict": true,
 		"esModuleInterop": true,
-		"sourceMap": true
+		"sourceMap": true,
+		"noUnusedLocals": true, // 禁止未使用的局部变量
+		"noUnusedParameters": true, // 禁止未使用的参数
 	},
 	"include": [
 		"src/**/*"
 	],
-	"exclude": ["nodemodules", "dist", "examples"]
+	"exclude": ["node_modules", "dist", "examples/**/*"]
 }

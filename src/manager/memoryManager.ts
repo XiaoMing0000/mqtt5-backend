@@ -99,7 +99,7 @@ export class MemoryManager extends Manager {
 	public async clearSubscribe(clientIdentifier: string): Promise<void> {
 		const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);
 		if (client) {
-			this.clientDataMap.get(client)?.subscription.forEach((value, key) => {
+			this.clientDataMap.get(client)?.subscription.forEach((_value, key) => {
 				this.unsubscribe(clientIdentifier, key);
 			});
 

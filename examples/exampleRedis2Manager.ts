@@ -1,4 +1,4 @@
-import { MqttServer, MqttServerTLS, MqttServerWebSocket, MqttServerWebSocketSecure, Redis2Manager, RedisManager } from '../src';
+import { MqttServer, MqttServerTLS, MqttServerWebSocket, MqttServerWebSocketSecure, Redis2Manager } from '../src';
 import tls from 'tls';
 import fs from 'fs';
 import path from 'path';
