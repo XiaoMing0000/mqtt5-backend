@@ -19,7 +19,7 @@ import {
 	PubRelException,
 	PubRelReasonCode,
 	SubscribeAckException,
-	SubscribeAckReasonCode
+	SubscribeAckReasonCode,
 } from './exception';
 import {
 	IAuthData,
@@ -37,7 +37,7 @@ import {
 	PacketType,
 	PacketTypeData,
 	ProtocolVersion,
-	QoSType
+	QoSType,
 } from './interface';
 import { parseAllPacket } from './parse';
 import { Manager, TClient } from './manager/manager';
@@ -57,7 +57,7 @@ const mqttDefaultOptions: IMqttOptions = {
 	sharedSubscriptionAvailable: false,
 	sessionExpiryInterval: 0,
 	receiveMaximum: 0xffff,
-	serverKeepAlive: 0
+	serverKeepAlive: 0,
 };
 
 class MqttEvent {
@@ -67,7 +67,7 @@ class MqttEvent {
 	constructor(
 		readonly server: net.Server,
 		readonly clientManager: Manager,
-		options: IMqttOptions = {}
+		options: IMqttOptions = {},
 	) {
 		this.clientManager = clientManager;
 		this.options = Object.assign({}, mqttDefaultOptions, options);
@@ -287,13 +287,15 @@ class MqttEvent {
 								(await this.clientEmitAsync(client, 'subscribe', data, client, this.clientManager)) && (await mqttManager.subscribeHandle(data as ISubscribeData));
 								break;
 							case PacketType.UNSUBSCRIBE:
-								(await this.clientEmitAsync(client, 'unsubscribe', data, client, this.clientManager)) && (await mqttManager.unsubscribeHandle(data as IUnsubscribeData));
+								(await this.clientEmitAsync(client, 'unsubscribe', data, client, this.clientManager)) &&
+									(await mqttManager.unsubscribeHandle(data as IUnsubscribeData));
 								break;
 							case PacketType.PINGREQ:
 								(await this.clientEmitAsync(client, 'ping', client, this.clientManager)) && (await mqttManager.pingReqHandle());
 								break;
 							case PacketType.DISCONNECT:
-								(await this.clientEmitAsync(client, 'disconnect', data, client, this.clientManager)) && (await mqttManager.disconnectHandle(data as IDisconnectData));
+								(await this.clientEmitAsync(client, 'disconnect', data, client, this.clientManager)) &&
+									(await mqttManager.disconnectHandle(data as IDisconnectData));
 								break;
 							case PacketType.AUTH:
 								(await this.clientEmitAsync(client, 'auth', data, client, this.clientManager)) && (await mqttManager.authHandle(data as IAuthData));
@@ -358,12 +360,12 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
 			header: {
 				packetType: PacketType.SUBACK,
 				retain: 0x00,
-				packetIdentifier: (data as ISubscribeData).header.packetIdentifier ?? 0
+				packetIdentifier: (data as ISubscribeData).header.packetIdentifier ?? 0,
 			},
 			properties: {
-				reasonString: error.msg
+				reasonString: error.msg,
 			},
-			reasonCode: error.code as SubscribeAckReasonCode
+			reasonCode: error.code as SubscribeAckReasonCode,
 		};
 		await mqttManager.handleSubAck(subAckData);
 	} else if (error instanceof PubAckException && data) {
@@ -375,11 +377,11 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
 				packetType: PacketType.PUBACK,
 				received: 0x00,
 				packetIdentifier: (data as IPublishData).header.packetIdentifier ?? 0,
-				reasonCode: error.code as PubAckReasonCode
+				reasonCode: error.code as PubAckReasonCode,
 			},
 			properties: {
-				reasonString: error.msg
-			}
+				reasonString: error.msg,
+			},
 		};
 		await mqttManager.handlePubAck(pubAckData);
 	} else if (error instanceof PubRecException && data) {
@@ -388,11 +390,11 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
 				packetType: PacketType.PUBREC,
 				received: 0x00,
 				packetIdentifier: (data as IPublishData).header.packetIdentifier ?? 0,
-				reasonCode: error.code as PubRecReasonCode
+				reasonCode: error.code as PubRecReasonCode,
 			},
 			properties: {
-				reasonString: error.msg
-			}
+				reasonString: error.msg,
+			},
 		};
 		await mqttManager.handlePubRec(pubRecData);
 	} else if (error instanceof PubRelException && data) {
@@ -401,11 +403,11 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
 				packetType: PacketType.PUBREC,
 				received: 0x00,
 				packetIdentifier: data.header.packetType ?? 0,
-				reasonCode: error.code as PubRelReasonCode
+				reasonCode: error.code as PubRelReasonCode,
 			},
 			properties: {
-				reasonString: error.msg
-			}
+				reasonString: error.msg,
+			},
 		};
 		await mqttManager.pubRelHandle(pubRelData);
 	} else if (error instanceof PubCompException && data) {
@@ -414,11 +416,11 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
 				packetType: PacketType.PUBREC,
 				received: 0x00,
 				packetIdentifier: (data as IPubCompData).header.packetIdentifier ?? 0,
-				reasonCode: error.code as PubCompReasonCode
+				reasonCode: error.code as PubCompReasonCode,
 			},
 			properties: {
-				reasonString: error.msg
-			}
+				reasonString: error.msg,
+			},
 		};
 		await mqttManager.handlePubComp(pubCompData);
 	} else if (error instanceof AuthenticateException) {
@@ -440,7 +442,7 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
 export class MqttServer extends MqttEvent {
 	constructor(
 		readonly clientManager: Manager,
-		options: IMqttOptions = {}
+		options: IMqttOptions = {},
 	) {
 		const server = net.createServer();
 		super(server, clientManager, options);

@@ -23,7 +23,7 @@ export enum ConnectAckReasonCode {
 	QoSNotSupported = 0x9b,
 	UseAnother = 0x9c,
 	ServerMoved = 0x9d,
-	ConnectionRateExceeded = 0x9f
+	ConnectionRateExceeded = 0x9f,
 }
 
 export enum DisconnectReasonCode {
@@ -54,7 +54,7 @@ export enum DisconnectReasonCode {
 	ConnectionRateExceeded = 0x9f,
 	MaximumConnectTime = 0xa0,
 	SubscriptionIdentifiersNotSupported = 0xa1,
-	WildcardSubscriptionsNotSupported = 0xa2
+	WildcardSubscriptionsNotSupported = 0xa2,
 }
 
 export enum SubscribeAckReasonCode {
@@ -69,7 +69,7 @@ export enum SubscribeAckReasonCode {
 	QuotaExceeded = 0x97,
 	SharedSubscriptionsNotSupported = 0x9e,
 	SubscriptionIdentifiersNotSupported = 0xa1,
-	WildcardSubscriptionsNotSupported = 0xa2
+	WildcardSubscriptionsNotSupported = 0xa2,
 }
 
 export enum UnsubscribeAckReasonCode {
@@ -79,7 +79,7 @@ export enum UnsubscribeAckReasonCode {
 	ImplementationSpecificError = 0x83,
 	NotAuthorized = 0x87,
 	TopicFilterInvalid = 0x8f,
-	PacketIdentifierInUse = 0x91
+	PacketIdentifierInUse = 0x91,
 }
 
 export enum PubAckReasonCode {
@@ -91,7 +91,7 @@ export enum PubAckReasonCode {
 	TopicNameInvalid = 0x90,
 	PacketIdentifierInUse = 0x91,
 	QuotaExceeded = 0x97,
-	PayloadFormatInvalid = 0x99
+	PayloadFormatInvalid = 0x99,
 }
 
 export enum PubRecReasonCode {
@@ -103,23 +103,23 @@ export enum PubRecReasonCode {
 	TopicNameInvalid = 0x90,
 	PacketIdentifierInUse = 0x91,
 	QuotaExceeded = 0x97,
-	PayloadFormatInvalid = 0x99
+	PayloadFormatInvalid = 0x99,
 }
 
 export enum PubRelReasonCode {
 	Success = 0x00,
-	PacketIdentifierNotFound = 0x92
+	PacketIdentifierNotFound = 0x92,
 }
 
 export enum PubCompReasonCode {
 	Success = 0x00,
-	PacketIdentifierNotFound = 0x92
+	PacketIdentifierNotFound = 0x92,
 }
 
 export enum AuthenticateReasonCode {
 	Success = 0x00,
 	ContinueAuthentication = 0x18,
-	Reauthenticate = 0x19
+	Reauthenticate = 0x19,
 }
 
 type TErrorCode =

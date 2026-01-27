@@ -47,6 +47,8 @@ server.onConnection(async (client) => {
 		console.log('connect', data);
 	});
 
+
+
 	client.on('publish', (data: IPublishData, _client: TClient, _clientManager: Manager) => {
 		console.log('clientId: ', identifier);
 		console.log('publish: ', data);

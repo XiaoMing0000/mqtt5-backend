@@ -198,8 +198,8 @@ export class RedisManager extends Manager {
 			JSON.stringify({
 				clientIdentifier,
 				topic,
-				pubData
-			})
+				pubData,
+			}),
 		);
 	}
 

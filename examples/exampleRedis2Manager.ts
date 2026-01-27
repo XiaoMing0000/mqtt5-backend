@@ -22,8 +22,16 @@ const mqttsServer = new MqttServerTLS(tlsOptions, clientManager);
 const wsMqttServer = new MqttServerWebSocket(clientManager);
 const wssMqttServer = new MqttServerWebSocketSecure(tlsOptions, clientManager);
 
+
+
+
+
+
 mqttServer.listen(1883, () => {
 	console.log(`MQTT server listening on port 1883。`);
+
+
+
 });
 
 mqttsServer.listen(8883, () => {

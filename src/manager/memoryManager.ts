@@ -71,7 +71,7 @@ export class MemoryManager extends Manager {
 		this.connectDataMap.set(client, { data: connData, expire: Date.now() / 1000 + connData.header.keepAlive * 1.5 });
 		if (!this.clientDataMap.has(client)) {
 			this.clientDataMap.set(client, {
-				subscription: new Map()
+				subscription: new Map(),
 			});
 		}
 	}
@@ -117,7 +117,7 @@ export class MemoryManager extends Manager {
 			function push(nodes: Array<string>, index: number, route: IRoute) {
 				if (!route[nodes[index]]) {
 					route[nodes[index]] = {
-						clients: new Map()
+						clients: new Map(),
 					};
 				}
 				const currentRouter = route[nodes[index]];
@@ -261,7 +261,7 @@ export class MemoryManager extends Manager {
 	public async addRetainMessage(topic: string, pubData: IPublishData, retainTTL?: number) {
 		this.retainMessage.set(topic, {
 			TTL: Math.floor(Date.now() / 1000) + (retainTTL ?? 3600),
-			data: pubData
+			data: pubData,
 		});
 	}
 
