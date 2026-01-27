@@ -6,7 +6,6 @@ export default defineConfig([
 	{
 		ignores: ['dist', 'node_modules', 'temp', '**/*min.js', 'examples/test.ts'],
 	},
-	...tseslint.configs.recommended,
 	{
 		files: ['**/*.{ts,tsx,mts}'],
 		plugins: { '@typescript-eslint': tseslint.plugin },

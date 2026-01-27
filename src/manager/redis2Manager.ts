@@ -198,7 +198,7 @@ export class Redis2Manager extends Manager {
 			const { pubData, clientIdentifier: pubClientIdentifier } = JSON.parse(message) as { pubData: IPublishData; topic: string; clientIdentifier: string };
 			const staticSourceData = {
 				qos: pubData.header.qosLevel,
-				retain: pubData.header.retain,
+				retain: pubData.header.retain
 			};
 			this.subscribeManager.getTopicClientIdentifier(pattern)?.forEach(async (clientIdentifier) => {
 				const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);

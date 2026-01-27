@@ -1,8 +1,8 @@
-import os from 'os';
+const os = require('os');
 
-export default {
+module.exports = {
 	singleQuote: true,
-	trailingComma: 'all',
+	trailingComma: 'none',
 	endOfLine: os.platform() === 'win32' ? 'crlf' : 'lf',
 	printWidth: 180,
 	tabWidth: 2,
@@ -10,3 +10,4 @@ export default {
 	quoteProps: 'preserve',
 	bracketSpacing: true,
 };
+

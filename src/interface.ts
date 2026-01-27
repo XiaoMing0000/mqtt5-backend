@@ -6,7 +6,7 @@ import {
 	PubCompReasonCode,
 	PubRecReasonCode,
 	PubRelReasonCode,
-	SubscribeAckReasonCode,
+	SubscribeAckReasonCode
 } from './exception';
 
 export interface IMqttOptions {
@@ -44,13 +44,13 @@ export enum PacketType {
 	PINGREQ,
 	PINGRESP,
 	DISCONNECT,
-	AUTH,
+	AUTH
 }
 
 export enum QoSType {
 	QoS0 = 0,
 	QoS1,
-	QoS2,
+	QoS2
 }
 
 export type TPropertyIdentifier = PropertyIdentifier | ConnAckPropertyIdentifier | PubCompPropertyIdentifier | PubAckPropertyIdentifier | SubAckPropertyIdentifier;
@@ -112,7 +112,7 @@ export enum PropertyIdentifier {
 	maximumPacketSize = 0x27,
 	wildcardSubscriptionAvailable = 0x28,
 	subscriptionIdentifierAvailable = 0x29,
-	sharedSubscriptionAvailable = 0x2a,
+	sharedSubscriptionAvailable = 0x2a
 }
 
 export enum ConnAckPropertyIdentifier {
@@ -132,22 +132,22 @@ export enum ConnAckPropertyIdentifier {
 	maximumPacketSize = 0x27,
 	wildcardSubscriptionAvailable = 0x28,
 	subscriptionIdentifierAvailable = 0x29,
-	sharedSubscriptionAvailable = 0x2a,
+	sharedSubscriptionAvailable = 0x2a
 }
 
 export enum PubCompPropertyIdentifier {
 	reasonString = 0x1f,
-	userProperty = 0x26,
+	userProperty = 0x26
 }
 
 export enum PubAckPropertyIdentifier {
 	reasonString = 0x1f,
-	userProperty = 0x26,
+	userProperty = 0x26
 }
 
 export enum SubAckPropertyIdentifier {
 	reasonString = 0x1f,
-	userProperty = 0x26,
+	userProperty = 0x26
 }
 
 export interface BufferData {
@@ -335,7 +335,7 @@ export interface IPingData {
 export enum ProtocolVersion {
 	V3_1 = 3,
 	V3_1_1 = 4,
-	V5 = 5,
+	V5 = 5
 }
 
 export interface IConnectData {

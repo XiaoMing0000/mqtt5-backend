@@ -6,7 +6,7 @@ import {
 	ConnectAckException,
 	ConnectAckReasonCode,
 	DisconnectException,
-	DisconnectReasonCode,
+	DisconnectReasonCode
 } from './exception';
 import {
 	BufferData,
@@ -30,7 +30,7 @@ import {
 	PropertyIdentifier,
 	ProtocolVersion,
 	QoSType,
-	TPropertyIdentifier,
+	TPropertyIdentifier
 } from './interface';
 import {
 	encodeProperties,
@@ -43,7 +43,7 @@ import {
 	parsePublishProperties,
 	parsePubRecProperties,
 	parsePubRelProperties,
-	parseSubscribeProperties,
+	parseSubscribeProperties
 } from './property';
 
 export const bits = oneByteInteger;
@@ -116,7 +116,7 @@ export function utf8DecodedString(data: BufferData): string {
 export function utf8StringPair(data: BufferData): { key: string; value: string } {
 	return {
 		key: utf8DecodedString(data),
-		value: utf8DecodedString(data),
+		value: utf8DecodedString(data)
 	};
 }
 
@@ -286,10 +286,10 @@ export function parsePacket(buffer: Buffer, protocolVersion: ProtocolVersion): P
 					qosLevel: 0,
 					retain: false,
 					remainingLength: 0,
-					topicName: '',
+					topicName: ''
 				},
 				properties: {},
-				payload: '',
+				payload: ''
 			};
 			parsePublish(buffer, pubData, protocolVersion);
 			return pubData;
@@ -301,9 +301,9 @@ export function parsePacket(buffer: Buffer, protocolVersion: ProtocolVersion): P
 					received: 0x00,
 					remainingLength: 0,
 					packetIdentifier: 0,
-					reasonCode: 0x00,
+					reasonCode: 0x00
 				},
-				properties: {},
+				properties: {}
 			};
 			parsePubAck(buffer, pubAckData, protocolVersion);
 			return pubAckData;
@@ -315,9 +315,9 @@ export function parsePacket(buffer: Buffer, protocolVersion: ProtocolVersion): P
 					received: 0x02,
 					remainingLength: 0,
 					packetIdentifier: 0,
-					reasonCode: 0x00,
+					reasonCode: 0x00
 				},
-				properties: {},
+				properties: {}
 			};
 			parsePubRec(buffer, pubRecData, protocolVersion);
 			return pubRecData;
@@ -329,9 +329,9 @@ export function parsePacket(buffer: Buffer, protocolVersion: ProtocolVersion): P
 					received: 0x02,
 					remainingLength: 0,
 					packetIdentifier: 0,
-					reasonCode: 0x00,
+					reasonCode: 0x00
 				},
-				properties: {},
+				properties: {}
 			};
 			parsePubRel(buffer, pubRelData, protocolVersion);
 			return pubRelData;
@@ -343,9 +343,9 @@ export function parsePacket(buffer: Buffer, protocolVersion: ProtocolVersion): P
 					received: 0x02,
 					remainingLength: 0,
 					packetIdentifier: 0,
-					reasonCode: 0x00,
+					reasonCode: 0x00
 				},
-				properties: {},
+				properties: {}
 			};
 			parsePubRec(buffer, pubCompData, protocolVersion);
 			return pubCompData;
@@ -356,7 +356,7 @@ export function parsePacket(buffer: Buffer, protocolVersion: ProtocolVersion): P
 					packetType: PacketType.RESERVED,
 					received: 0x02,
 					remainingLength: 0,
-					packetIdentifier: 0,
+					packetIdentifier: 0
 				},
 				properties: {},
 				payload: '',
@@ -365,8 +365,8 @@ export function parsePacket(buffer: Buffer, protocolVersion: ProtocolVersion): P
 					noLocal: false,
 					retainAsPublished: false,
 					retainHandling: 0,
-					retain: 0,
-				},
+					retain: 0
+				}
 			};
 			parseSubscribe(buffer, subData, protocolVersion);
 			return subData;
@@ -377,10 +377,10 @@ export function parsePacket(buffer: Buffer, protocolVersion: ProtocolVersion): P
 					packetType: PacketType.RESERVED,
 					received: 0x02,
 					remainingLength: 0,
-					packetIdentifier: 0,
+					packetIdentifier: 0
 				},
 				properties: {},
-				payload: '',
+				payload: ''
 			};
 			parseUnsubscribe(buffer, unsubscribeData, protocolVersion);
 			return unsubscribeData;
@@ -391,9 +391,9 @@ export function parsePacket(buffer: Buffer, protocolVersion: ProtocolVersion): P
 					packetType: PacketType.DISCONNECT,
 					received: 0,
 					remainingLength: 0,
-					reasonCode: 0x00,
+					reasonCode: 0x00
 				},
-				properties: {},
+				properties: {}
 			};
 			parseDisconnect(buffer, disconnectData, protocolVersion);
 			return disconnectData;
@@ -404,9 +404,9 @@ export function parsePacket(buffer: Buffer, protocolVersion: ProtocolVersion): P
 					packetType: PacketType.AUTH,
 					received: 0,
 					remainingLength: 0,
-					reasonCode: 0x00,
+					reasonCode: 0x00
 				},
-				properties: {},
+				properties: {}
 			};
 			parseAuth(buffer, authData, protocolVersion);
 			return authData;
@@ -429,13 +429,13 @@ export function parseConnect(buffer: Buffer): IConnectData {
 			remainingLength: 0,
 			protocolName: '',
 			protocolVersion: ProtocolVersion.V5,
-			keepAlive: 0,
+			keepAlive: 0
 		},
 		connectFlags: {} as any,
 		properties: {},
 		payload: {
-			clientIdentifier: '',
-		},
+			clientIdentifier: ''
+		}
 	};
 	connData.header.packetType = (buffer[0] >> 4) as PacketType;
 	connData.header.packetFlags = buffer[0] & 0xf;
@@ -454,7 +454,7 @@ export function parseConnect(buffer: Buffer): IConnectData {
 		willQoS: (connectFlagsValue >> 3) & 3,
 		willFlag: !!((connectFlagsValue >> 2) & 1),
 		cleanStart: !!((connectFlagsValue >> 1) & 1),
-		reserved: !!(connectFlagsValue & 1),
+		reserved: !!(connectFlagsValue & 1)
 	};
 	if (connData.connectFlags.reserved || connData.connectFlags.willQoS >= 0x03 || (!connData.connectFlags.willFlag && connData.connectFlags.willRetain)) {
 		throw new DisconnectException('If the reserved flag is not 0 it is a Malformed Packet.', DisconnectReasonCode.ProtocolError);
@@ -622,7 +622,7 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData, protocol
 	if (subData.header.received !== 0x02) {
 		new DisconnectException(
 			'Bits 3,2,1 and 0 of the Fixed Header of the SUBSCRIBE packet are reserved and MUST be set to 0,0,1 and 0 respectively.',
-			DisconnectReasonCode.ProtocolError,
+			DisconnectReasonCode.ProtocolError
 		);
 	}
 
@@ -646,7 +646,7 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData, protocol
 		noLocal: !!((subscriptionOptions >> 2) & 0x01),
 		retainAsPublished: !!(subscriptionOptions & 0x4),
 		retainHandling: (subscriptionOptions >> 4) & 0x03,
-		retain: (subscriptionOptions >> 6) & 0x03,
+		retain: (subscriptionOptions >> 6) & 0x03
 	};
 
 	if (subData.options.qos > QoSType.QoS2) {
@@ -741,7 +741,7 @@ export function encodeConnAck(connAckData: IConnAckData, protocolVersion: Protoc
 		...encodeVariableByteInteger(2 + (protocolVersion === ProtocolVersion.V5 ? properties.length : 0)),
 		connAckData.acknowledgeFlags.SessionPresent ? 1 : 0,
 		connAckData.header.reasonCode,
-		...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
+		...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : [])
 	]);
 }
 
@@ -792,7 +792,7 @@ export function encodePubControlPacket(data: IPubAckData | IPubRecData | IPubCom
 		...encodeVariableByteInteger(3 + (protocolVersion === ProtocolVersion.V5 ? properties.length : 0)),
 		...integerToTwoUint8(data.header.packetIdentifier),
 		0x00,
-		...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
+		...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : [])
 	]);
 }
 
@@ -808,6 +808,6 @@ export function encodeSubAckPacket(subAckData: ISubAckData, protocolVersion: Pro
 		...encodeVariableByteInteger(3 + (protocolVersion === ProtocolVersion.V5 ? properties.length : 0)),
 		...integerToTwoUint8(subAckData.header.packetIdentifier),
 		...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
-		subAckData.reasonCode,
+		subAckData.reasonCode
 	]);
 }

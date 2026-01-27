@@ -17,7 +17,7 @@ import {
 	IUnsubscribeProperties,
 	PropertyDataMap,
 	PropertyIdentifier,
-	IConnectWillProperties,
+	IConnectWillProperties
 } from './interface';
 import {
 	fourByteInteger,
@@ -31,7 +31,7 @@ import {
 	utf8DecodedString,
 	utf8StringPair,
 	variableByteInteger,
-	encodeVariableByteInteger,
+	encodeVariableByteInteger
 } from './parse';
 
 /**
@@ -130,7 +130,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				if (properties.requestProblemInformation !== undefined || data.buffer[data.index] > 1) {
 					throw new DisconnectException(
 						'It is a Protocol Error to include Request Problem Information more than once, or to have a value other than 0 or 1.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.requestProblemInformation = !!oneByteInteger(data);
@@ -147,7 +147,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				if (properties.requestResponseInformation !== undefined || data.buffer[data.index] > 1) {
 					throw new DisconnectException(
 						'It is Protocol Error to include the Request Response Information more than once, or to have a value other than 0 or 1.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.requestResponseInformation = !!oneByteInteger(data);
@@ -178,7 +178,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				if (properties.receiveMaximum != undefined) {
 					throw new DisconnectException(
 						'It is a Protocol Error to include the Receive Maximum value more than once or for it to have the value 0.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.receiveMaximum = twoByteInteger(data);
@@ -209,7 +209,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				if (properties.retainAvailable !== undefined || data.buffer[data.index] > 1) {
 					throw new DisconnectException(
 						'It is a Protocol Error to include Retain Available more than once or to use a value other than 0 or 1.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.retainAvailable = !!oneByteInteger(data);
@@ -219,7 +219,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						[key]: value,
+						[key]: value
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -231,7 +231,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				if (properties.maximumPacketSize != undefined) {
 					throw new DisconnectException(
 						'It is a Protocol Error to include the Maximum Packet Size more than once, or for the value to be set to zero.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.maximumPacketSize = fourByteInteger(data);
@@ -241,7 +241,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				if (properties.wildcardSubscriptionAvailable !== undefined || data.buffer[data.index] > 1) {
 					throw new DisconnectException(
 						'It is a Protocol Error to include the Wildcard Subscription Available more than once or to send a value other than 0 or 1.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.wildcardSubscriptionAvailable = !!oneByteInteger(data);
@@ -251,7 +251,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				if (properties.subscriptionIdentifierAvailable !== undefined || data.buffer[data.index] > 1) {
 					throw new DisconnectException(
 						'It is a Protocol Error to include the Subscription Identifier Available more than once, or to send a value other than 0 or 1.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.subscriptionIdentifierAvailable = !!oneByteInteger(data);
@@ -261,7 +261,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				if (properties.sharedSubscriptionAvailable !== undefined || data.buffer[data.index] > 1) {
 					throw new DisconnectException(
 						'It is a Protocol Error to include the Shared Subscription Available more than once or to send a value other than 0 or 1.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.sharedSubscriptionAvailable = !!oneByteInteger(data);
@@ -311,7 +311,7 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
 				if (properties.requestProblemInformation !== undefined || data.buffer[data.index] > 1) {
 					throw new DisconnectException(
 						'It is a Protocol Error to include Request Problem Information more than once, or to have a value other than 0 or 1.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.requestProblemInformation = !!oneByteInteger(data);
@@ -321,7 +321,7 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
 				if (properties.requestResponseInformation !== undefined || data.buffer[data.index] > 1) {
 					throw new DisconnectException(
 						'It is Protocol Error to include the Request Response Information more than once, or to have a value other than 0 or 1.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.requestResponseInformation = !!oneByteInteger(data);
@@ -331,7 +331,7 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
 				if (properties.receiveMaximum != undefined) {
 					throw new DisconnectException(
 						'It is a Protocol Error to include the Receive Maximum value more than once or for it to have the value 0.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.receiveMaximum = twoByteInteger(data);
@@ -348,7 +348,7 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						[key]: value,
+						[key]: value
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -360,7 +360,7 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
 				if (properties.maximumPacketSize != undefined) {
 					throw new DisconnectException(
 						'It is a Protocol Error to include the Maximum Packet Size more than once, or for the value to be set to zero.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.maximumPacketSize = fourByteInteger(data);
@@ -445,7 +445,7 @@ export function parseConnAckProperties(buffer: Buffer, index?: number) {
 				if (properties.receiveMaximum != undefined) {
 					throw new DisconnectException(
 						'It is a Protocol Error to include the Receive Maximum value more than once or for it to have the value 0.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.receiveMaximum = twoByteInteger(data);
@@ -469,7 +469,7 @@ export function parseConnAckProperties(buffer: Buffer, index?: number) {
 				if (properties.retainAvailable !== undefined || data.buffer[data.index] > 1) {
 					throw new DisconnectException(
 						'It is a Protocol Error to include Retain Available more than once or to use a value other than 0 or 1.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.retainAvailable = !!oneByteInteger(data);
@@ -479,7 +479,7 @@ export function parseConnAckProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						[key]: value,
+						[key]: value
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -491,7 +491,7 @@ export function parseConnAckProperties(buffer: Buffer, index?: number) {
 				if (properties.maximumPacketSize != undefined) {
 					throw new DisconnectException(
 						'It is a Protocol Error to include the Maximum Packet Size more than once, or for the value to be set to zero.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.maximumPacketSize = fourByteInteger(data);
@@ -501,7 +501,7 @@ export function parseConnAckProperties(buffer: Buffer, index?: number) {
 				if (properties.wildcardSubscriptionAvailable !== undefined || data.buffer[data.index] > 1) {
 					throw new DisconnectException(
 						'It is a Protocol Error to include the Wildcard Subscription Available more than once or to send a value other than 0 or 1.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.wildcardSubscriptionAvailable = !!oneByteInteger(data);
@@ -511,7 +511,7 @@ export function parseConnAckProperties(buffer: Buffer, index?: number) {
 				if (properties.subscriptionIdentifierAvailable !== undefined || data.buffer[data.index] > 1) {
 					throw new DisconnectException(
 						'It is a Protocol Error to include the Subscription Identifier Available more than once, or to send a value other than 0 or 1.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.subscriptionIdentifierAvailable = !!oneByteInteger(data);
@@ -521,7 +521,7 @@ export function parseConnAckProperties(buffer: Buffer, index?: number) {
 				if (properties.sharedSubscriptionAvailable !== undefined || data.buffer[data.index] > 1) {
 					throw new DisconnectException(
 						'It is a Protocol Error to include the Shared Subscription Available more than once or to send a value other than 0 or 1.',
-						DisconnectReasonCode.ProtocolError,
+						DisconnectReasonCode.ProtocolError
 					);
 				}
 				properties.sharedSubscriptionAvailable = !!oneByteInteger(data);
@@ -571,7 +571,7 @@ export function parseDisconnectProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						[key]: value,
+						[key]: value
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -612,7 +612,7 @@ export function parseSubscribeProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						[key]: value,
+						[key]: value
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -650,7 +650,7 @@ export function parseSubAckProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						[key]: value,
+						[key]: value
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -681,7 +681,7 @@ export function parseUnsubscribeProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						[key]: value,
+						[key]: value
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -712,7 +712,7 @@ export function parseUnsubscribeAckProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						[key]: value,
+						[key]: value
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -798,7 +798,7 @@ export function parsePublishProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						[key]: value,
+						[key]: value
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -881,7 +881,7 @@ export function parseConnectWillProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						[key]: value,
+						[key]: value
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -919,7 +919,7 @@ export function parsePubAckProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						[key]: value,
+						[key]: value
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -957,7 +957,7 @@ export function parsePubRecProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						[key]: value,
+						[key]: value
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -995,7 +995,7 @@ export function parsePubRelProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						[key]: value,
+						[key]: value
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -1033,7 +1033,7 @@ export function parsePubCompProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						[key]: value,
+						[key]: value
 					};
 				} else {
 					properties.userProperty[key] = value;
@@ -1085,7 +1085,7 @@ export function parseAuthProperties(buffer: Buffer, index?: number) {
 				const { key, value } = utf8StringPair(data);
 				if (!properties.userProperty) {
 					properties.userProperty = {
-						[key]: value,
+						[key]: value
 					};
 				} else {
 					properties.userProperty[key] = value;

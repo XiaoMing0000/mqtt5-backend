@@ -9,7 +9,7 @@ import {
 	SubscribeAckReasonCode,
 	UnsubscribeAckReasonCode,
 	ConnectAckException,
-	PubRecException,
+	PubRecException
 } from './exception';
 import {
 	IConnectData,
@@ -29,7 +29,7 @@ import {
 	IUnsubscribeData,
 	IAuthData,
 	IPubCompData,
-	ProtocolVersion,
+	ProtocolVersion
 } from './interface';
 import { TClient, Manager } from './manager/manager';
 import {
@@ -40,7 +40,7 @@ import {
 	EncoderProperties,
 	encodeVariableByteInteger,
 	integerToTwoUint8,
-	encodeSubAckPacket,
+	encodeSubAckPacket
 } from './parse';
 import { verifyTopic, isWildcardTopic, topicToRegEx } from './topicFilters';
 import { generateClientIdentifier } from './utils';
@@ -66,20 +66,20 @@ export class MqttManager {
 			remainingLength: 0,
 			protocolName: '',
 			protocolVersion: 0,
-			keepAlive: 0,
+			keepAlive: 0
 		},
 		connectFlags: {} as any,
 		properties: {},
 		payload: {
-			clientIdentifier: '',
-		},
+			clientIdentifier: ''
+		}
 	};
 	private errorDisconnect = true;
 
 	constructor(
 		private readonly client: TClient,
 		private readonly clientManager: Manager,
-		private readonly options: IMqttOptions,
+		private readonly options: IMqttOptions
 	) {}
 
 	public async commonHandle(data: PacketTypeData) {
@@ -97,14 +97,14 @@ export class MqttManager {
 			header: {
 				packetType: PacketType.CONNACK,
 				reserved: 0x00,
-				reasonCode: reasonCode ?? 0x00,
+				reasonCode: reasonCode ?? 0x00
 			},
 			acknowledgeFlags: {
-				SessionPresent: false,
+				SessionPresent: false
 			},
 			properties: {
-				reasonString,
-			},
+				reasonString
+			}
 		};
 		if (!this.options.retainAvailable) {
 			connAckData.properties.retainAvailable = false;
@@ -124,7 +124,7 @@ export class MqttManager {
 
 		connAckData.properties = {
 			receiveMaximum: this.options.receiveMaximum,
-			maximumPacketSize: this.options.maximumPacketSize,
+			maximumPacketSize: this.options.maximumPacketSize
 		};
 		if (this.options.wildcardSubscriptionAvailable === false) {
 			connAckData.properties.wildcardSubscriptionAvailable = false;
@@ -225,9 +225,9 @@ export class MqttManager {
 				packetType: PacketType.DISCONNECT,
 				received: 0,
 				remainingLength: 0,
-				reasonCode: reasonCode,
+				reasonCode: reasonCode
 			},
-			properties: properties,
+			properties: properties
 		});
 		this.client.end(Buffer.from(disconnectPacket));
 	}
@@ -261,10 +261,10 @@ export class MqttManager {
 					qosLevel: this.connData.connectFlags.willQoS,
 					retain: this.connData.connectFlags.willRetain,
 					remainingLength: 0,
-					topicName: this.connData.payload.willTopic || '',
+					topicName: this.connData.payload.willTopic || ''
 				},
 				properties: this.connData.payload.willProperties || {},
-				payload: this.connData.payload.willPayload || '',
+				payload: this.connData.payload.willPayload || ''
 			};
 
 			const delayInterval = this.connData.payload.willProperties?.willDelayInterval ?? 0;
@@ -319,7 +319,7 @@ export class MqttManager {
 			if (pubData.properties.topicAlias && pubData.properties.topicAlias > (this.options.topicAliasMaximum ?? 0xffff)) {
 				throw new PubAckException(
 					'A Client MUST accept all Topic Alias values greater than 0 and less than or equal to the Topic Alias Maximum value that it sent in the CONNECT packet.',
-					PubAckReasonCode.PacketIdentifierInUse,
+					PubAckReasonCode.PacketIdentifierInUse
 				);
 			}
 
@@ -333,7 +333,7 @@ export class MqttManager {
 				if (this.receiveCounter > (this.connData.properties.receiveMaximum ?? 0xffff)) {
 					throw new DisconnectException(
 						'The Client MUST NOT send more than Receive Maximum QoS 1 and QoS 2 PUBLISH packets for which it has not received PUBACK, PUBCOMP, or PUBREC with a Reason Code of 128 or greater from the Server.',
-						DisconnectReasonCode.ReceiveMaximumExceeded,
+						DisconnectReasonCode.ReceiveMaximumExceeded
 					);
 				}
 			}
@@ -342,7 +342,7 @@ export class MqttManager {
 			if (this.connData.properties.maximumPacketSize && (pubData.header.remainingLength ?? 0) > (this.connData.properties.maximumPacketSize ?? 1 << 20)) {
 				throw new DisconnectException(
 					'The Server has received a Control Packet during the current Connection that contains more data than it was willing to process.',
-					DisconnectReasonCode.PacketTooLarge,
+					DisconnectReasonCode.PacketTooLarge
 				);
 			}
 
@@ -350,7 +350,7 @@ export class MqttManager {
 				if (this.options.topicAliasMaximum && pubData.properties.topicAlias > (this.options.topicAliasMaximum ?? 0xffff)) {
 					throw new DisconnectException(
 						'The Client or Server has received a PUBLISH packet containing a Topic Alias which is greater than the Maximum Topic Alias it sent in the CONNECT or CONNACK packet.',
-						DisconnectReasonCode.TopicAliasInvalid,
+						DisconnectReasonCode.TopicAliasInvalid
 					);
 				}
 				// 添加主题别名映射
@@ -400,9 +400,9 @@ export class MqttManager {
 					packetType: PacketType.PUBACK,
 					packetIdentifier: pubData.header.packetIdentifier ?? 0,
 					received: 0x00,
-					reasonCode: 0x00,
+					reasonCode: 0x00
 				},
-				properties: {},
+				properties: {}
 			};
 			await this.handlePubAck(pubAckData);
 		} else if (pubData.header.qosLevel === QoSType.QoS2) {
@@ -411,9 +411,9 @@ export class MqttManager {
 					packetType: PacketType.PUBREC,
 					packetIdentifier: pubData.header.packetIdentifier ?? 0,
 					received: 0x00,
-					reasonCode: 0x00,
+					reasonCode: 0x00
 				},
-				properties: {},
+				properties: {}
 			};
 			await this.handlePubRec(pubRecData);
 		}
@@ -484,7 +484,7 @@ export class MqttManager {
 			...encodeVariableByteInteger(3 + (this.connData.header.protocolVersion === ProtocolVersion.V5 ? properties.length : 0)),
 			...integerToTwoUint8(pubCompData.header.packetIdentifier),
 			PubCompReasonCode.Success,
-			...(this.connData.header.protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
+			...(this.connData.header.protocolVersion === ProtocolVersion.V5 ? properties.buffer : [])
 		]);
 		this.client.write(compPacket);
 	}
@@ -509,7 +509,7 @@ export class MqttManager {
 			...encodeVariableByteInteger(3 + properties.length),
 			...integerToTwoUint8(pubRecData.header.packetIdentifier),
 			PubCompReasonCode.Success,
-			...properties.buffer,
+			...properties.buffer
 		]);
 		this.client.write(pubRelPacket);
 	}
@@ -569,16 +569,16 @@ export class MqttManager {
 			subscriptionIdentifier: subData.properties.subscriptionIdentifier,
 			noLocal: subData.options.noLocal,
 			retainAsPublished: subData.options.retainAsPublished,
-			protocolVersion: this.connData.header.protocolVersion,
+			protocolVersion: this.connData.header.protocolVersion
 		});
 		const subAckData: ISubAckData = {
 			header: {
 				packetType: PacketType.SUBACK,
 				retain: 0x00,
-				packetIdentifier: subData.header.packetIdentifier,
+				packetIdentifier: subData.header.packetIdentifier
 			},
 			properties: {},
-			reasonCode: SubscribeAckReasonCode.GrantedQoS2,
+			reasonCode: SubscribeAckReasonCode.GrantedQoS2
 		};
 		this.handleSubAck(subAckData);
 	}
@@ -622,7 +622,7 @@ export class MqttManager {
 			...encodeVariableByteInteger(remainingLength),
 			...integerToTwoUint8(unsubscribeData.header.packetIdentifier),
 			...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
-			UnsubscribeAckReasonCode.Success,
+			UnsubscribeAckReasonCode.Success
 		]);
 		this.client.write(unsubscribePacket);
 	}
