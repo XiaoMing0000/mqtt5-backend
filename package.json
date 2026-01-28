@@ -1,70 +1,72 @@
 {
-	"name": "@elfdream/mqtt5-backend",
-	"version": "1.4.0",
-	"description": "A cloud service based on the mqtt v5 protocol of nodejs.",
-	"main": "./dist/index.js",
-	"types": "./dist/index.d.ts",
-	"files": [
-		"dist"
-	],
-	"scripts": {
-		"clean": "rimraf dist",
-		"dev": "rimraf dist && tsx ./config/esbuild.dev.ts --watch",
-		"test": "supervisor -w ./dist -n error -s -- -r dotenv/config ./dist/index.js",
-		"debugger": "nodemon examples/test.ts",
-		"inspect": "tsx --inspect examples/test.ts",
-		"build:prod": "rimraf dist && tsx ./config/esbuild.prod.ts",
-		"build": "npm run clean && tsc",
-		"prettier:all": "prettier --write ./src",
-		"lint": "eslint .",
-		"postinstall": "simple-git-hooks"
-	},
-	"simple-git-hooks": {
-		"pre-commit": "npm run lint"
-	},
-	"devDependencies": {
-		"@types/node": "^22.5.1",
-		"@types/ws": "^8.18.1",
-		"dotenv": "^16.4.7",
-		"esbuild": "^0.23.1",
-		"eslint": "^9.39.2",
-		"globals": "^15.14.0",
-		"prettier": "^3.3.3",
-		"rimraf": "^6.0.1",
-		"simple-git-hooks": "^2.13.1",
-		"ts-node": "^10.9.2",
-		"tsx": "^4.19.0",
-		"typescript": "^5.5.4",
-		"typescript-eslint": "^8.53.1"
-	},
-	"dependencies": {
-		"ioredis": "^5.4.1",
-		"ws": "^8.13.0"
-	},
-	"author": "XiaoMing0000",
-	"license": "MIT",
-	"keywords": [
-		"server",
-		"nodejs",
-		"router",
-		"mqtt",
-		"TLS",
-		"mqtt5",
-		"mqttv5",
-		"mqtt-server",
-		"mqtt-broker",
-		"iot",
-		"backend",
-		"mqtt5-backend",
-		"publisher",
-		"subscriber",
-		"websocket",
-		"wss",
-		"ws"
-	],
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/XiaoMing0000/mqtt5-backend.git"
-	},
-	"homepage": "https://gitlab.soraharu.com/xiaoming0000/mqtt5-backend"
+  "name": "@elfdream/mqtt5-backend",
+  "version": "1.4.0",
+  "description": "A cloud service based on the mqtt v5 protocol of nodejs.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "clean": "rimraf dist",
+    "debugger": "nodemon examples/demo.ts",
+    "inspect": "tsx --inspect examples/demo.ts",
+    "build:prod": "rimraf dist && tsx ./config/esbuild.prod.ts",
+    "build": "npm run clean && tsc",
+    "prettier:all": "prettier --write ./src",
+    "lint": "eslint .",
+    "postinstall": "simple-git-hooks",
+    "test": "jest"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "npm run lint"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.5.1",
+    "@types/ws": "^8.18.1",
+    "dotenv": "^16.4.7",
+    "esbuild": "^0.23.1",
+    "eslint": "^9.39.2",
+    "globals": "^15.14.0",
+    "jest": "^30.2.0",
+    "prettier": "^3.3.3",
+    "rimraf": "^6.0.1",
+    "simple-git-hooks": "^2.13.1",
+    "ts-jest": "^29.4.6",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.53.1"
+  },
+  "dependencies": {
+    "ioredis": "^5.4.1",
+    "ws": "^8.13.0"
+  },
+  "author": "XiaoMing0000",
+  "license": "MIT",
+  "keywords": [
+    "server",
+    "nodejs",
+    "router",
+    "mqtt",
+    "TLS",
+    "mqtt5",
+    "mqttv5",
+    "mqtt-server",
+    "mqtt-broker",
+    "iot",
+    "backend",
+    "mqtt5-backend",
+    "publisher",
+    "subscriber",
+    "websocket",
+    "wss",
+    "ws"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/XiaoMing0000/mqtt5-backend.git"
+  },
+  "homepage": "https://gitlab.soraharu.com/xiaoming0000/mqtt5-backend"
 }
