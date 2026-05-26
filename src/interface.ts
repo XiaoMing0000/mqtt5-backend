@@ -9,25 +9,45 @@ import {
 	SubscribeAckReasonCode,
 } from './exception';
 
+/**
+ * Server-side MQTT options advertised to clients (CONNACK properties and related limits).
+ */
 export interface IMqttOptions {
+	/** Protocol name string in CONNECT (MQTT 3.1.1 uses `MQTT`; legacy may use `MQIsdp`). */
 	protocolName?: 'MQTT' | 'MQIsdp';
+	/** Protocol version numbers the server accepts. */
 	protocolVersions?: Array<number>;
-	automaticallyAssignedClientIdentifier?: boolean; // 自动分配客户端 id
-	maximumQoS?: QoSType; // 最大 QoS
-	retainAvailable?: boolean; // 保留消息
-	retainTTL?: number; // 保留消息过期时间
-	maximumPacketSize?: number; // 最大报文长度
-	topicAliasMaximum?: number; // 主题别名最大值， 0 表示禁止客户端 publish 报文使用主题别名
-	wildcardSubscriptionAvailable?: boolean; // 通配符订阅
-	subscriptionIdentifierAvailable?: boolean; // 订阅标识符可用， false 禁止客户端订阅报文
-	sharedSubscriptionAvailable?: boolean; // 共享订阅可用， false 禁止客户端订阅报文
-	sessionExpiryInterval?: number; // 会话过期时间
+	/** When true, the server may assign a client identifier if none was provided. */
+	automaticallyAssignedClientIdentifier?: boolean;
+	/** Highest QoS level the server supports for publishes. */
+	maximumQoS?: QoSType;
+	/** Whether retained messages are available. */
+	retainAvailable?: boolean;
+	/** Time-to-live for retained messages (implementation-specific units). */
+	retainTTL?: number;
+	/** Maximum packet size in bytes; larger packets must not be sent. */
+	maximumPacketSize?: number;
+	/** Maximum topic alias value; `0` disallows topic aliases on client PUBLISH. */
+	topicAliasMaximum?: number;
+	/** Whether wildcard topic filters are allowed in SUBSCRIBE. */
+	wildcardSubscriptionAvailable?: boolean;
+	/** Whether subscription identifiers may appear in SUBSCRIBE; `false` forbids them. */
+	subscriptionIdentifierAvailable?: boolean;
+	/** Whether shared subscriptions are allowed; `false` forbids them in SUBSCRIBE. */
+	sharedSubscriptionAvailable?: boolean;
+	/** Session expiry interval offered or enforced by the server. */
+	sessionExpiryInterval?: number;
+	/** Whether the server sends detailed reason strings/messages where applicable. */
 	sendReasonMessage?: boolean;
-	receiveMaximum?: number; // 接收最大值, 控制接受 PUBLISH QoS 1 和 QoS 2 报文数量
-	serverKeepAlive?: number; // 服务端保持连接时间
+	/** Max number of concurrent QoS 1 and QoS 2 PUBLISH messages the server will send without acknowledgment. */
+	receiveMaximum?: number;
+	/** Server-suggested keep-alive interval in seconds. */
+	serverKeepAlive?: number;
+	/** Max retry count when the server delivers QoS 1/QoS 2 messages to the client. */
+	qosRetryCount?: number;
 }
 
-// MQTT 报文类型
+/** MQTT control packet type (fixed header first nibble). */
 export enum PacketType {
 	RESERVED = 0,
 	CONNECT = 1,
@@ -47,20 +67,23 @@ export enum PacketType {
 	AUTH,
 }
 
+/** MQTT Quality of Service level (0 = at most once, 1 = at least once, 2 = exactly once). */
 export enum QoSType {
 	QoS0 = 0,
 	QoS1,
 	QoS2,
 }
 
+/** Union of property identifier enums used across packet property maps. */
 export type TPropertyIdentifier = PropertyIdentifier | ConnAckPropertyIdentifier | PubCompPropertyIdentifier | PubAckPropertyIdentifier | SubAckPropertyIdentifier;
 
+/** Maps MQTT 5 property identifiers (byte keys) to decoded value types. */
 export type PropertyDataMap = {
 	[0x01]: number;
 	[0x02]: number;
 	[0x03]: string;
 	[0x08]: string;
-	[0x09]: string;
+	[0x09]: string | Buffer;
 	[0x0b]: number;
 	[0x11]: number;
 	[0x12]: string;
@@ -85,6 +108,7 @@ export type PropertyDataMap = {
 	[0x2a]: boolean;
 };
 
+/** MQTT 5 property identifiers for general/CONNECT/PUBLISH-side properties. */
 export enum PropertyIdentifier {
 	payloadFormatIndicator = 0x01,
 	messageExpiryInterval = 0x02,
@@ -115,6 +139,7 @@ export enum PropertyIdentifier {
 	sharedSubscriptionAvailable = 0x2a,
 }
 
+/** Property identifiers allowed in CONNACK. */
 export enum ConnAckPropertyIdentifier {
 	sessionExpiryInterval = 0x11,
 	assignedClientIdentifier = 0x12,
@@ -135,26 +160,34 @@ export enum ConnAckPropertyIdentifier {
 	sharedSubscriptionAvailable = 0x2a,
 }
 
+/** Property identifiers allowed in PUBCOMP. */
 export enum PubCompPropertyIdentifier {
 	reasonString = 0x1f,
 	userProperty = 0x26,
 }
 
+/** Property identifiers allowed in PUBACK. */
 export enum PubAckPropertyIdentifier {
 	reasonString = 0x1f,
 	userProperty = 0x26,
 }
 
+/** Property identifiers allowed in SUBACK. */
 export enum SubAckPropertyIdentifier {
 	reasonString = 0x1f,
 	userProperty = 0x26,
 }
 
+/** Ordered list of user property key/value pairs (MQTT 5 user properties). */
+export type TUserProperty = Array<{ key: string; value: string }>;
+
+/** Cursor into a buffer for incremental parsing or serialization. */
 export interface BufferData {
 	buffer: Buffer;
 	index: number;
 }
 
+/** CONNECT packet connect flags (username, password, will, clean start, etc.). */
 export interface IConnectFlags {
 	username: boolean;
 	password: boolean;
@@ -165,12 +198,13 @@ export interface IConnectFlags {
 	reserved: boolean;
 }
 
+/** Decoded MQTT 5 properties for mixed/general use (CONNECT-related and overlaps). */
 export interface IProperties {
 	payloadFormatIndicator?: number;
 	messageExpiryInterval?: number;
 	contentType?: string;
 	responseTopic?: string;
-	correlationData?: string;
+	correlationData?: string | Buffer;
 	sessionExpiryInterval?: number;
 	receiveMaximum?: number;
 	maximumPacketSize?: number;
@@ -195,6 +229,7 @@ export interface IProperties {
 	sharedSubscriptionAvailable?: boolean;
 }
 
+/** Properties on the CONNECT packet (client to server). */
 export interface IConnectProperties {
 	sessionExpiryInterval?: number;
 	authenticationMethod?: string;
@@ -207,16 +242,18 @@ export interface IConnectProperties {
 	maximumPacketSize?: number;
 }
 
+/** Will message properties embedded in CONNECT. */
 export interface IConnectWillProperties {
 	willDelayInterval?: number;
 	payloadFormatIndicator?: number;
 	messageExpiryInterval?: number;
 	contentType?: string;
 	responseTopic?: string;
-	correlationData?: string;
+	correlationData?: string | Buffer;
 	userProperty?: { [key: string]: any };
 }
 
+/** Properties on CONNACK. */
 export interface IConnAckProperties {
 	sessionExpiryInterval?: number;
 	serverKeepAlive?: number;
@@ -237,18 +274,21 @@ export interface IConnAckProperties {
 	sharedSubscriptionAvailable?: boolean;
 }
 
+/** Properties on PUBLISH. */
 export interface IPublishProperties {
 	payloadFormatIndicator?: number;
 	messageExpiryInterval?: number;
+	messageExpiryTimestamp?: number;
 	contentType?: string;
 	responseTopic?: string;
-	correlationData?: string;
+	correlationData?: string | Buffer;
 	subscriptionIdentifier?: Array<number>;
 	topicAliasMaximum?: number;
 	userProperty?: { [key: string]: any };
 	topicAlias?: number;
 }
 
+/** Properties on DISCONNECT. */
 export interface IDisconnectProperties {
 	sessionExpiryInterval?: number;
 	serverReference?: string;
@@ -256,46 +296,55 @@ export interface IDisconnectProperties {
 	userProperty?: { [key: string]: any };
 }
 
+/** Properties on SUBSCRIBE. */
 export interface ISubscribeProperties {
 	subscriptionIdentifier?: number;
 	userProperty?: { [key: string]: any };
 }
 
+/** Properties on SUBACK. */
 export interface ISubAckProperties {
 	reasonString?: string;
 	userProperty?: { [key: string]: any };
 }
 
+/** Properties on UNSUBSCRIBE and UNSUBACK. */
 export interface IUnsubscribeProperties {
 	reasonString?: string;
 	userProperty?: { [key: string]: any };
 }
 
+/** Properties on UNSUBACK. */
 export interface IUnsubscribeAckProperties {
 	reasonString?: string;
 	userProperty?: { [key: string]: any };
 }
 
+/** Properties on PUBACK. */
 export interface IPubAckProperties {
 	reasonString?: string;
 	userProperty?: { [key: string]: any };
 }
 
+/** Properties on PUBREC. */
 export interface IPubRecProperties {
 	reasonString?: string;
 	userProperty?: { [key: string]: any };
 }
 
+/** Properties on PUBREL. */
 export interface IPubRelProperties {
 	reasonString?: string;
 	userProperty?: { [key: string]: any };
 }
 
+/** Properties on PUBCOMP. */
 export interface IPubCompProperties {
 	reasonString?: string;
 	userProperty?: { [key: string]: any };
 }
 
+/** Properties on AUTH. */
 export interface IAuthProperties {
 	authenticationMethod?: string;
 	authenticationData?: string;
@@ -303,6 +352,7 @@ export interface IAuthProperties {
 	userProperty?: { [key: string]: any };
 }
 
+/** Will message properties (standalone shape). */
 export interface IWillProperties {
 	payloadFormatIndicator?: number;
 	messageExpiryInterval?: number;
@@ -312,6 +362,7 @@ export interface IWillProperties {
 	userProperty?: { [key: string]: any };
 }
 
+/** Union of decoded packet payload shapes for the listed control packet types. */
 export type PacketTypeData =
 	| IPingData
 	| IConnectData
@@ -326,18 +377,21 @@ export type PacketTypeData =
 	| IPubRecData
 	| IPubCompData;
 
+/** Decoded PINGREQ/PINGRESP payload (header only). */
 export interface IPingData {
 	header: {
 		packetType: PacketType;
 	};
 }
 
+/** MQTT protocol version byte as sent in CONNECT (`3` = 3.1, `4` = 3.1.1, `5` = MQTT 5). */
 export enum ProtocolVersion {
 	V3_1 = 3,
 	V3_1_1 = 4,
 	V5 = 5,
 }
 
+/** Decoded CONNECT packet. */
 export interface IConnectData {
 	header: {
 		packetType: PacketType;
@@ -353,12 +407,13 @@ export interface IConnectData {
 		clientIdentifier: string;
 		willProperties?: IConnectWillProperties;
 		willTopic?: string;
-		willPayload?: string;
+		willPayload?: Buffer;
 		username?: string;
-		password?: string;
+		password?: Buffer;
 	};
 }
 
+/** Decoded CONNACK packet. */
 export interface IConnAckData {
 	header: {
 		packetType: PacketType;
@@ -371,6 +426,7 @@ export interface IConnAckData {
 	properties: IConnAckProperties;
 }
 
+/** Decoded PUBLISH packet. */
 export interface IPublishData {
 	header: {
 		packetType: PacketType;
@@ -385,6 +441,7 @@ export interface IPublishData {
 	payload: string;
 }
 
+/** Decoded SUBSCRIBE packet. */
 export interface ISubscribeData {
 	header: {
 		packetType: PacketType;
@@ -394,6 +451,16 @@ export interface ISubscribeData {
 	};
 	properties: ISubscribeProperties;
 	payload: string;
+	payloads?: Array<{
+		topicFilter: string;
+		options: {
+			qos: QoSType;
+			noLocal: boolean;
+			retainAsPublished: boolean;
+			retainHandling: number;
+			retain: number;
+		};
+	}>;
 	options: {
 		qos: QoSType;
 		noLocal: boolean;
@@ -403,6 +470,7 @@ export interface ISubscribeData {
 	};
 }
 
+/** Decoded SUBACK packet. */
 export interface ISubAckData {
 	header: {
 		packetType: PacketType;
@@ -411,8 +479,10 @@ export interface ISubAckData {
 	};
 	properties: ISubAckProperties;
 	reasonCode: SubscribeAckReasonCode;
+	reasonCodes?: SubscribeAckReasonCode[];
 }
 
+/** Decoded UNSUBACK packet. */
 export interface IUnsubAckData {
 	header: {
 		packetType: PacketType;
@@ -423,6 +493,7 @@ export interface IUnsubAckData {
 	reasonCode: SubscribeAckReasonCode;
 }
 
+/** Decoded UNSUBSCRIBE packet. */
 export interface IUnsubscribeData {
 	header: {
 		packetType: PacketType;
@@ -432,8 +503,10 @@ export interface IUnsubscribeData {
 	};
 	properties: IUnsubscribeProperties;
 	payload: string;
+	payloads?: string[];
 }
 
+/** Decoded DISCONNECT packet. */
 export interface IDisconnectData {
 	header: {
 		packetType: PacketType;
@@ -444,6 +517,7 @@ export interface IDisconnectData {
 	properties: IDisconnectProperties;
 }
 
+/** Decoded PUBACK packet. */
 export interface IPubAckData {
 	header: {
 		packetType: PacketType;
@@ -455,6 +529,7 @@ export interface IPubAckData {
 	properties: IPubAckProperties;
 }
 
+/** Decoded PUBREL packet. */
 export interface IPubRelData {
 	header: {
 		packetType: PacketType;
@@ -466,6 +541,7 @@ export interface IPubRelData {
 	properties: IPubRelProperties;
 }
 
+/** Decoded PUBREC packet. */
 export interface IPubRecData {
 	header: {
 		packetType: PacketType;
@@ -477,6 +553,7 @@ export interface IPubRecData {
 	properties: IPubRecProperties;
 }
 
+/** Decoded PUBCOMP packet. */
 export interface IPubCompData {
 	header: {
 		packetType: PacketType;
@@ -488,6 +565,7 @@ export interface IPubCompData {
 	properties: IPubCompProperties;
 }
 
+/** Decoded AUTH packet. */
 export interface IAuthData {
 	header: {
 		packetType: PacketType;

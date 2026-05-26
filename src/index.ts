@@ -6,6 +6,7 @@ import { WebSocketServer } from 'ws';
 import WebSocketAdapter from './websocketAdapter';
 import {
 	AuthenticateException,
+	AuthenticateReasonCode,
 	ConnectAckException,
 	ConnectAckReasonCode,
 	DisconnectException,
@@ -39,10 +40,13 @@ import {
 	ProtocolVersion,
 	QoSType,
 } from './interface';
-import { parseAllPacket } from './parse';
+import { StreamFramer } from './parse';
 import { Manager, TClient } from './manager/manager';
 import { MqttManager } from './mqttManager';
 
+/**
+ * Default MQTT server feature flags and limits merged with user-supplied {@link IMqttOptions}.
+ */
 const mqttDefaultOptions: IMqttOptions = {
 	protocolName: 'MQTT',
 	protocolVersions: [3, 4, 5],
@@ -58,12 +62,22 @@ const mqttDefaultOptions: IMqttOptions = {
 	sessionExpiryInterval: 0,
 	receiveMaximum: 0xffff,
 	serverKeepAlive: 0,
+	qosRetryCount: 3,
 };
 
+/**
+ * Bridges a low-level transport {@link net.Server} (or compatible) to MQTT sessions via {@link MqttManager}.
+ * Exposes Node-style server APIs and registers per-client MQTT lifecycle hooks.
+ */
 class MqttEvent {
 	options: IMqttOptions;
 	private eventListeners: Array<{ event: string; listener: (...args: any[]) => Promise<boolean | void> }> = [];
 
+	/**
+	 * @param server - Underlying TCP/TLS/WebSocket server instance.
+	 * @param clientManager - Shared session and subscription store.
+	 * @param options - Partial MQTT options; merged with {@link mqttDefaultOptions}.
+	 */
 	constructor(
 		readonly server: net.Server,
 		readonly clientManager: Manager,
@@ -71,9 +85,16 @@ class MqttEvent {
 	) {
 		this.clientManager = clientManager;
 		this.options = Object.assign({}, mqttDefaultOptions, options);
+		this.clientManager.setQoSRetryCount(this.options.qosRetryCount);
 		this.mqttConnection = this.mqttConnection.bind(this);
 	}
 
+	/**
+	 * Starts the underlying server listening; arguments match {@link net.Server.listen}.
+	 *
+	 * @param args - Forwarded to {@link net.Server.listen}.
+	 * @returns This instance for chaining.
+	 */
 	listen(port?: number, hostname?: string, backlog?: number, listeningListener?: () => void): this;
 	listen(port?: number, hostname?: string, listeningListener?: () => void): this;
 	listen(port?: number, backlog?: number, listeningListener?: () => void): this;
@@ -88,29 +109,53 @@ class MqttEvent {
 		return this;
 	}
 
+	/**
+	 * Stops accepting new connections and disposes the {@link Manager}.
+	 *
+	 * @param callback - Optional error-first callback when the server has closed.
+	 * @returns This instance for chaining.
+	 */
 	close(callback?: (err?: Error) => void): this {
 		this.server.close(callback);
+		this.clientManager.dispose().catch((err) => {
+			console.error('dispose client manager error:', err);
+		});
 		return this;
 	}
 
+	/**
+	 * @returns The bound address of the underlying server, or `null` / string depending on socket type.
+	 */
 	address() {
 		return this.server.address();
 	}
 
+	/**
+	 * @param cb - Receives the current number of concurrent connections.
+	 */
 	getConnections(cb: (error: Error | null, count: number) => void): void {
 		this.server.getConnections(cb);
 	}
 
+	/**
+	 * Keeps the process alive while the server is idle.
+	 * @returns This instance for chaining.
+	 */
 	ref(): this {
 		this.server.ref();
 		return this;
 	}
 
+	/**
+	 * Allows the process to exit if this server is the only active handle.
+	 * @returns This instance for chaining.
+	 */
 	unref(): this {
 		this.server.unref();
 		return this;
 	}
 
+	/** Maximum concurrent connections allowed by the underlying server. */
 	get maxConnections() {
 		return this.server.maxConnections;
 	}
@@ -118,10 +163,18 @@ class MqttEvent {
 		this.server.maxConnections = maxConnections;
 	}
 
+	/** Whether the underlying server is currently accepting connections. */
 	get listening(): boolean {
 		return this.server.listening;
 	}
 
+	/**
+	 * Registers a listener on the underlying server.
+	 *
+	 * @param event - Event name.
+	 * @param listener - Handler invoked when the event fires.
+	 * @returns This instance for chaining.
+	 */
 	addListener(event: string, listener: (...args: any[]) => void): this;
 	addListener(event: 'close', listener: () => void): this;
 	addListener(event: 'connection', listener: (socket: Socket) => void): this;
@@ -133,6 +186,13 @@ class MqttEvent {
 		return this;
 	}
 
+	/**
+	 * Emits an event on the underlying server.
+	 *
+	 * @param event - Event name or symbol.
+	 * @param args - Event payload.
+	 * @returns `true` if any listener handled the event.
+	 */
 	emit(event: 'close'): boolean;
 	emit(event: 'connection', socket: Socket): boolean;
 	emit(event: 'error', err: Error): boolean;
@@ -142,6 +202,13 @@ class MqttEvent {
 		return this.server.emit(event, ...args);
 	}
 
+	/**
+	 * Subscribes to an event on the underlying server.
+	 *
+	 * @param event - Event name.
+	 * @param listener - Handler invoked on each occurrence.
+	 * @returns This instance for chaining.
+	 */
 	on(event: 'close', listener: () => void): this;
 	on(event: 'connection', listener: (socket: Socket) => void): this;
 	on(event: 'error', listener: (err: Error) => void): this;
@@ -152,6 +219,13 @@ class MqttEvent {
 		return this;
 	}
 
+	/**
+	 * Subscribes once; the listener is removed after the first invocation.
+	 *
+	 * @param event - Event name.
+	 * @param listener - Handler invoked at most once.
+	 * @returns This instance for chaining.
+	 */
 	once(event: 'close', listener: () => void): this;
 	once(event: 'connection', listener: (socket: Socket) => void): this;
 	once(event: 'error', listener: (err: Error) => void): this;
@@ -162,6 +236,13 @@ class MqttEvent {
 		return this;
 	}
 
+	/**
+	 * Adds a listener that runs before existing listeners for the same event.
+	 *
+	 * @param event - Event name.
+	 * @param listener - Handler to prepend.
+	 * @returns This instance for chaining.
+	 */
 	prependListener(event: 'close', listener: () => void): this;
 	prependListener(event: 'connection', listener: (socket: Socket) => void): this;
 	prependListener(event: 'error', listener: (err: Error) => void): this;
@@ -172,6 +253,13 @@ class MqttEvent {
 		return this;
 	}
 
+	/**
+	 * Prepends a one-shot listener removed after the first invocation.
+	 *
+	 * @param event - Event name.
+	 * @param listener - Handler to prepend.
+	 * @returns This instance for chaining.
+	 */
 	prependOnceListener(event: 'close', listener: () => void): this;
 	prependOnceListener(event: 'connection', listener: (socket: Socket) => void): this;
 	prependOnceListener(event: 'error', listener: (err: Error) => void): this;
@@ -182,10 +270,26 @@ class MqttEvent {
 		return this;
 	}
 
+	/**
+	 * Registers a hook invoked for each new MQTT client when that event is emitted on the client.
+	 *
+	 * @param event - Client event name (e.g. `connect`, `publish`).
+	 * @param listener - Async handler; return `false` to abort default handling where applicable.
+	 * @returns This instance for chaining.
+	 */
 	addClientEventListener(event: string, listener: (...args: any[]) => Promise<boolean | void>): this {
 		this.eventListeners.push({ event, listener });
 		return this;
 	}
+
+	/**
+	 * Runs all listeners for `event` on `client` in order; stops if any returns `false`.
+	 *
+	 * @param client - MQTT client emitting the event.
+	 * @param event - Client event name.
+	 * @param args - Arguments passed to each listener.
+	 * @returns `false` if a listener returned `false`; otherwise `true`.
+	 */
 	async clientEmitAsync(client: TClient, event: string, ...args: any[]) {
 		for (const listener of client.listeners(event)) {
 			if (!((await listener(...args)) !== false)) {
@@ -195,6 +299,12 @@ class MqttEvent {
 		return true;
 	}
 
+	/**
+	 * Attaches all {@link addClientEventListener} hooks to the given client.
+	 *
+	 * @param client - Connected MQTT client.
+	 * @returns This instance for chaining.
+	 */
 	private onClientEventListener(client: TClient) {
 		this.eventListeners.forEach((eventListener) => {
 			client.on(eventListener.event, eventListener.listener);
@@ -202,59 +312,109 @@ class MqttEvent {
 		return this;
 	}
 
+	/**
+	 * @param listener - Invoked once per new MQTT client after the socket is accepted.
+	 * @returns This instance for chaining.
+	 */
 	onConnection(listener: (client: TClient) => Promise<void>): this {
 		return this.addClientEventListener('connection', listener);
 	}
 
+	/**
+	 * @param listener - Invoked for the CONNECT packet; return `false` to reject.
+	 * @returns This instance for chaining.
+	 */
 	onConnect(listener: (data: IConnectData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('connect', listener);
 	}
+
+	/**
+	 * @param listener - Invoked for DISCONNECT packets; return `false` to abort default handling.
+	 * @returns This instance for chaining.
+	 */
 	onDisconnect(listener: (data: IDisconnectData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('disconnect', listener);
 	}
 
+	/**
+	 * @param listener - Invoked for PINGREQ; return `false` to skip default PINGRESP.
+	 * @returns This instance for chaining.
+	 */
 	onPing(listener: (client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('ping', listener);
 	}
 
+	/**
+	 * @param listener - Invoked for PUBLISH; return `false` to abort handling.
+	 * @returns This instance for chaining.
+	 */
 	onPublish(listener: (data: IPublishData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('publish', listener);
 	}
 
+	/**
+	 * @param listener - Invoked for PUBREL (QoS 2).
+	 * @returns This instance for chaining.
+	 */
 	onPubRel(listener: (data: IPubRelData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('pubRel', listener);
 	}
 
+	/**
+	 * @param listener - Invoked for PUBREC (QoS 2).
+	 * @returns This instance for chaining.
+	 */
 	onPubRec(listener: (data: IPubRecData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('pubRec', listener);
 	}
 
+	/**
+	 * @param listener - Invoked for PUBCOMP (QoS 2 completion).
+	 * @returns This instance for chaining.
+	 */
 	onPubComp(listener: (data: IPubRecData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('pubComp', listener);
 	}
 
+	/**
+	 * @param listener - Invoked for SUBSCRIBE; return `false` to skip default SUBACK.
+	 * @returns This instance for chaining.
+	 */
 	onSubscribe(listener: (data: ISubscribeData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('subscribe', listener);
 	}
 
+	/**
+	 * @param listener - Invoked for UNSUBSCRIBE.
+	 * @returns This instance for chaining.
+	 */
 	onUnsubscribe(listener: (data: IUnsubscribeData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('unsubscribe', listener);
 	}
 
+	/**
+	 * @param listener - Invoked for MQTT 5 AUTH packets.
+	 * @returns This instance for chaining.
+	 */
 	onAuth(listener: (data: IAuthData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
 		return this.addClientEventListener('auth', listener);
 	}
 
+	/**
+	 * Binds packet parsing, {@link MqttManager} dispatch, and user hooks for one MQTT client transport.
+	 *
+	 * @param client - Socket-like client (TCP or {@link WebSocketAdapter}).
+	 */
 	public async mqttConnection(client: TClient) {
 		const mqttManager = new MqttManager(client, this.clientManager, this.options);
 		this.onClientEventListener(client);
 
 		await this.clientEmitAsync(client, 'connection', client);
 		let protocolVersion = ProtocolVersion.V5;
+		const framer = new StreamFramer();
 		client.on('data', async (buffer) => {
 			try {
-				// 这一层捕获协议错误和未知错误
-				const allPacketData = parseAllPacket(buffer, protocolVersion);
+				const allPacketData = framer.push(buffer, protocolVersion);
 
 				for (const data of allPacketData) {
 					try {
@@ -335,9 +495,9 @@ class MqttEvent {
 		});
 
 		client.on('close', (hadError: boolean) => {
-			// 立即清理客户端数据，避免阻塞
+			// Clear client state synchronously so the close path stays non-blocking.
 			this.clientManager.clearConnect(client);
-			// 异步处理will message，不阻塞主进程
+			// Defer will message publish so it does not block the close handler.
 			setImmediate(() => {
 				mqttManager.publishWillMessage().catch((err) => {
 					console.error('Error publishing will message:', err);
@@ -350,6 +510,13 @@ class MqttEvent {
 	}
 }
 
+/**
+ * Maps structured MQTT exceptions from handlers into wire-level responses via {@link MqttManager}.
+ *
+ * @param error - Thrown exception subclass from `./exception`.
+ * @param mqttManager - Session manager for the active client.
+ * @param data - Parsed packet associated with the error, when applicable.
+ */
 async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: PacketTypeData) {
 	if (error instanceof DisconnectException) {
 		await mqttManager.handleDisconnect(error.code as DisconnectReasonCode, { reasonString: error.msg });
@@ -400,9 +567,9 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
 	} else if (error instanceof PubRelException && data) {
 		const pubRelData: IPubRelData = {
 			header: {
-				packetType: PacketType.PUBREC,
+				packetType: PacketType.PUBREL,
 				received: 0x00,
-				packetIdentifier: data.header.packetType ?? 0,
+				packetIdentifier: (data as IPubRelData).header.packetIdentifier ?? 0,
 				reasonCode: error.code as PubRelReasonCode,
 			},
 			properties: {
@@ -413,7 +580,7 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
 	} else if (error instanceof PubCompException && data) {
 		const pubCompData: IPubCompData = {
 			header: {
-				packetType: PacketType.PUBREC,
+				packetType: PacketType.PUBCOMP,
 				received: 0x00,
 				packetIdentifier: (data as IPubCompData).header.packetIdentifier ?? 0,
 				reasonCode: error.code as PubCompReasonCode,
@@ -424,22 +591,30 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
 		};
 		await mqttManager.handlePubComp(pubCompData);
 	} else if (error instanceof AuthenticateException) {
-		// TODO auth 异常处理
-		// const authData: IAuthData = {
-		// 	header: {
-		// 		packetType: PacketType.AUTH,
-		// 		received: 0x00,
-		// 		reasonCode: error.code as AuthenticateReasonCode,
-		// 	},
-		// 	properties: {},
-		// };
-		// await mqttManager.handleAuth(authData);
+		const authData: IAuthData = {
+			header: {
+				packetType: PacketType.AUTH,
+				received: 0x00,
+				reasonCode: error.code as AuthenticateReasonCode,
+			},
+			properties: {
+				reasonString: error.msg,
+			},
+		};
+		await mqttManager.authHandle(authData);
 	} else {
 		throw error;
 	}
 }
 
+/**
+ * Plain TCP MQTT server using {@link net.createServer}.
+ */
 export class MqttServer extends MqttEvent {
+	/**
+	 * @param clientManager - Shared session and subscription store.
+	 * @param options - Partial MQTT options; merged with {@link mqttDefaultOptions}.
+	 */
 	constructor(
 		readonly clientManager: Manager,
 		options: IMqttOptions = {},
@@ -450,15 +625,27 @@ export class MqttServer extends MqttEvent {
 		this.server.on('connection', this.mqttConnection);
 	}
 
+	/**
+	 * @param args - Forwarded to {@link net.Server.listen}.
+	 * @returns This instance for chaining.
+	 */
 	listen(...args: any): this {
 		this.server.listen(...args);
 		return this;
 	}
 }
 
-// MQTT over TLS/SSL
+/**
+ * MQTT server over TLS; accepts secure TCP connections via {@link tls.createServer}.
+ */
 export class MqttServerTLS extends MqttEvent {
 	server: tls.Server;
+
+	/**
+	 * @param tlsOptions - TLS key, cert, and related options.
+	 * @param clientManager - Shared session and subscription store.
+	 * @param options - Partial MQTT options; merged with {@link mqttDefaultOptions}.
+	 */
 	constructor(tlsOptions: tls.TlsOptions, clientManager: Manager, options: IMqttOptions = {}) {
 		const server = tls.createServer(tlsOptions);
 		super(server, clientManager, options);
@@ -466,18 +653,34 @@ export class MqttServerTLS extends MqttEvent {
 		this.server.on('secureConnection', this.mqttConnection);
 	}
 
+	/**
+	 * @param args - Forwarded to {@link tls.Server.listen}.
+	 * @returns This instance for chaining.
+	 */
 	listen(...args: any): this {
 		this.server.listen(...args);
 		return this;
 	}
 }
 
-// MQTT over WebSocket (HTTP)
+/**
+ * MQTT over WebSocket on plain HTTP; the embedded {@link WebSocketServer} negotiates the `mqtt` subprotocol.
+ */
 export class MqttServerWebSocket extends MqttEvent {
 	private httpServer: http.Server;
+
+	/**
+	 * @param clientManager - Shared session and subscription store.
+	 * @param options - Partial MQTT options; merged with {@link mqttDefaultOptions}.
+	 */
 	constructor(clientManager: Manager, options: IMqttOptions = {}) {
 		const httpServer = http.createServer();
-		const wss = new WebSocketServer({ server: httpServer });
+		const wss = new WebSocketServer({
+			server: httpServer,
+			handleProtocols: (protocols) => {
+				return protocols.has('mqtt') ? 'mqtt' : false;
+			},
+		});
 		super(wss as any, clientManager, options);
 		this.httpServer = httpServer;
 		wss.on('connection', (ws) => {
@@ -486,18 +689,35 @@ export class MqttServerWebSocket extends MqttEvent {
 		});
 	}
 
+	/**
+	 * @param args - Forwarded to {@link http.Server.listen}.
+	 * @returns This instance for chaining.
+	 */
 	listen(...args: any): this {
 		this.httpServer.listen(...args);
 		return this;
 	}
 }
 
-// MQTT over WebSocket (HTTPS/TLS)
+/**
+ * MQTT over WebSocket on HTTPS; same subprotocol selection as {@link MqttServerWebSocket}.
+ */
 export class MqttServerWebSocketSecure extends MqttEvent {
 	httpServer: https.Server;
+
+	/**
+	 * @param httpsOptions - TLS and HTTP server options for {@link https.createServer}.
+	 * @param clientManager - Shared session and subscription store.
+	 * @param options - Partial MQTT options; merged with {@link mqttDefaultOptions}.
+	 */
 	constructor(httpsOptions: https.ServerOptions, clientManager: Manager, options: IMqttOptions = {}) {
 		const httpServer = https.createServer(httpsOptions);
-		const wss = new WebSocketServer({ server: httpServer });
+		const wss = new WebSocketServer({
+			server: httpServer,
+			handleProtocols: (protocols) => {
+				return protocols.has('mqtt') ? 'mqtt' : false;
+			},
+		});
 		super(wss as any, clientManager, options);
 		this.httpServer = httpServer;
 		wss.on('connection', (ws) => {
@@ -506,6 +726,10 @@ export class MqttServerWebSocketSecure extends MqttEvent {
 		});
 	}
 
+	/**
+	 * @param args - Forwarded to {@link https.Server.listen}.
+	 * @returns This instance for chaining.
+	 */
 	listen(...args: any): this {
 		this.httpServer.listen(...args);
 		return this;

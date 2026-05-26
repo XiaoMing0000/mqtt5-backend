@@ -1,57 +1,49 @@
 import net from 'net';
 import type { WebSocket, Data } from 'ws';
+import { StreamFramer } from './parse';
 
-// Adapter: wrap a WebSocket (from 'ws') to provide a net.Socket-like object
-// The adapter extends net.Socket so it can be used where a Socket is expected.
+/**
+ * Adapts a `ws` {@link WebSocket} to a {@link net.Socket}-like interface for MQTT framing.
+ * Extends {@link net.Socket} so callers expecting a TCP socket can use MQTT over WebSocket.
+ */
 export class WebSocketAdapter extends net.Socket {
 	private ws: WebSocket;
-	private cacheBuffer: Buffer[] = [];
-	private expectedLength: number | null = null;
+	private framer = new StreamFramer();
 
+	/**
+	 * Creates an adapter that bridges WebSocket messages to `data` events as framed MQTT packets.
+	 *
+	 * @param ws - The underlying WebSocket connection.
+	 */
 	constructor(ws: WebSocket) {
-		// initialize as an unconnected socket
 		super();
 		this.ws = ws;
 
-		// try to copy remoteAddress if available from underlying socket
 		try {
 			// @typescript-eslint/ban-ts-comment
 			const addr = (ws as any)?._socket?.remoteAddress;
 			if (addr) {
-				// net.Socket.remoteAddress is readonly in typings; assign on the instance as any
 				(this as any).remoteAddress = addr;
 			}
 		} catch (_e) {
-			// ignore
+			this.emit('error', _e as Error);
 		}
 
 		this.ws.on('message', (data: Data) => {
-			const buf = typeof data === 'string' ? Buffer.from(data) : Buffer.from(data as Uint8Array);
-
-			// 将数据包添加到缓存
-			this.cacheBuffer.push(buf);
-			const totalBuffer = Buffer.concat(this.cacheBuffer);
-
-			// 如果还没有确定期望长度，尝试从第一个数据包解析
-			if (this.expectedLength === null) {
-				this.expectedLength = this.parseExpectedLength(totalBuffer);
+			if (typeof data === 'string') {
+				this.emit('error', new Error('MQTT over WebSocket requires binary frames.'));
+				(this.ws as any).close();
+				return;
 			}
+			const buf = Buffer.from(data as Uint8Array);
 
-			// 如果已经达到期望长度，发送完整数据包
-			if (this.expectedLength !== null && totalBuffer.length >= this.expectedLength) {
-				const completePacket = totalBuffer.slice(0, this.expectedLength);
-				this.emit('data', completePacket);
-
-				// 重置缓存和期望长度
-				this.cacheBuffer = [];
-				const currentExpectedLength = this.expectedLength;
-				this.expectedLength = null;
-
-				// 如果还有剩余数据，递归处理
-				if (totalBuffer.length > currentExpectedLength) {
-					const remainingData = totalBuffer.slice(currentExpectedLength);
-					this.handleRemainingData(remainingData);
+			try {
+				const frames = this.framer.extractFrames(buf);
+				for (const frame of frames) {
+					this.emit('data', frame);
 				}
+			} catch (err) {
+				this.emit('error', err as Error);
 			}
 		});
 
@@ -66,75 +58,13 @@ export class WebSocketAdapter extends net.Socket {
 	}
 
 	/**
-	 * 解析期望的数据包长度
-	 * 这里需要根据你的协议格式来实现
-	 * 例如：MQTT 协议中，第二个字节包含剩余长度信息
+	 * Sends bytes through the WebSocket when it is open.
+	 *
+	 * @param buffer - Payload as string or binary data.
+	 * @param encodingOrCb - Optional encoding (if `buffer` is a string), or completion callback.
+	 * @param cb - Optional callback invoked when the send completes or fails.
+	 * @returns `true` if the frame was queued on an open socket; otherwise `false`.
 	 */
-	private parseExpectedLength(buffer: Buffer): number | null {
-		if (buffer.length < 2) {
-			return null; // 数据不够，无法解析长度
-		}
-
-		// 示例：假设是 MQTT 协议，第二个字节开始是剩余长度
-		// 这里需要根据你的实际协议格式来调整
-		try {
-			// MQTT 固定头部至少2字节：1字节控制标志 + 可变长度编码的剩余长度
-			let multiplier = 1;
-			let value = 0;
-			let pos = 1; // 从第二个字节开始
-
-			let encodedByte: number;
-			do {
-				if (pos >= buffer.length) {
-					return null; // 数据不够
-				}
-
-				encodedByte = buffer[pos];
-				value += (encodedByte & 127) * multiplier;
-				multiplier *= 128;
-				pos++;
-
-				if (multiplier > 128 * 128 * 128) {
-					return null; // 长度编码错误
-				}
-			} while ((encodedByte & 128) !== 0);
-
-			// 总长度 = 固定头部长度 + 剩余长度
-			const totalLength = pos + value;
-			return totalLength;
-		} catch (error) {
-			return null;
-		}
-	}
-
-	/**
-	 * 处理剩余数据
-	 */
-	private handleRemainingData(remainingData: Buffer): void {
-		// 将剩余数据作为新的数据包处理
-		this.cacheBuffer.push(remainingData);
-		const totalBuffer = Buffer.concat(this.cacheBuffer);
-
-		if (this.expectedLength === null) {
-			this.expectedLength = this.parseExpectedLength(totalBuffer);
-		}
-
-		if (this.expectedLength !== null && totalBuffer.length >= this.expectedLength) {
-			const completePacket = totalBuffer.slice(0, this.expectedLength);
-			this.emit('data', completePacket);
-
-			this.cacheBuffer = [];
-			const currentExpectedLength = this.expectedLength;
-			this.expectedLength = null;
-
-			if (totalBuffer.length > currentExpectedLength) {
-				const newRemainingData = totalBuffer.slice(currentExpectedLength);
-				this.handleRemainingData(newRemainingData);
-			}
-		}
-	}
-
-	// override write to send via WebSocket
 	write(buffer: string | Uint8Array, encoding?: BufferEncoding, cb?: (err?: Error) => void): boolean;
 	write(buffer: string | Uint8Array, cb?: (err?: Error) => void): boolean;
 	write(buffer: string | Uint8Array, encodingOrCb?: BufferEncoding | ((err?: Error) => void), cb?: (err?: Error) => void): boolean {
@@ -151,7 +81,6 @@ export class WebSocketAdapter extends net.Socket {
 		try {
 			const data = typeof buffer === 'string' ? Buffer.from(buffer, encoding) : Buffer.from(buffer);
 			if ((this.ws as any).readyState === 1) {
-				// ws.send accepts Buffer
 				(this.ws as any).send(data, (err: Error | undefined) => {
 					if (callback) callback(err ?? undefined);
 				});
@@ -163,6 +92,14 @@ export class WebSocketAdapter extends net.Socket {
 		return false;
 	}
 
+	/**
+	 * Flushes optional final data, then closes the WebSocket.
+	 *
+	 * @param bufferOrCallback - Optional last chunk to send, or a callback when fully closed.
+	 * @param encodingOrCallback - Encoding for a string buffer, or a no-arg callback.
+	 * @param callback - Called after the socket is closed when no buffer is sent.
+	 * @returns This instance for chaining.
+	 */
 	end(callback?: () => void): this;
 	end(buffer: string | Uint8Array, callback?: () => void): this;
 	end(buffer: string | Uint8Array, encoding?: BufferEncoding, callback?: () => void): this;
@@ -187,23 +124,33 @@ export class WebSocketAdapter extends net.Socket {
 			this.write(buffer, encoding, () => {
 				try {
 					(this.ws as any).close();
-				} catch (_e) {}
+				} catch (_e) {
+					this.emit('error', _e as Error);
+				}
 				if (cb) cb();
 			});
 		} else {
 			try {
 				(this.ws as any).close();
-			} catch (_e) {}
+			} catch (_e) {
+				this.emit('error', _e as Error);
+			}
 			if (cb) cb();
 		}
 		return this;
 	}
 
+	/**
+	 * Forcefully terminates the WebSocket, then invokes the base {@link net.Socket.destroy}.
+	 *
+	 * @param error - Optional error to associate with the destroyed socket.
+	 * @returns This instance for chaining.
+	 */
 	destroy(error?: Error): this {
 		try {
 			(this.ws as any).terminate();
 		} catch (_e) {
-			// ignore
+			this.emit('error', _e as Error);
 		}
 		return super.destroy(error);
 	}

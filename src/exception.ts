@@ -1,3 +1,4 @@
+/** MQTT 5 CONNACK reason codes (MQTT 5.0 specification). */
 export enum ConnectAckReasonCode {
 	Success = 0x00,
 	ConnectionRefused = 0x01,
@@ -26,6 +27,7 @@ export enum ConnectAckReasonCode {
 	ConnectionRateExceeded = 0x9f,
 }
 
+/** MQTT 5 DISCONNECT reason codes (MQTT 5.0 specification). */
 export enum DisconnectReasonCode {
 	NormalDisconnection = 0x00,
 	DisconnectWithWillMessage = 0x04,
@@ -57,6 +59,7 @@ export enum DisconnectReasonCode {
 	WildcardSubscriptionsNotSupported = 0xa2,
 }
 
+/** MQTT 5 SUBACK reason codes (per subscription, MQTT 5.0 specification). */
 export enum SubscribeAckReasonCode {
 	GrantedQoS0 = 0x00,
 	GrantedQoS1 = 0x01,
@@ -72,6 +75,7 @@ export enum SubscribeAckReasonCode {
 	WildcardSubscriptionsNotSupported = 0xa2,
 }
 
+/** MQTT 5 UNSUBACK reason codes (MQTT 5.0 specification). */
 export enum UnsubscribeAckReasonCode {
 	Success = 0x00,
 	NoSubscriptionFound = 0x11,
@@ -82,6 +86,7 @@ export enum UnsubscribeAckReasonCode {
 	PacketIdentifierInUse = 0x91,
 }
 
+/** MQTT 5 PUBACK reason codes (QoS 1 publish, MQTT 5.0 specification). */
 export enum PubAckReasonCode {
 	Success = 0x00,
 	NoMatchingSubscribers = 0x10,
@@ -94,6 +99,7 @@ export enum PubAckReasonCode {
 	PayloadFormatInvalid = 0x99,
 }
 
+/** MQTT 5 PUBREC reason codes (QoS 2 publish, MQTT 5.0 specification). */
 export enum PubRecReasonCode {
 	Success = 0x00,
 	NoMatchingSubscribers = 0x10,
@@ -106,16 +112,19 @@ export enum PubRecReasonCode {
 	PayloadFormatInvalid = 0x99,
 }
 
+/** MQTT 5 PUBREL reason codes (MQTT 5.0 specification). */
 export enum PubRelReasonCode {
 	Success = 0x00,
 	PacketIdentifierNotFound = 0x92,
 }
 
+/** MQTT 5 PUBCOMP reason codes (MQTT 5.0 specification). */
 export enum PubCompReasonCode {
 	Success = 0x00,
 	PacketIdentifierNotFound = 0x92,
 }
 
+/** MQTT 5 AUTH reason codes (MQTT 5.0 specification). */
 export enum AuthenticateReasonCode {
 	Success = 0x00,
 	ContinueAuthentication = 0x18,
@@ -133,88 +142,139 @@ type TErrorCode =
 	| PubCompReasonCode
 	| AuthenticateReasonCode;
 
+/**
+ * Base class for MQTT protocol errors carrying a wire reason code and a human-readable message.
+ *
+ * Use {@link MqttBasicException.msg} for display; the inherited `Error.message` is intentionally unset.
+ */
 export class MqttBasicException extends Error {
 	private _code: TErrorCode;
 	private _msg: string;
+
+	/**
+	 * @param msg - Human-readable description of the failure.
+	 * @param code - MQTT 5 reason code. Defaults to {@link ConnectAckReasonCode.UnspecifiedError}.
+	 */
 	constructor(msg: string, code: TErrorCode = ConnectAckReasonCode.UnspecifiedError) {
-		super();
+		super(); // No argument: application text lives on `msg`, not `Error.message`
 		this._code = code;
 		this._msg = msg;
 	}
 
+	/**
+	 * @returns The MQTT 5 reason code for this error.
+	 */
 	get code() {
 		return this._code;
 	}
 
+	/**
+	 * @returns The human-readable error message.
+	 */
 	get msg() {
 		return this._msg;
 	}
 }
 
 /**
- * 应用在 connect packet 处理的异常
+ * Thrown while handling a CONNECT/CONNACK flow when the outcome must be expressed as a CONNACK reason code.
  */
 export class ConnectAckException extends MqttBasicException {
+	/**
+	 * @param msg - Human-readable description of the failure.
+	 * @param code - CONNACK reason code. Defaults to {@link ConnectAckReasonCode.UnspecifiedError}.
+	 */
 	constructor(msg: string, code: ConnectAckReasonCode = ConnectAckReasonCode.UnspecifiedError) {
 		super(msg, code);
 	}
 }
 
 /**
- * 应用在 disconnect packet 处理的异常
+ * Thrown when a DISCONNECT must be signaled with a specific disconnect reason code.
  */
 export class DisconnectException extends MqttBasicException {
+	/**
+	 * @param msg - Human-readable description of the failure.
+	 * @param code - DISCONNECT reason code. Defaults to {@link DisconnectReasonCode.UnspecifiedError}.
+	 */
 	constructor(msg: string, code: DisconnectReasonCode = DisconnectReasonCode.UnspecifiedError) {
 		super(msg, code);
 	}
 }
 
 /**
- * 应用在 subscribe packet 处理的异常
+ * Thrown while handling SUBSCRIBE/SUBACK when a subscription result must use a SUBACK reason code.
  */
 export class SubscribeAckException extends MqttBasicException {
+	/**
+	 * @param msg - Human-readable description of the failure.
+	 * @param code - SUBACK reason code. Defaults to {@link SubscribeAckReasonCode.UnspecifiedError}.
+	 */
 	constructor(msg: string, code: SubscribeAckReasonCode = SubscribeAckReasonCode.UnspecifiedError) {
 		super(msg, code);
 	}
 }
 
 /**
- * 应用在 publish packet 处理的异常 （qos = 1）
+ * Thrown for QoS 1 publish handling when the outcome is expressed as a PUBACK reason code.
  */
 export class PubAckException extends MqttBasicException {
+	/**
+	 * @param msg - Human-readable description of the failure.
+	 * @param code - PUBACK reason code. Defaults to {@link PubAckReasonCode.UnspecifiedError}.
+	 */
 	constructor(msg: string, code: PubAckReasonCode = PubAckReasonCode.UnspecifiedError) {
 		super(msg, code);
 	}
 }
 
 /**
- * 应用在 publish packet 处理结束后的异常
+ * Thrown during QoS 2 publish handling when the outcome is expressed as a PUBREC reason code.
  */
 export class PubRecException extends MqttBasicException {
+	/**
+	 * @param msg - Human-readable description of the failure.
+	 * @param code - PUBREC reason code. Defaults to {@link PubRecReasonCode.UnspecifiedError}.
+	 */
 	constructor(msg: string, code: PubRecReasonCode = PubRecReasonCode.UnspecifiedError) {
 		super(msg, code);
 	}
 }
 
 /**
- * 应用在服务端处理客户端的 pubrec packet 的异常
+ * Thrown when the server processes a client PUBREC and must respond with a PUBREL reason code.
  */
 export class PubRelException extends MqttBasicException {
+	/**
+	 * @param msg - Human-readable description of the failure.
+	 * @param code - PUBREL reason code. Defaults to {@link PubRelReasonCode.PacketIdentifierNotFound}.
+	 */
 	constructor(msg: string, code: PubRelReasonCode = PubRelReasonCode.PacketIdentifierNotFound) {
 		super(msg, code);
 	}
 }
 
 /**
- * 应用在服务端解析客户端 pubrel packet 的异常
+ * Thrown when the server parses a client PUBREL and must use a PUBCOMP reason code in the outcome.
  */
 export class PubCompException extends MqttBasicException {
+	/**
+	 * @param msg - Human-readable description of the failure.
+	 * @param code - PUBCOMP reason code. Defaults to {@link PubCompReasonCode.PacketIdentifierNotFound}.
+	 */
 	constructor(msg: string, code: PubCompReasonCode = PubCompReasonCode.PacketIdentifierNotFound) {
 		super(msg, code);
 	}
 }
 
+/**
+ * Thrown during MQTT 5 enhanced authentication (AUTH packet) when a specific authenticate reason code applies.
+ */
 export class AuthenticateException extends MqttBasicException {
+	/**
+	 * @param msg - Human-readable description of the failure.
+	 * @param code - AUTH reason code. Defaults to {@link AuthenticateReasonCode.ContinueAuthentication}.
+	 */
 	constructor(msg: string, code: AuthenticateReasonCode = AuthenticateReasonCode.ContinueAuthentication) {
 		super(msg, code);
 	}

@@ -6,6 +6,7 @@ import {
 	utf8DecodedString,
 	utf8StringPair,
 	variableString,
+	binaryData,
 	integerToOneUint8,
 	integerToTwoUint8,
 	integerToFourUint8,
@@ -13,6 +14,7 @@ import {
 	encodeVariableByteInteger,
 	mergeUint8Arrays,
 	encodeUTF8String,
+	encodeBinaryData,
 	parsePacket,
 	parseConnect,
 	parsePublish,
@@ -168,6 +170,39 @@ describe('parse', () => {
 			const buffer = Buffer.from(bytes);
 			const data: BufferData = { buffer, index: 0 };
 			expect(variableString(data)).toBe(expected);
+		});
+	});
+
+	describe('binaryData', () => {
+		test('should decode binary data', () => {
+			const raw = Buffer.from([0x01, 0x02, 0x03, 0xff]);
+			const buffer = Buffer.from([0x00, 0x04, ...raw]);
+			const data: BufferData = { buffer, index: 0 };
+			const result = binaryData(data);
+			expect(Buffer.isBuffer(result)).toBe(true);
+			expect(result).toEqual(raw);
+			expect(data.index).toBe(6);
+		});
+
+		test('should decode empty binary data', () => {
+			const buffer = Buffer.from([0x00, 0x00]);
+			const data: BufferData = { buffer, index: 0 };
+			const result = binaryData(data);
+			expect(result.length).toBe(0);
+		});
+	});
+
+	describe('encodeBinaryData', () => {
+		test('should encode binary data', () => {
+			const raw = Buffer.from([0x01, 0x02, 0x03]);
+			const result = encodeBinaryData(raw);
+			expect(result).toEqual([0x00, 0x03, 0x01, 0x02, 0x03]);
+		});
+
+		test('should encode empty binary data', () => {
+			const raw = Buffer.from([]);
+			const result = encodeBinaryData(raw);
+			expect(result).toEqual([0x00, 0x00]);
 		});
 	});
 
@@ -366,6 +401,94 @@ describe('parse', () => {
 			expect(result.payload.clientIdentifier).toBe(clientId);
 		});
 
+		test('should parse CONNECT with username only', () => {
+			const username = 'user1';
+			const usernameBytes = Buffer.from(username);
+			const buffer = Buffer.from([
+				0x10,
+				0x0e + 2 + usernameBytes.length,
+				0x00,
+				0x04,
+				0x4d,
+				0x51,
+				0x54,
+				0x54,
+				0x05,
+				0x82, // username flag + clean start
+				0x00,
+				0x00,
+				0x00,
+				0x00,
+				0x00,
+				0x00,
+				usernameBytes.length,
+				...usernameBytes,
+			]);
+			const result = parseConnect(buffer);
+			expect(result.payload.username).toBe(username);
+			expect(result.payload.password).toBeUndefined();
+		});
+
+		test('should parse CONNECT with password only (v5)', () => {
+			const password = Buffer.from([0x01, 0x02, 0x03]);
+			const buffer = Buffer.from([
+				0x10,
+				0x0e + 2 + password.length,
+				0x00,
+				0x04,
+				0x4d,
+				0x51,
+				0x54,
+				0x54,
+				0x05,
+				0x42, // password flag + clean start
+				0x00,
+				0x00,
+				0x00,
+				0x00,
+				0x00,
+				0x00,
+				password.length,
+				...password,
+			]);
+			const result = parseConnect(buffer);
+			expect(result.payload.username).toBeUndefined();
+			expect(Buffer.isBuffer(result.payload.password)).toBe(true);
+			expect(result.payload.password).toEqual(password);
+		});
+
+		test('should parse CONNECT with both username and password', () => {
+			const username = 'admin';
+			const password = Buffer.from('secret123');
+			const usernameBytes = Buffer.from(username);
+			const buffer = Buffer.from([
+				0x10,
+				0x0e + 2 + usernameBytes.length + 2 + password.length,
+				0x00,
+				0x04,
+				0x4d,
+				0x51,
+				0x54,
+				0x54,
+				0x05,
+				0xc2, // username + password + clean start
+				0x00,
+				0x00,
+				0x00,
+				0x00,
+				0x00,
+				0x00,
+				usernameBytes.length,
+				...usernameBytes,
+				0x00,
+				password.length,
+				...password,
+			]);
+			const result = parseConnect(buffer);
+			expect(result.payload.username).toBe(username);
+			expect(result.payload.password).toEqual(password);
+		});
+
 		test('should throw error for invalid connect flags', () => {
 			const buffer = Buffer.from([
 				0x10, // CONNECT packet type
@@ -502,6 +625,23 @@ describe('parse', () => {
 			parsePubAck(buffer, pubAckData, ProtocolVersion.V3_1_1);
 			expect(pubAckData.header.packetIdentifier).toBe(packetId);
 		});
+
+		test('should parse minimal PUBACK packet (remaining length = 2)', () => {
+			const buffer = Buffer.from([PacketType.PUBACK << 4, 0x02, 0x00, 0x05]);
+			const pubAckData: IPubAckData = {
+				header: {
+					packetType: PacketType.PUBACK,
+					received: 0x00,
+					remainingLength: 0,
+					packetIdentifier: 0,
+					reasonCode: 0xff as any,
+				},
+				properties: {},
+			};
+			parsePubAck(buffer, pubAckData, ProtocolVersion.V5);
+			expect(pubAckData.header.packetIdentifier).toBe(5);
+			expect(pubAckData.header.reasonCode).toBe(0x00);
+		});
 	});
 
 	describe('parsePubRel', () => {
@@ -556,8 +696,25 @@ describe('parse', () => {
 				},
 				properties: {},
 			};
-			parsePubComp(buffer, pubCompData);
+			parsePubComp(buffer, pubCompData, ProtocolVersion.V3_1_1);
 			expect(pubCompData.header.packetIdentifier).toBe(packetId);
+		});
+
+		test('should parse PUBCOMP minimal v5 packet (remaining length = 2)', () => {
+			const buffer = Buffer.from([PacketType.PUBCOMP << 4, 0x02, 0x00, 0x01]);
+			const pubCompData: IPubRecData = {
+				header: {
+					packetType: PacketType.PUBCOMP,
+					received: 0x00,
+					remainingLength: 0,
+					packetIdentifier: 0,
+					reasonCode: 0x00,
+				},
+				properties: {},
+			};
+			parsePubComp(buffer, pubCompData, ProtocolVersion.V5);
+			expect(pubCompData.header.packetIdentifier).toBe(1);
+			expect(pubCompData.header.reasonCode).toBe(0x00);
 		});
 	});
 
@@ -597,6 +754,49 @@ describe('parse', () => {
 			parseSubscribe(buffer, subData, ProtocolVersion.V5);
 			expect(subData.header.packetIdentifier).toBe(packetId);
 			expect(subData.payload).toBe(topic);
+			expect(subData.payloads?.length).toBe(1);
+		});
+
+		test('should parse SUBSCRIBE packet with multiple topic filters', () => {
+			const topic1 = 'test/topic/1';
+			const topic2 = 'test/topic/2';
+			const topic1Bytes = Buffer.from(topic1);
+			const topic2Bytes = Buffer.from(topic2);
+			const remainingLength = 2 + 1 + 2 + topic1Bytes.length + 1 + 2 + topic2Bytes.length + 1;
+			const buffer = Buffer.from([
+				(PacketType.SUBSCRIBE << 4) | 0x02,
+				remainingLength,
+				0x12,
+				0x34,
+				0x00,
+				0x00,
+				topic1Bytes.length,
+				...topic1Bytes,
+				0x00,
+				0x00,
+				topic2Bytes.length,
+				...topic2Bytes,
+				0x01,
+			]);
+			const subData: ISubscribeData = {
+				header: {
+					packetType: PacketType.RESERVED,
+					received: 0x02,
+					remainingLength: 0,
+					packetIdentifier: 0,
+				},
+				properties: {},
+				payload: '',
+				options: {
+					qos: QoSType.QoS0,
+					noLocal: false,
+					retainAsPublished: false,
+					retainHandling: 0,
+					retain: 0,
+				},
+			};
+			parseSubscribe(buffer, subData, ProtocolVersion.V5);
+			expect(subData.payloads?.map((item) => item.topicFilter)).toEqual([topic1, topic2]);
 		});
 	});
 
@@ -628,6 +828,40 @@ describe('parse', () => {
 			parseUnsubscribe(buffer, unsubscribeData, ProtocolVersion.V5);
 			expect(unsubscribeData.header.packetIdentifier).toBe(packetId);
 			expect(unsubscribeData.payload).toBe(topic);
+			expect(unsubscribeData.payloads?.length).toBe(1);
+		});
+
+		test('should parse UNSUBSCRIBE packet with multiple topic filters', () => {
+			const topic1 = 'test/topic/1';
+			const topic2 = 'test/topic/2';
+			const topic1Bytes = Buffer.from(topic1);
+			const topic2Bytes = Buffer.from(topic2);
+			const remainingLength = 2 + 1 + 2 + topic1Bytes.length + 2 + topic2Bytes.length;
+			const buffer = Buffer.from([
+				(PacketType.UNSUBSCRIBE << 4) | 0x02,
+				remainingLength,
+				0x12,
+				0x34,
+				0x00,
+				0x00,
+				topic1Bytes.length,
+				...topic1Bytes,
+				0x00,
+				topic2Bytes.length,
+				...topic2Bytes,
+			]);
+			const unsubscribeData: IUnsubscribeData = {
+				header: {
+					packetType: PacketType.RESERVED,
+					received: 0x02,
+					remainingLength: 0,
+					packetIdentifier: 0,
+				},
+				properties: {},
+				payload: '',
+			};
+			parseUnsubscribe(buffer, unsubscribeData, ProtocolVersion.V5);
+			expect(unsubscribeData.payloads).toEqual([topic1, topic2]);
 		});
 	});
 
@@ -651,6 +885,36 @@ describe('parse', () => {
 			parseDisconnect(buffer, disconnectData, ProtocolVersion.V5);
 			expect(disconnectData.header.packetType).toBe(PacketType.DISCONNECT);
 		});
+
+		test('should parse minimal DISCONNECT packet (remaining length = 0)', () => {
+			const buffer = Buffer.from([PacketType.DISCONNECT << 4, 0x00]);
+			const disconnectData: IDisconnectData = {
+				header: {
+					packetType: PacketType.DISCONNECT,
+					received: 0,
+					remainingLength: 0,
+					reasonCode: 0xff as any,
+				},
+				properties: {},
+			};
+			parseDisconnect(buffer, disconnectData, ProtocolVersion.V5);
+			expect(disconnectData.header.reasonCode).toBe(0x00);
+		});
+
+		test('should parse DISCONNECT with reason code only (no properties)', () => {
+			const buffer = Buffer.from([PacketType.DISCONNECT << 4, 0x01, 0x04]);
+			const disconnectData: IDisconnectData = {
+				header: {
+					packetType: PacketType.DISCONNECT,
+					received: 0,
+					remainingLength: 0,
+					reasonCode: 0x00,
+				},
+				properties: {},
+			};
+			parseDisconnect(buffer, disconnectData, ProtocolVersion.V5);
+			expect(disconnectData.header.reasonCode).toBe(0x04);
+		});
 	});
 
 	describe('parseAuth', () => {
@@ -672,6 +936,36 @@ describe('parse', () => {
 			};
 			parseAuth(buffer, authData, ProtocolVersion.V5);
 			expect(authData.header.packetType).toBe(PacketType.AUTH);
+		});
+
+		test('should parse minimal AUTH packet (remaining length = 0)', () => {
+			const buffer = Buffer.from([PacketType.AUTH << 4, 0x00]);
+			const authData: IAuthData = {
+				header: {
+					packetType: PacketType.AUTH,
+					received: 0,
+					remainingLength: 0,
+					reasonCode: 0xff as any,
+				},
+				properties: {},
+			};
+			parseAuth(buffer, authData, ProtocolVersion.V5);
+			expect(authData.header.reasonCode).toBe(0x00);
+		});
+
+		test('should parse AUTH with reason code only (no properties)', () => {
+			const buffer = Buffer.from([PacketType.AUTH << 4, 0x01, 0x18]);
+			const authData: IAuthData = {
+				header: {
+					packetType: PacketType.AUTH,
+					received: 0,
+					remainingLength: 0,
+					reasonCode: 0x00,
+				},
+				properties: {},
+			};
+			parseAuth(buffer, authData, ProtocolVersion.V5);
+			expect(authData.header.reasonCode).toBe(0x18);
 		});
 	});
 
@@ -781,6 +1075,22 @@ describe('parse', () => {
 			const buffer = encodeSubAckPacket(subAckData, ProtocolVersion.V5);
 			expect(Buffer.isBuffer(buffer)).toBe(true);
 			expect(buffer[0] >> 4).toBe(PacketType.SUBACK);
+		});
+
+		test('should encode SUBACK packet with multiple reason codes', () => {
+			const subAckData: ISubAckData = {
+				header: {
+					packetType: PacketType.SUBACK,
+					retain: 0,
+					packetIdentifier: 0x1234,
+				},
+				properties: {},
+				reasonCode: 0x00,
+				reasonCodes: [0x00, 0x01, 0x80],
+			};
+			const buffer = encodeSubAckPacket(subAckData, ProtocolVersion.V5);
+			expect(buffer[0] >> 4).toBe(PacketType.SUBACK);
+			expect(buffer.slice(-3)).toEqual(Buffer.from([0x00, 0x01, 0x80]));
 		});
 	});
 });

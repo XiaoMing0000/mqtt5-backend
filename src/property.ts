@@ -20,6 +20,7 @@ import {
 	IConnectWillProperties,
 } from './interface';
 import {
+	binaryData,
 	fourByteInteger,
 	integerToFourUint8,
 	integerToOneUint8,
@@ -27,6 +28,7 @@ import {
 	oneByteInteger,
 	stringToVariableByteInteger,
 	twoByteInteger,
+	encodeBinaryData,
 	encodeUTF8String,
 	utf8DecodedString,
 	utf8StringPair,
@@ -35,10 +37,14 @@ import {
 } from './parse';
 
 /**
- * 解析所有报文属性
- * @param buffer
- * @param index
- * @returns
+ * Parses MQTT 5.0 properties from a buffer of consecutive identifier/value pairs (the property list only).
+ *
+ * Callers typically pass the bytes that follow the Variable Byte Integer **Properties Length** in a packet (this buffer does not include that length prefix).
+ * Unknown property identifiers cause parsing to stop at the current position.
+ *
+ * @param buffer - Raw bytes: property id octet(s) plus encoded value(s), as in the spec Properties Data
+ * @param index - Optional start offset in `buffer` (defaults to 0)
+ * @returns Parsed property bag (`IProperties`)
  */
 export function parseProperties(buffer: Buffer, index?: number) {
 	const properties: IProperties = {};
@@ -78,7 +84,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				if (properties.correlationData) {
 					throw new DisconnectException('It is a Protocol Error to include Correlation Data more than once.', DisconnectReasonCode.ProtocolError);
 				}
-				properties.correlationData = utf8DecodedString(data);
+				properties.correlationData = binaryData(data);
 				break;
 			case PropertyIdentifier.subscriptionIdentifier:
 				data.index++;
@@ -270,6 +276,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
 				properties.sharedSubscriptionAvailable = !!oneByteInteger(data);
 				break;
 			default:
+				// Unknown id: skip the rest of this property slice (callers pass bounded buffers)
 				data.index = buffer.length;
 				break;
 		}
@@ -278,10 +285,11 @@ export function parseProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 解析 connect 报文的属性
- * @param buffer
- * @param index
- * @returns
+ * Parses the Properties field for an MQTT 5.0 CONNECT packet (variable header).
+ *
+ * @param buffer - Raw bytes of the Properties field
+ * @param index - Optional start offset in `buffer` (defaults to 0)
+ * @returns Parsed CONNECT properties (`IConnectProperties`)
  */
 export function parseConnectProperties(buffer: Buffer, index?: number) {
 	const properties: IConnectProperties = {};
@@ -377,10 +385,11 @@ export function parseConnectProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 解析 connack 报文的属性
- * @param buffer
- * @param index
- * @returns
+ * Parses the Properties field for an MQTT 5.0 CONNACK packet.
+ *
+ * @param buffer - Raw bytes of the Properties field
+ * @param index - Optional start offset in `buffer` (defaults to 0)
+ * @returns Parsed CONNACK properties (`IConnAckProperties`)
  */
 export function parseConnAckProperties(buffer: Buffer, index?: number) {
 	const properties: IConnAckProperties = {};
@@ -541,10 +550,11 @@ export function parseConnAckProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 解析 disconnect 报文的属性
- * @param buffer
- * @param index
- * @returns
+ * Parses the Properties field for an MQTT 5.0 DISCONNECT packet.
+ *
+ * @param buffer - Raw bytes of the Properties field
+ * @param index - Optional start offset in `buffer` (defaults to 0)
+ * @returns Parsed DISCONNECT properties (`IDisconnectProperties`)
  */
 export function parseDisconnectProperties(buffer: Buffer, index?: number) {
 	const properties: IDisconnectProperties = {};
@@ -593,10 +603,11 @@ export function parseDisconnectProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 解析 subscribe 报文的属性
- * @param buffer
- * @param index
- * @returns
+ * Parses the Properties field for an MQTT 5.0 SUBSCRIBE packet.
+ *
+ * @param buffer - Raw bytes of the Properties field
+ * @param index - Optional start offset in `buffer` (defaults to 0)
+ * @returns Parsed SUBSCRIBE properties (`ISubscribeProperties`)
  */
 export function parseSubscribeProperties(buffer: Buffer, index?: number) {
 	const properties: ISubscribeProperties = {};
@@ -634,10 +645,11 @@ export function parseSubscribeProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 解析 suback 报文的属性
- * @param buffer
- * @param index
- * @returns
+ * Parses the Properties field for an MQTT 5.0 SUBACK packet.
+ *
+ * @param buffer - Raw bytes of the Properties field
+ * @param index - Optional start offset in `buffer` (defaults to 0)
+ * @returns Parsed SUBACK properties (`ISubAckProperties`)
  */
 export function parseSubAckProperties(buffer: Buffer, index?: number) {
 	const properties: ISubAckProperties = {};
@@ -672,10 +684,11 @@ export function parseSubAckProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 解析 unsubscribe 报文的属性
- * @param buffer
- * @param index
- * @returns
+ * Parses the Properties field for an MQTT 5.0 UNSUBSCRIBE packet.
+ *
+ * @param buffer - Raw bytes of the Properties field
+ * @param index - Optional start offset in `buffer` (defaults to 0)
+ * @returns Parsed UNSUBSCRIBE properties (`IUnsubscribeProperties`)
  */
 export function parseUnsubscribeProperties(buffer: Buffer, index?: number) {
 	const properties: IUnsubscribeProperties = {};
@@ -703,10 +716,11 @@ export function parseUnsubscribeProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 解析 unsubscribe ack 报文的属性
- * @param buffer
- * @param index
- * @returns
+ * Parses the Properties field for an MQTT 5.0 UNSUBACK packet.
+ *
+ * @param buffer - Raw bytes of the Properties field
+ * @param index - Optional start offset in `buffer` (defaults to 0)
+ * @returns Parsed UNSUBACK properties (`IUnsubscribeAckProperties`)
  */
 export function parseUnsubscribeAckProperties(buffer: Buffer, index?: number) {
 	const properties: IUnsubscribeAckProperties = {};
@@ -734,10 +748,11 @@ export function parseUnsubscribeAckProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 解析 publish 报文的属性
- * @param buffer
- * @param index
- * @returns
+ * Parses the Properties field for an MQTT 5.0 PUBLISH packet.
+ *
+ * @param buffer - Raw bytes of the Properties field
+ * @param index - Optional start offset in `buffer` (defaults to 0)
+ * @returns Parsed PUBLISH properties (`IPublishProperties`)
  */
 export function parsePublishProperties(buffer: Buffer, index?: number) {
 	const properties: IPublishProperties = {};
@@ -780,7 +795,7 @@ export function parsePublishProperties(buffer: Buffer, index?: number) {
 				if (properties.correlationData) {
 					throw new DisconnectException('It is a Protocol Error to include Correlation Data more than once.', DisconnectReasonCode.ProtocolError);
 				}
-				properties.correlationData = utf8DecodedString(data);
+				properties.correlationData = binaryData(data);
 				break;
 			case PropertyIdentifier.subscriptionIdentifier: {
 				data.index++;
@@ -827,10 +842,11 @@ export function parsePublishProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 解析 connect 报文的 payload 内部的 will 属性
- * @param buffer
- * @param index
- * @returns
+ * Parses the Will Properties field inside the CONNECT payload (MQTT 5.0 Will properties).
+ *
+ * @param buffer - Raw bytes of the Will Properties field
+ * @param index - Optional start offset in `buffer` (defaults to 0)
+ * @returns Parsed Will properties (`IConnectWillProperties`)
  */
 export function parseConnectWillProperties(buffer: Buffer, index?: number) {
 	const properties: IConnectWillProperties = {};
@@ -880,7 +896,7 @@ export function parseConnectWillProperties(buffer: Buffer, index?: number) {
 				if (properties.correlationData) {
 					throw new DisconnectException('It is a Protocol Error to include Correlation Data more than once.', DisconnectReasonCode.ProtocolError);
 				}
-				properties.correlationData = utf8DecodedString(data);
+				properties.correlationData = binaryData(data);
 				break;
 			case PropertyIdentifier.userProperty: {
 				data.index++;
@@ -903,10 +919,11 @@ export function parseConnectWillProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 解析 puback 报文的属性
- * @param buffer
- * @param index
- * @returns
+ * Parses the Properties field for an MQTT 5.0 PUBACK packet.
+ *
+ * @param buffer - Raw bytes of the Properties field
+ * @param index - Optional start offset in `buffer` (defaults to 0)
+ * @returns Parsed PUBACK properties (`IPubAckProperties`)
  */
 export function parsePubAckProperties(buffer: Buffer, index?: number) {
 	const properties: IPubAckProperties = {};
@@ -941,10 +958,11 @@ export function parsePubAckProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 解析 pubrec 报文的属性
- * @param buffer
- * @param index
- * @returns
+ * Parses the Properties field for an MQTT 5.0 PUBREC packet.
+ *
+ * @param buffer - Raw bytes of the Properties field
+ * @param index - Optional start offset in `buffer` (defaults to 0)
+ * @returns Parsed PUBREC properties (`IPubRecProperties`)
  */
 export function parsePubRecProperties(buffer: Buffer, index?: number) {
 	const properties: IPubRecProperties = {};
@@ -979,10 +997,11 @@ export function parsePubRecProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 解析 pubrel 报文的属性
- * @param buffer
- * @param index
- * @returns
+ * Parses the Properties field for an MQTT 5.0 PUBREL packet.
+ *
+ * @param buffer - Raw bytes of the Properties field
+ * @param index - Optional start offset in `buffer` (defaults to 0)
+ * @returns Parsed PUBREL properties (`IPubRelProperties`)
  */
 export function parsePubRelProperties(buffer: Buffer, index?: number) {
 	const properties: IPubRelProperties = {};
@@ -1017,10 +1036,11 @@ export function parsePubRelProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 解析 pubcomp 报文的属性
- * @param buffer
- * @param index
- * @returns
+ * Parses the Properties field for an MQTT 5.0 PUBCOMP packet.
+ *
+ * @param buffer - Raw bytes of the Properties field
+ * @param index - Optional start offset in `buffer` (defaults to 0)
+ * @returns Parsed PUBCOMP properties (`IPubCompProperties`)
  */
 export function parsePubCompProperties(buffer: Buffer, index?: number) {
 	const properties: IPubCompProperties = {};
@@ -1055,10 +1075,11 @@ export function parsePubCompProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 解析 auth 报文的属性
- * @param buffer
- * @param index
- * @returns
+ * Parses the Properties field for an MQTT 5.0 AUTH packet.
+ *
+ * @param buffer - Raw bytes of the Properties field
+ * @param index - Optional start offset in `buffer` (defaults to 0)
+ * @returns Parsed AUTH properties (`IAuthProperties`)
  */
 export function parseAuthProperties(buffer: Buffer, index?: number) {
 	const properties: IAuthProperties = {};
@@ -1107,10 +1128,14 @@ export function parseAuthProperties(buffer: Buffer, index?: number) {
 }
 
 /**
- * 解析 subscribe 报文的属性
- * @param id
- * @param data
- * @returns
+ * Encodes a single MQTT 5.0 property (identifier plus value) to on-the-wire bytes.
+ *
+ * For {@link PropertyIdentifier.userProperty}, `data` is a key/value map and may expand to multiple identifier blocks.
+ * For {@link PropertyIdentifier.subscriptionIdentifier} with an array, emits one property block per element.
+ *
+ * @param id - Property identifier (`PropertyIdentifier`)
+ * @param data - Value whose shape matches `PropertyDataMap[id]`
+ * @returns Byte sequence: property id followed by encoded value(s); empty array if `id` is not handled
  */
 export function encodeProperties<K extends keyof PropertyDataMap>(id: K, data: PropertyDataMap[K]): Array<number> {
 	switch (id) {
@@ -1123,6 +1148,9 @@ export function encodeProperties<K extends keyof PropertyDataMap>(id: K, data: P
 		case PropertyIdentifier.responseTopic:
 			return [PropertyIdentifier.responseTopic, ...encodeUTF8String(data as string)];
 		case PropertyIdentifier.correlationData:
+			if (Buffer.isBuffer(data)) {
+				return [PropertyIdentifier.correlationData, ...encodeBinaryData(data)];
+			}
 			return [PropertyIdentifier.correlationData, ...encodeUTF8String(data as string)];
 		case PropertyIdentifier.subscriptionIdentifier:
 			if (Array.isArray(data)) {

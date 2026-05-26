@@ -1,11 +1,11 @@
 import {
+	AuthenticateException,
+	AuthenticateReasonCode,
 	DisconnectException,
 	DisconnectReasonCode,
 	ConnectAckReasonCode,
 	PubAckException,
-	PubAckReasonCode,
 	PubCompReasonCode,
-	SubscribeAckException,
 	SubscribeAckReasonCode,
 	UnsubscribeAckReasonCode,
 	ConnectAckException,
@@ -46,19 +46,27 @@ import { verifyTopic, isWildcardTopic, topicToRegEx } from './topicFilters';
 import { generateClientIdentifier } from './utils';
 
 /**
- * 报文消息处理方法命名规则
- * 1. 服务端接口客户端报文： packetType + Handle
- * 		e.g. connectHandle、subscribeHandle、publishHandle
- * 2. 服务端向客户端发送报文：handle + PacketType
- * 		e.g. handleConnAck、handleDisconnect、handlePublish
+ * Per-connection MQTT control-plane logic: validates inbound packets, emits application events,
+ * and encodes outbound packets for one client.
+ *
+ * @remarks
+ * **Handler naming**
+ * - Server receives from client: `{packetType}Handle` (e.g. {@link MqttManager.connectHandle}, {@link MqttManager.publishHandle}).
+ * - Server sends to client: `handle{PacketType}` (e.g. {@link MqttManager.handleConnAck}, {@link MqttManager.handleDisconnect}, {@link MqttManager.handlePublish}).
+ *
+ * **QoS 1/2 recovery**
+ * A static map stores incomplete outbound publishes / PUBREL state per client id so sessions can resume after `cleanStart: false`.
  */
-
 export class MqttManager {
-	// 当前客户推送消息的 topic alisa name
+	/** Outbound QoS 1/2 state keyed by client identifier (publish snapshot or pubrel placeholder) for session resume. */
+	private static readonly outboundStore = new Map<string, Map<number, { type: 'publish' | 'pubrel'; publish?: IPublishData }>>();
 	topicAliasNameMap: { [key: number]: string } = {};
 	receiveCounter = 0;
 	clientIdentifier = '';
 	isAuth = false;
+	private authMethod?: string;
+	private authDone = true;
+	private inboundQoS2: Set<number> = new Set();
 	protected connData: IConnectData = {
 		header: {
 			packetType: PacketType.RESERVED,
@@ -75,22 +83,87 @@ export class MqttManager {
 		},
 	};
 	private errorDisconnect = true;
-
+	/**
+	 * @param client - Underlying socket/session used to read and write MQTT frames.
+	 * @param clientManager - Broker-side registry for sessions, subscriptions, and identifiers.
+	 * @param options - Feature flags and limits advertised in CONNACK and enforced on publish/subscribe.
+	 */
 	constructor(
 		private readonly client: TClient,
 		private readonly clientManager: Manager,
 		private readonly options: IMqttOptions,
 	) {}
-
-	public async commonHandle(data: PacketTypeData) {
-		if (this.isAuth && data.header.packetType !== PacketType.AUTH) {
-			throw new DisconnectException('The Server is not authorized to accept the CONNECT packet.', DisconnectReasonCode.NotAuthorized);
+	/**
+	 * Returns the outbound recovery queue for a client, creating it if missing.
+	 *
+	 * @param clientIdentifier - MQTT client identifier.
+	 * @returns The per-client map of packet identifier → queued outbound item.
+	 */
+	private getOutboundQueue(clientIdentifier: string) {
+		let queue = MqttManager.outboundStore.get(clientIdentifier);
+		if (!queue) {
+			queue = new Map();
+			MqttManager.outboundStore.set(clientIdentifier, queue);
+		}
+		return queue;
+	}
+	/**
+	 * Drops all queued outbound state for a client (e.g. on clean start).
+	 *
+	 * @param clientIdentifier - MQTT client identifier.
+	 */
+	private clearOutboundQueue(clientIdentifier: string) {
+		MqttManager.outboundStore.delete(clientIdentifier);
+	}
+	/**
+	 * Re-sends unfinished QoS 1 publishes (with DUP) and completes QoS 2 PUBREL legs after reconnect.
+	 *
+	 * @param clientIdentifier - MQTT client identifier whose queue should be replayed.
+	 */
+	private async restoreOutboundQueue(clientIdentifier: string) {
+		const queue = MqttManager.outboundStore.get(clientIdentifier);
+		if (!queue || !queue.size) {
+			return;
+		}
+		for (const [packetIdentifier, item] of queue.entries()) {
+			if (item.type === 'publish' && item.publish) {
+				const replayData: IPublishData = JSON.parse(JSON.stringify(item.publish));
+				replayData.header.packetIdentifier = packetIdentifier;
+				replayData.header.dupFlag = true;
+				const packet = encodePublishPacket(replayData, this.connData.header.protocolVersion);
+				this.client.write(packet);
+			} else if (item.type === 'pubrel') {
+				await this.handlePubRel({
+					header: {
+						packetType: PacketType.PUBREC,
+						packetIdentifier,
+						received: 0x00,
+						reasonCode: 0x00,
+					},
+					properties: {},
+				});
+			}
 		}
 	}
-
-	/** 消息： 服务端 -> 客户端
-	 * 连接响应报文
-	 * @returns
+	/**
+	 * Enforces that non-AUTH packets are rejected while an authentication exchange is in progress.
+	 *
+	 * @param data - Decoded packet header and payload envelope.
+	 * @throws {@link DisconnectException} When AUTH is required but another packet type arrives.
+	 */
+	public async commonHandle(data: PacketTypeData) {
+		if (!this.authDone && data.header.packetType !== PacketType.AUTH) {
+			throw new DisconnectException('AUTH exchange in progress.', DisconnectReasonCode.ProtocolError);
+		}
+	}
+	/**
+	 * Sends a CONNACK to the client with negotiated limits and session presence.
+	 *
+	 * @param connData - CONNECT payload used for assigned client id and session flags.
+	 * @param reasonCode - CONNACK reason code; defaults to success.
+	 * @param reasonString - Optional MQTT 5 reason string.
+	 * @remarks
+	 * If `requestProblemInformation` is 0, user-facing properties must be omitted per spec (not fully applied here).
 	 */
 	public async handleConnAck(connData: IConnectData, reasonCode?: ConnectAckReasonCode, reasonString?: string) {
 		const connAckData: IConnAckData = {
@@ -109,19 +182,14 @@ export class MqttManager {
 		if (!this.options.retainAvailable) {
 			connAckData.properties.retainAvailable = false;
 		}
-
 		if (this.connData.connectFlags.cleanStart) {
 			connAckData.acknowledgeFlags.SessionPresent = false;
 		} else {
-			if (this.clientManager.clientIdentifierManager.getIdentifier(this.connData.payload.clientIdentifier)) {
-				connAckData.acknowledgeFlags.SessionPresent = true;
-			}
+			connAckData.acknowledgeFlags.SessionPresent = await this.clientManager.hasSession(this.connData.payload.clientIdentifier);
 		}
-
 		if (!this.connData.properties.requestProblemInformation) {
-			// 仅当 request problem information 为 0 时才能向用户发送 properties 3.1.2.11.7
+			// MQTT 5: only when Request Problem Information is 0 may user-facing properties be omitted (§3.1.2.11.7).
 		}
-
 		connAckData.properties = {
 			receiveMaximum: this.options.receiveMaximum,
 			maximumPacketSize: this.options.maximumPacketSize,
@@ -147,28 +215,27 @@ export class MqttManager {
 		if ((this.options.serverKeepAlive ?? 0) > 0) {
 			connAckData.properties.serverKeepAlive = this.options.serverKeepAlive;
 		}
-
 		if (!this.clientIdentifier) {
-			// 如果客户端标识符为空，则生成客户端标识符
+			// Server-assigned id when the client sent none (or it was generated in connectHandle).
 			connAckData.properties.assignedClientIdentifier = connData.payload.clientIdentifier;
 			this.clientIdentifier = connData.payload.clientIdentifier;
 		}
-
 		const connPacket = encodeConnAck(connAckData, this.connData.header.protocolVersion);
 		this.client.write(connPacket);
 		if (reasonCode === ConnectAckReasonCode.UnsupportedProtocolVersion) {
 			this.client.end();
 		}
 	}
-
 	/**
-	 * 客户端向服务端请求连接
-	 * 方向： 客户端 -> 服务端
-	 * @param buffer
+	 * Handles an inbound CONNECT: validates options, may start AUTH, registers the client, and sends CONNACK.
+	 *
+	 * @param connData - Parsed CONNECT packet.
+	 * @param emitAsync - Optional hook to await application `connect` handler; failure aborts with disconnect.
+	 * @throws {@link ConnectAckException} When client id is invalid and auto-assignment is disabled.
+	 * @throws {@link DisconnectException} On unsupported protocol version or failed `emitAsync`.
 	 */
 	public async connectHandle(connData: IConnectData, emitAsync?: (client: TClient, event: string, ...args: any[]) => Promise<boolean>) {
 		this.connData = connData;
-
 		if (!connData.payload.clientIdentifier) {
 			if (this.options.automaticallyAssignedClientIdentifier !== false) {
 				connData.payload.clientIdentifier = generateClientIdentifier();
@@ -176,16 +243,15 @@ export class MqttManager {
 				throw new ConnectAckException('Client Identifier not valid', ConnectAckReasonCode.ClientIdentifierNotValid);
 			}
 		}
-
 		if (!this.options.protocolVersions?.includes(connData.header.protocolVersion)) {
 			throw new DisconnectException('Unsupported Protocol Version.', DisconnectReasonCode.ProtocolError);
 		}
-
 		if (this.connData.connectFlags.cleanStart) {
 			await this.clientManager.clearSubscribe(connData.payload.clientIdentifier);
 			this.receiveCounter = 0;
+			this.inboundQoS2.clear();
+			this.clearOutboundQueue(connData.payload.clientIdentifier);
 		}
-
 		if (
 			this.connData.properties.authenticationMethod &&
 			!['none', 'null', 'undefined', '0', 'off', 'disable', 'no', 'n/a', 'anonymous', 'basic', 'empty', 'noauth', 'skip'].includes(
@@ -193,21 +259,42 @@ export class MqttManager {
 			)
 		) {
 			this.isAuth = true;
+			this.authDone = false;
+			this.authMethod = this.connData.properties.authenticationMethod;
 		}
-
 		this.connData.properties.receiveMaximum ??= this.options.receiveMaximum ?? 0xffff;
+		const targetId = this.clientIdentifier || connData.payload.clientIdentifier;
+		const existingClient = this.clientManager.clientIdentifierManager.getIdentifier(targetId);
+		if (existingClient && existingClient !== this.client) {
+			const takeoverDisconnect = encodeDisconnect({
+				header: {
+					packetType: PacketType.DISCONNECT,
+					received: 0,
+					remainingLength: 0,
+					reasonCode: DisconnectReasonCode.SessionTakenOver,
+				},
+				properties: {},
+			});
+			existingClient.end(Buffer.from(takeoverDisconnect));
+			this.clientManager.clearConnect(existingClient);
+		}
 		if (emitAsync && !(await emitAsync(this.client, 'connect', this.connData, this.client, this.clientManager))) {
 			throw new DisconnectException('Client connection failed.', DisconnectReasonCode.UnspecifiedError);
 		}
 		await this.handleConnAck(this.connData);
-
-		await this.clientManager.connect(this.clientIdentifier || connData.payload.clientIdentifier, connData, this.client);
+		await this.clientManager.connect(targetId, connData, this.client);
+		this.clientIdentifier = targetId;
+		if (!this.connData.connectFlags.cleanStart) {
+			await this.restoreOutboundQueue(targetId);
+		}
+		if (this.isAuth && !this.authDone) {
+			await this.handleAuthPacket(AuthenticateReasonCode.ContinueAuthentication, this.authMethod, this.connData.properties.authenticationData);
+		}
 	}
-
 	/**
-	 * 客户端向服务端请求断开连接
-	 * 方向： 客户端 -> 服务端
-	 * @param disconnectData
+	 * Handles an inbound DISCONNECT from the client and closes the transport.
+	 *
+	 * @param disconnectData - Parsed DISCONNECT packet.
 	 */
 	public async disconnectHandle(disconnectData: IDisconnectData) {
 		if (disconnectData.header.reasonCode === 0) {
@@ -215,11 +302,11 @@ export class MqttManager {
 		}
 		this.client.end();
 	}
-
 	/**
-	 * 服务端向客户端发起断开连接
-	 * 方向： 服务端 -> 客户端
-	 * @param disconnectData
+	 * Sends a server-initiated DISCONNECT and closes the connection.
+	 *
+	 * @param reasonCode - DISCONNECT reason code.
+	 * @param properties - MQTT 5 disconnect properties.
 	 */
 	public async handleDisconnect(reasonCode: DisconnectReasonCode, properties: IDisconnectProperties) {
 		const disconnectPacket = encodeDisconnect({
@@ -233,29 +320,28 @@ export class MqttManager {
 		});
 		this.client.end(Buffer.from(disconnectPacket));
 	}
-
 	/**
-	 * 客户端向服务端请求 ping 响应
-	 * 方向： 客户端 -> 服务端
+	 * Responds to PINGREQ with PINGRESP and refreshes liveness in the manager.
 	 */
 	public async pingReqHandle() {
 		await this.clientManager.ping(this.clientIdentifier);
 		this.client.write(Buffer.from([PacketType.PINGRESP << 4, 0]));
 	}
-
 	/**
-	 * 服务端更新客户端的 keepalive 时间
+	 * Updates server-side last-activity / keep-alive tracking without sending a PINGRESP.
 	 */
 	public async updateKeepaliveTime() {
 		await this.clientManager.ping(this.clientIdentifier);
 	}
-
 	/**
-	 * 服务端向客户端推送 ping 响应
-	 * 方向： 服务端 -> 客户端
+	 * Schedules or sends the will message after an abnormal disconnect (subject to will delay and expiry).
+	 *
+	 * @remarks
+	 * TODO: Full retained-will lifecycle (store when no subscribers, expiry, distinction vs ordinary retain) is not implemented here.
 	 */
 	public async publishWillMessage() {
 		if (this.connData.connectFlags.willFlag && this.errorDisconnect) {
+			const willPayload = this.connData.payload.willPayload;
 			const willData: IPublishData = {
 				header: {
 					packetType: PacketType.PUBLISH,
@@ -266,37 +352,33 @@ export class MqttManager {
 					topicName: this.connData.payload.willTopic || '',
 				},
 				properties: this.connData.payload.willProperties || {},
-				payload: this.connData.payload.willPayload || '',
+				payload: willPayload ? willPayload.toString() : '',
 			};
-
 			const delayInterval = this.connData.payload.willProperties?.willDelayInterval ?? 0;
-
-			// this.connData.payload.willProperties.messageExpiryInterval
-			// TODO 消息过期时间处理
-			// 1. 客户端端异常断开时，当遗嘱主题已经有客户端订阅时，应立即发出遗嘱消息，发出遗嘱消息后，遗嘱主题消息应该被删除
-			// 2. 客户端端异常断开时，当遗嘱主题没有客户端订阅时，应将遗嘱消息存储起来，在遗嘱消息过期事件范围内有客户端订阅了遗嘱消息，应立即发出遗嘱消息并删除遗嘱消息
-			// 3. 客户端端正常断开时，当遗嘱主题没有客户端订阅时，应将遗嘱消息存储起来，当遗嘱消息过期事件范围内没有客户端订阅了遗嘱消息，应删除遗嘱消息
-			// 处理逻辑
-			// 1. 获取所有订阅的主题，校验是否存在遗嘱主题，如果存在，则立即发出遗嘱消息，并删除遗嘱消息
-			// 2. 获取所有订阅的主题，校验是否存在遗嘱主题，如果不存在，则将遗嘱消息存储起来，做成保留消息类型，当有客户端订阅了遗嘱消息，应立即发出遗嘱消息并删除遗嘱消息
-			// 		需要注意注意消息类型的保留消息与保留消息的区别
-
+			const messageExpiry = this.connData.payload.willProperties?.messageExpiryInterval ?? 0;
+			const disconnectedAt = Date.now();
 			if (delayInterval > 0) {
-				// 使用setTimeout而不是await，避免阻塞主进程
+				// Fire-and-forget so the will delay does not block the disconnect path.
 				setTimeout(() => {
 					if (this.clientIdentifier && !this.clientManager.clientIdentifierManager.getIdentifier(this.clientIdentifier)) {
+						if (messageExpiry > 0 && Date.now() > disconnectedAt + messageExpiry * 1000) {
+							return;
+						}
 						this.sendWillMessage(willData);
 					}
 				}, delayInterval * 1000);
 			} else {
-				// 立即发送will message
+				if (messageExpiry > 0 && Date.now() > disconnectedAt + messageExpiry * 1000) {
+					return;
+				}
 				this.sendWillMessage(willData);
 			}
 		}
 	}
-
 	/**
-	 * 发送will message的辅助方法
+	 * Publishes the will through the broker with a new packet identifier when QoS is not QoS0.
+	 *
+	 * @param willData - Will as a normal outbound publish.
 	 */
 	private sendWillMessage(willData: IPublishData) {
 		if (this.connData.connectFlags.willQoS > QoSType.QoS0) {
@@ -304,34 +386,28 @@ export class MqttManager {
 		}
 		this.clientManager.publish(this.clientIdentifier, willData.header.topicName, willData);
 	}
-
 	/**
-	 * 客户端向服务端推送消息
-	 * 方向： 客户端 -> 服务端
-	 * @param pubData
-	 * @param emitAsync
-	 * @returns
+	 * Validates and forwards an inbound PUBLISH from the client; sends PUBACK/PUBREC as required.
+	 *
+	 * @param pubData - Parsed PUBLISH from the client.
+	 * @param emitAsync - Application hook for `publish`; if it returns false, processing stops before fan-out.
+	 * @returns `false` when `emitAsync` rejects delivery; otherwise void.
+	 * @throws {@link DisconnectException} On policy violations (QoS, receive max, packet size, topic alias, retain).
+	 * @throws {@link PubAckException} / {@link PubRecException} When mapped from application errors for QoS 1/2.
 	 */
 	public async publishHandle(pubData: IPublishData, emitAsync: (client: TClient, event: string, ...args: any[]) => Promise<boolean>) {
-		// 在订阅消息中异常处理逻辑，qos = 0 或 qos = 1 时，应该抛出 PubAckException 异常
-		// qos = 1 时，因该抛出 PubAckException 异常
-
 		try {
-			// 数据校验
 			if (pubData.properties.topicAlias && pubData.properties.topicAlias > (this.options.topicAliasMaximum ?? 0xffff)) {
-				throw new PubAckException(
+				throw new DisconnectException(
 					'A Client MUST accept all Topic Alias values greater than 0 and less than or equal to the Topic Alias Maximum value that it sent in the CONNECT packet.',
-					PubAckReasonCode.PacketIdentifierInUse,
+					DisconnectReasonCode.TopicAliasInvalid,
 				);
 			}
-
 			if (pubData.header.qosLevel > (this.options.maximumQoS ?? QoSType.QoS0)) {
 				throw new DisconnectException('The Client specified a QoS greater than the QoS specified in a Maximum QoS in the CONNACK.', DisconnectReasonCode.QoSNotSupported);
 			}
-
 			if (pubData.header.qosLevel > QoSType.QoS0) {
 				this.receiveCounter++;
-				// publish 消息数量校验,限流控制
 				if (this.receiveCounter > (this.connData.properties.receiveMaximum ?? 0xffff)) {
 					throw new DisconnectException(
 						'The Client MUST NOT send more than Receive Maximum QoS 1 and QoS 2 PUBLISH packets for which it has not received PUBACK, PUBCOMP, or PUBREC with a Reason Code of 128 or greater from the Server.',
@@ -339,15 +415,12 @@ export class MqttManager {
 					);
 				}
 			}
-
-			// 校验最大报文长度，当最大报文长度为0时，不进行校验
 			if (this.connData.properties.maximumPacketSize && (pubData.header.remainingLength ?? 0) > (this.connData.properties.maximumPacketSize ?? 1 << 20)) {
 				throw new DisconnectException(
 					'The Server has received a Control Packet during the current Connection that contains more data than it was willing to process.',
 					DisconnectReasonCode.PacketTooLarge,
 				);
 			}
-
 			if (pubData.properties.topicAlias) {
 				if (this.options.topicAliasMaximum && pubData.properties.topicAlias > (this.options.topicAliasMaximum ?? 0xffff)) {
 					throw new DisconnectException(
@@ -355,19 +428,35 @@ export class MqttManager {
 						DisconnectReasonCode.TopicAliasInvalid,
 					);
 				}
-				// 添加主题别名映射
 				if (pubData.header.topicName) {
 					this.topicAliasNameMap[pubData.properties.topicAlias] = pubData.header.topicName;
 				} else {
 					pubData.header.topicName = this.topicAliasNameMap[pubData.properties.topicAlias];
 				}
 			}
-
+			// QoS 2 dedup: duplicate packet id only gets PUBREC again, not re-delivered upstream.
+			if (pubData.header.qosLevel === QoSType.QoS2 && pubData.header.packetIdentifier !== undefined) {
+				if (this.inboundQoS2.has(pubData.header.packetIdentifier)) {
+					const pubRecData: IPubRecData = {
+						header: {
+							packetType: PacketType.PUBREC,
+							packetIdentifier: pubData.header.packetIdentifier,
+							received: 0x00,
+							reasonCode: 0x00,
+						},
+						properties: {},
+					};
+					await this.handlePubRec(pubRecData);
+					return;
+				}
+				this.inboundQoS2.add(pubData.header.packetIdentifier);
+			}
 			if (!(await emitAsync(this.client, 'publish', pubData, this.client, this.clientManager))) {
 				return false;
 			}
-
-			// 保留消息处理
+			if (pubData.properties.messageExpiryInterval && pubData.properties.messageExpiryInterval > 0) {
+				pubData.properties.messageExpiryTimestamp = Date.now() + pubData.properties.messageExpiryInterval * 1000;
+			}
 			if (pubData.header.retain) {
 				if (this.options.retainAvailable === false) {
 					throw new DisconnectException('The Server does not support retained messages, and Will Retain was set to 1.', DisconnectReasonCode.RetainNotSupported);
@@ -379,9 +468,9 @@ export class MqttManager {
 				}
 			}
 		} catch (err: any) {
+			// For inbound QoS2, surface application errors as PUBREC reason codes (not PUBACK).
 			if (err instanceof PubAckException) {
 				if (pubData.header.qosLevel === QoSType.QoS2) {
-					err.code;
 					throw new PubRecException(err.code as any, err.code as any);
 				} else {
 					throw err;
@@ -390,12 +479,8 @@ export class MqttManager {
 				throw err;
 			}
 		}
-
 		delete pubData.properties.topicAlias;
-
 		this.clientManager.publish(this.clientIdentifier, pubData.header.topicName, pubData);
-
-		// 响应推送者
 		if (pubData.header.qosLevel === QoSType.QoS1) {
 			const pubAckData: IPubAckData = {
 				header: {
@@ -407,6 +492,7 @@ export class MqttManager {
 				properties: {},
 			};
 			await this.handlePubAck(pubAckData);
+			this.receiveCounter--;
 		} else if (pubData.header.qosLevel === QoSType.QoS2) {
 			const pubRecData: IPubRecData = {
 				header: {
@@ -420,64 +506,81 @@ export class MqttManager {
 			await this.handlePubRec(pubRecData);
 		}
 	}
-
 	/**
-	 * 服务端向客户端推送消息
-	 * 方向： 服务端 -> 客户端
-	 * @param client
-	 * @param pubData
+	 * Encodes and sends a PUBLISH to a client, queuing outbound QoS state for session recovery.
+	 *
+	 * @param client - Target client connection.
+	 * @param pubData - Publish to deliver (packet id assigned when QoS is QoS1 or QoS2).
 	 */
 	public async handlePublish(client: TClient, pubData: IPublishData) {
+		let targetPacketIdentifier: number | undefined;
 		if (pubData.header.qosLevel > QoSType.QoS0) {
 			pubData.header.packetIdentifier = this.clientManager.newPacketIdentifier(client);
+			targetPacketIdentifier = pubData.header.packetIdentifier;
 			pubData.header.dupFlag = false;
+			const targetIdentifier = this.clientManager.clientIdentifierManager.getClient(client)?.identifier;
+			if (targetIdentifier && pubData.header.packetIdentifier !== undefined) {
+				const queue = this.getOutboundQueue(targetIdentifier);
+				queue.set(pubData.header.packetIdentifier, {
+					type: 'publish',
+					publish: JSON.parse(JSON.stringify(pubData)),
+				});
+			}
 		}
 		pubData.header.retain = false;
 		const pubPacket = encodePublishPacket(pubData, this.connData.header.protocolVersion);
 		client.write(pubPacket);
+		if (targetPacketIdentifier !== undefined) {
+			this.clientManager.registerPendingPacket(client, targetPacketIdentifier, pubPacket, 'publish');
+		}
 	}
-
 	/**
-	 * 服务端向客户端推送 PUBACK
-	 * 方向： 服务端 -> 客户端
-	 * @param pubAckData
+	 * Sends PUBACK to the connected client.
+	 *
+	 * @param pubAckData - PUBACK payload and reason.
 	 */
 	async handlePubAck(pubAckData: IPubAckData) {
 		const pubAckPacket = encodePubControlPacket(pubAckData, this.connData.header.protocolVersion);
 		this.client.write(pubAckPacket);
 	}
-
+	/**
+	 * Sends PUBREC to the connected client.
+	 *
+	 * @param pubRecData - PUBREC payload and reason.
+	 */
 	async handlePubRec(pubRecData: IPubRecData) {
 		const pubRecPacket = encodePubControlPacket(pubRecData, this.connData.header.protocolVersion);
 		this.client.write(pubRecPacket);
 	}
-
 	/**
-	 * 服务端接收客户端的 PUBACK
-	 * 方向： 客户端 -> 服务端
-	 * @param pubAckData
+	 * Processes an inbound PUBACK from the client: validates id, frees identifier, drops outbound queue entry.
+	 *
+	 * @param pubAckData - Client PUBACK.
+	 * @throws {@link DisconnectException} If the packet identifier is unknown.
 	 */
 	public async pubAckHandle(pubAckData: IPubAckData) {
 		if (!this.clientManager.hasPacketIdentifier(this.client, pubAckData.header.packetIdentifier)) {
 			throw new DisconnectException('PUBACK contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
 		}
-		// 释放报文标识符
 		this.clientManager.deletePacketIdentifier(this.client, pubAckData.header.packetIdentifier);
+		if (this.clientIdentifier) {
+			this.getOutboundQueue(this.clientIdentifier).delete(pubAckData.header.packetIdentifier);
+		}
 	}
-
 	/**
-	 * 服务端接收到客户端的 PUBREL
-	 * 方向： 客户端 -> 服务端
-	 * @param pubRelData
+	 * Finishes inbound QoS 2 after PUBREL: clears dedup state, decrements receive quota, sends PUBCOMP.
+	 *
+	 * @param pubRelData - Client PUBREL (same id as PUBREC).
 	 */
 	public async pubRelHandle(pubRelData: IPubRelData) {
+		this.inboundQoS2.delete(pubRelData.header.packetIdentifier);
+		this.receiveCounter = Math.max(0, this.receiveCounter - 1);
 		await this.handlePubComp(pubRelData as any);
 	}
-
 	/**
-	 * 服务端向客户端推送 PUBCOMP
-	 * 方向： 服务端 -> 客户端
-	 * @param pubCompData
+	 * Sends PUBCOMP to the connected client (MQTT 5 includes property length when applicable).
+	 *
+	 * @param pubCompData - Packet id and reason for PUBCOMP.
 	 */
 	async handlePubComp(pubCompData: IPubCompData) {
 		const properties = new EncoderProperties();
@@ -490,20 +593,29 @@ export class MqttManager {
 		]);
 		this.client.write(compPacket);
 	}
-
 	/**
-	 * 服务端接收到客户端的 PUBREC
-	 * 方向： 客户端 -> 服务端
-	 * @param pubRecData
+	 * Handles inbound PUBREC from the client: transitions outbound queue to pubrel and sends PUBREL.
+	 *
+	 * @param pubRecData - Client PUBREC for a server-originated publish.
+	 * @throws {@link DisconnectException} If the packet identifier is unknown.
 	 */
 	public async pubRecHandle(pubRecData: IPubRecData) {
 		if (!this.clientManager.hasPacketIdentifier(this.client, pubRecData.header.packetIdentifier)) {
 			throw new DisconnectException('PUBREC contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
 		}
-
-		this.handlePubRel(pubRecData);
+		if (this.clientIdentifier) {
+			const queue = this.getOutboundQueue(this.clientIdentifier);
+			if (queue.has(pubRecData.header.packetIdentifier)) {
+				queue.set(pubRecData.header.packetIdentifier, { type: 'pubrel' });
+			}
+		}
+		await this.handlePubRel(pubRecData);
 	}
-
+	/**
+	 * Encodes PUBREL with flags bit 1 set and updates pending-packet tracking to the PUBREL frame.
+	 *
+	 * @param pubRecData - Uses packet identifier from the PUBREC leg.
+	 */
 	private async handlePubRel(pubRecData: IPubRecData) {
 		const properties = new EncoderProperties();
 		const pubRelPacket = Buffer.from([
@@ -514,65 +626,102 @@ export class MqttManager {
 			...properties.buffer,
 		]);
 		this.client.write(pubRelPacket);
+		this.clientManager.promotePendingToPubRel(this.client, pubRecData.header.packetIdentifier, pubRelPacket);
 	}
-
 	/**
-	 * 服务端接收到客户端的 PUBCOMP
-	 * 方向： 客户端 -> 服务端
-	 * @param pubCompData
+	 * Handles inbound PUBCOMP: frees packet identifier and removes outbound queue entry.
+	 *
+	 * @param pubCompData - Client PUBCOMP.
+	 * @throws {@link DisconnectException} If the packet identifier is unknown.
 	 */
 	public async pubCompHandle(pubCompData: IPubRecData) {
 		if (!this.clientManager.hasPacketIdentifier(this.client, pubCompData.header.packetIdentifier)) {
 			throw new DisconnectException('PUBCOMP contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
 		}
-		// 释放报文标识符
 		this.clientManager.deletePacketIdentifier(this.client, pubCompData.header.packetIdentifier);
+		if (this.clientIdentifier) {
+			this.getOutboundQueue(this.clientIdentifier).delete(pubCompData.header.packetIdentifier);
+		}
 	}
-
+	/**
+	 * Applies SUBSCRIBE: validates options, may deliver retained messages, registers subscriptions, sends SUBACK.
+	 *
+	 * @param subData - Parsed SUBSCRIBE from the client.
+	 * @throws {@link DisconnectException} When subscription identifiers are disabled but present, or on other policy errors from callees.
+	 */
 	public async subscribeHandle(subData: ISubscribeData) {
-		// 校验订阅标识符是否可用
 		if (this.options.subscriptionIdentifierAvailable === false) {
 			throw new DisconnectException('Subscription Identifiers not supported.', DisconnectReasonCode.SubscriptionIdentifiersNotSupported);
 		}
-		if (!this.options.wildcardSubscriptionAvailable && isWildcardTopic(subData.payload)) {
-			throw new SubscribeAckException('Wildcard Subscriptions not supported.', SubscribeAckReasonCode.WildcardSubscriptionsNotSupported);
-		}
-		const topic = verifyTopic(subData.payload);
-		if (!topic) {
-			throw new SubscribeAckException('The topic filter format is incorrect and cannot be received by the server.', SubscribeAckReasonCode.TopicFilterInvalid);
-		}
-
-		if (
-			this.options.retainAvailable !== false &&
-			(subData.options.retainHandling == 0 || (subData.options.retainHandling == 1 && !(await this.clientManager.isSubscribe(this.clientIdentifier, subData.payload))))
-		) {
-			if (!isWildcardTopic(subData.payload)) {
-				const retainData = await this.clientManager.getRetainMessage(subData.payload);
-				if (retainData) {
-					retainData.header.qosLevel = Math.min(retainData.header.qosLevel, subData.options.qos);
-					await this.handlePublish(this.client, retainData);
+		const payloads = subData.payloads?.length
+			? subData.payloads
+			: [
+					{
+						topicFilter: subData.payload,
+						options: subData.options,
+					},
+				];
+		const reasonCodes: SubscribeAckReasonCode[] = [];
+		for (const entry of payloads) {
+			let topicFilter = entry.topicFilter;
+			const options = entry.options;
+			let sharedGroup: string | undefined;
+			if (topicFilter.startsWith('$share/')) {
+				if (this.options.sharedSubscriptionAvailable === false) {
+					reasonCodes.push(SubscribeAckReasonCode.SharedSubscriptionsNotSupported);
+					continue;
 				}
-			} else {
-				const reg = topicToRegEx(subData.payload);
-				if (reg) {
-					const topicRegEx = new RegExp(reg);
-					await this.clientManager.forEachRetainMessage(async (topic, data) => {
-						if (topicRegEx.test(topic)) {
-							data.header.qosLevel = Math.min(data.header.qosLevel, subData.options.qos);
-							await this.handlePublish(this.client, data);
-						}
-					}, subData.payload);
+				const match = /^\$share\/([^/]+)\/(.+)$/.exec(topicFilter);
+				if (!match) {
+					reasonCodes.push(SubscribeAckReasonCode.TopicFilterInvalid);
+					continue;
+				}
+				sharedGroup = match[1];
+				topicFilter = match[2];
+			}
+			if (!this.options.wildcardSubscriptionAvailable && isWildcardTopic(topicFilter)) {
+				reasonCodes.push(SubscribeAckReasonCode.WildcardSubscriptionsNotSupported);
+				continue;
+			}
+			const topic = verifyTopic(topicFilter);
+			if (!topic) {
+				reasonCodes.push(SubscribeAckReasonCode.TopicFilterInvalid);
+				continue;
+			}
+			if (
+				this.options.retainAvailable !== false &&
+				(options.retainHandling == 0 || (options.retainHandling == 1 && !(await this.clientManager.isSubscribe(this.clientIdentifier, topicFilter))))
+			) {
+				if (!isWildcardTopic(topicFilter)) {
+					const retainData = await this.clientManager.getRetainMessage(topicFilter);
+					if (retainData) {
+						retainData.header.qosLevel = Math.min(retainData.header.qosLevel, options.qos);
+						await this.handlePublish(this.client, retainData);
+					}
+				} else {
+					const reg = topicToRegEx(topicFilter);
+					if (reg) {
+						const topicRegEx = new RegExp(reg);
+						await this.clientManager.forEachRetainMessage(async (topicName, data) => {
+							if (topicRegEx.test(topicName)) {
+								data.header.qosLevel = Math.min(data.header.qosLevel, options.qos);
+								await this.handlePublish(this.client, data);
+							}
+						}, topicFilter);
+					}
 				}
 			}
+			await this.clientManager.subscribe(this.clientIdentifier, topicFilter, {
+				qos: options.qos,
+				date: new Date(),
+				subscriptionIdentifier: subData.properties.subscriptionIdentifier,
+				noLocal: options.noLocal,
+				retainAsPublished: options.retainAsPublished,
+				protocolVersion: this.connData.header.protocolVersion,
+				sharedGroup,
+			});
+			reasonCodes.push(options.qos as unknown as SubscribeAckReasonCode);
 		}
-		await this.clientManager.subscribe(this.clientIdentifier, subData.payload, {
-			qos: subData.options.qos,
-			date: new Date(),
-			subscriptionIdentifier: subData.properties.subscriptionIdentifier,
-			noLocal: subData.options.noLocal,
-			retainAsPublished: subData.options.retainAsPublished,
-			protocolVersion: this.connData.header.protocolVersion,
-		});
 		const subAckData: ISubAckData = {
 			header: {
 				packetType: PacketType.SUBACK,
@@ -580,43 +729,48 @@ export class MqttManager {
 				packetIdentifier: subData.header.packetIdentifier,
 			},
 			properties: {},
-			reasonCode: SubscribeAckReasonCode.GrantedQoS2,
+			reasonCode: reasonCodes[0] ?? SubscribeAckReasonCode.UnspecifiedError,
+			reasonCodes,
 		};
 		this.handleSubAck(subAckData);
 	}
-
 	/**
-	 * 服务端向客户端发送 SUBACK 报文
-	 * 方向： 服务端 -> 客户端
-	 * @param subAckData
+	 * Sends SUBACK to the connected client.
+	 *
+	 * @param subAckData - Per-subscription reason codes and packet id.
 	 */
 	public async handleSubAck(subAckData: ISubAckData) {
 		const subAckPacket = encodeSubAckPacket(subAckData, this.connData.header.protocolVersion);
 		this.client.write(subAckPacket);
 	}
-
 	/**
-	 * 服务端接收到客户端的 UNSUBSCRIBE
-	 * 方向： 客户端 -> 服务端
-	 * @param unsubscribeData
+	 * Handles UNSUBSCRIBE: removes subscriptions and sends UNSUBACK with per-topic reason codes.
+	 *
+	 * @param unsubscribeData - Parsed UNSUBSCRIBE from the client.
 	 */
 	public async unsubscribeHandle(unsubscribeData: IUnsubscribeData) {
-		const topic = verifyTopic(unsubscribeData.payload);
-		if (!topic) {
-			throw new SubscribeAckException('The topic filter format is incorrect and cannot be received by the server.', SubscribeAckReasonCode.TopicFilterInvalid);
+		const payloads = unsubscribeData.payloads?.length ? unsubscribeData.payloads : [unsubscribeData.payload];
+		const reasonCodes: number[] = [];
+		for (const topicFilter of payloads) {
+			const topic = verifyTopic(topicFilter);
+			if (!topic) {
+				reasonCodes.push(SubscribeAckReasonCode.TopicFilterInvalid);
+				continue;
+			}
+			await this.clientManager.unsubscribe(this.clientIdentifier, topicFilter);
+			reasonCodes.push(UnsubscribeAckReasonCode.Success);
 		}
-
-		await this.clientManager.unsubscribe(this.clientIdentifier, unsubscribeData.payload);
-		this.handleUnsubscribeAck(unsubscribeData, this.connData.header.protocolVersion);
+		this.handleUnsubscribeAck(unsubscribeData, this.connData.header.protocolVersion, reasonCodes);
 	}
-
 	/**
-	 * 服务端向客户端发送 UNSUBACK 报文
-	 * 方向： 服务端 -> 客户端
-	 * @param unsubscribeData
+	 * Encodes and sends UNSUBACK for a given unsubscribe request.
+	 *
+	 * @param unsubscribeData - Original UNSUBSCRIBE (for packet identifier).
+	 * @param protocolVersion - MQTT protocol version (affects property encoding).
+	 * @param reasonCodes - One reason byte per topic filter; defaults to success.
 	 */
-	public async handleUnsubscribeAck(unsubscribeData: IUnsubscribeData, protocolVersion: ProtocolVersion) {
-		let remainingLength = 1;
+	public async handleUnsubscribeAck(unsubscribeData: IUnsubscribeData, protocolVersion: ProtocolVersion, reasonCodes: number[] = [UnsubscribeAckReasonCode.Success]) {
+		let remainingLength = reasonCodes.length;
 		const properties = new EncoderProperties();
 		remainingLength += (this.connData.header.protocolVersion === ProtocolVersion.V5 ? properties.length : 0) + 2;
 		const unsubscribePacket = Buffer.from([
@@ -624,12 +778,44 @@ export class MqttManager {
 			...encodeVariableByteInteger(remainingLength),
 			...integerToTwoUint8(unsubscribeData.header.packetIdentifier),
 			...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
-			UnsubscribeAckReasonCode.Success,
+			...reasonCodes,
 		]);
 		this.client.write(unsubscribePacket);
 	}
-
-	public async authHandle(_authData: IAuthData) {
-		// TODO auth 报文处理
+	/**
+	 * Sends an AUTH control packet to continue or complete extended authentication.
+	 *
+	 * @param reasonCode - AUTH reason (e.g. continue or success).
+	 * @param authenticationMethod - Optional method name echo.
+	 * @param authenticationData - Optional opaque challenge/response payload.
+	 */
+	private async handleAuthPacket(reasonCode: AuthenticateReasonCode, authenticationMethod?: string, authenticationData?: string) {
+		const properties = new EncoderProperties();
+		if (authenticationMethod) {
+			properties.push({ authenticationMethod });
+		}
+		if (authenticationData) {
+			properties.push({ authenticationData });
+		}
+		const packet = Buffer.from([PacketType.AUTH << 4, ...encodeVariableByteInteger(1 + properties.length), reasonCode, ...properties.buffer]);
+		this.client.write(packet);
+	}
+	/**
+	 * Handles an inbound AUTH from the client during extended authentication.
+	 *
+	 * @param authData - Parsed AUTH packet.
+	 * @throws {@link AuthenticateException} When AUTH is not enabled or method mismatches.
+	 */
+	public async authHandle(authData: IAuthData) {
+		if (!this.isAuth) {
+			throw new AuthenticateException('AUTH is not enabled for this connection.', AuthenticateReasonCode.Reauthenticate);
+		}
+		if (authData.properties.authenticationMethod && this.authMethod && authData.properties.authenticationMethod !== this.authMethod) {
+			throw new AuthenticateException('Authentication method mismatch.', AuthenticateReasonCode.Reauthenticate);
+		}
+		this.authDone = authData.header.reasonCode === AuthenticateReasonCode.Success;
+		if (!this.authDone) {
+			await this.handleAuthPacket(AuthenticateReasonCode.ContinueAuthentication, this.authMethod, authData.properties.authenticationData);
+		}
 	}
 }
