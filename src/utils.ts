@@ -9,5 +9,5 @@ import crypto from 'crypto';
  * @returns A client identifier string derived from a random UUID to reduce collision risk.
  */
 export function generateClientIdentifier() {
-	return 'mqtt_' + crypto.randomUUID().replace(/-/g, '');
+  return 'mqtt_' + crypto.randomUUID().replace(/-/g, '');
 }

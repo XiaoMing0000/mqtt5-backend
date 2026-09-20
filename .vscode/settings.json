@@ -1,30 +1,11 @@
 {
-  "editor.defaultFormatter": "esbenp.prettier-vscode",
-  "[typescript]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode",
-    "editor.formatOnSave": true
-  },
-  "[typescriptreact]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode",
-    "editor.formatOnSave": true
-  },
-  "[javascript]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode",
-    "editor.formatOnSave": true
-  },
-  "[json]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
-  },
-  // Prettier 配置
-  "prettier.requireConfig": true,
-  "prettier.configPath": ".prettierrc.js",
-  "prettier.enable": true,
-  // 保存时自动格式化（全局）
+  "oxc.configPath": "oxlint.config.ts",
+  "oxc.fmt.configPath": "oxfmt.config.ts",
+  "editor.defaultFormatter": "oxc.oxc-vscode",
   "editor.formatOnSave": true,
-  "editor.formatOnPaste": false,
-  "editor.formatOnType": false,
-  // 代码操作配置
+  "editor.formatOnSaveMode": "file", // oxfmt can only format whole files
   "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": "explicit"
-  }
+    "source.organizeImports": "never" // let oxfmt handle import organization
+  },
+  "cSpell.words": ["esbuild", "mqtts", "oxfmt", "oxlint", "xiaoming"]
 }

@@ -19,23 +19,23 @@
  * @returns `true` if the filter is valid; `false` otherwise.
  */
 export function verifyTopic(topic: string) {
-	if (/[$#+]/.test(topic)) {
-		if (topic === '+' || topic === '#') {
-			return true;
-		}
-		if ((topic.includes('#') && /[^/]#$/.test(topic)) || topic.split('#').length > 2) {
-			return false;
-		}
+  if (/[$#+]/.test(topic)) {
+    if (topic === '+' || topic === '#') {
+      return true;
+    }
+    if ((topic.includes('#') && /[^/]#$/.test(topic)) || topic.split('#').length > 2) {
+      return false;
+    }
 
-		if (/[^/]\+|\+[^/]/.test(topic)) {
-			return false;
-		}
+    if (/[^/]\+|\+[^/]/.test(topic)) {
+      return false;
+    }
 
-		if ((topic.includes('$') && !/^\$/.test(topic)) || topic.split('$').length > 2) {
-			return false;
-		}
-	}
-	return true;
+    if ((topic.includes('$') && !/^\$/.test(topic)) || topic.split('$').length > 2) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
@@ -46,25 +46,25 @@ export function verifyTopic(topic: string) {
  * @returns `false` if the filter is invalid; otherwise a pattern string for matching (e.g. passed to `RegExp`).
  */
 export function topicToRegEx(topic: string): string | false {
-	if (!verifyTopic(topic)) {
-		// Invalid topic filter
-		return false;
-	}
-	if (/$|#|\+/.test(topic)) {
-		if (topic === '#') {
-			return `^.*`;
-		}
-		if (topic === '+') {
-			return `^[^/]*$`;
-		}
+  if (!verifyTopic(topic)) {
+    // Invalid topic filter
+    return false;
+  }
+  if (/$|#|\+/.test(topic)) {
+    if (topic === '#') {
+      return `^.*`;
+    }
+    if (topic === '+') {
+      return `^[^/]*$`;
+    }
 
-		let regStr = topic;
-		regStr = regStr.replace('$', '\\$');
-		regStr = regStr.replace('/#', '/?.*');
-		regStr = regStr.replace(/\+/g, '[^/]*');
-		return `^${regStr}$`;
-	}
-	return `^${topic}$`;
+    let regStr = topic;
+    regStr = regStr.replace('$', '\\$');
+    regStr = regStr.replace('/#', '/?.*');
+    regStr = regStr.replace(/\+/g, '[^/]*');
+    return `^${regStr}$`;
+  }
+  return `^${topic}$`;
 }
 
 /**
@@ -74,5 +74,5 @@ export function topicToRegEx(topic: string): string | false {
  * @returns `true` if `#` or `+` appears in the filter.
  */
 export function isWildcardTopic(topic: string) {
-	return /[#+]/.test(topic);
+  return /[#+]/.test(topic);
 }

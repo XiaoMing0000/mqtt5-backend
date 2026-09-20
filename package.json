@@ -2,6 +2,7 @@
   "name": "@elfdream/mqtt5-backend",
   "version": "1.4.0",
   "description": "A cloud service based on the mqtt v5 protocol of nodejs.",
+  "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
@@ -9,35 +10,50 @@
   ],
   "scripts": {
     "clean": "rimraf dist",
-    "debugger": "nodemon examples/demo.ts",
+    "test": "jest",
+    "test:commit-msg": "node --test scripts/check-commit-msg.test.js",
+    "dev": "nodemon --exec tsx examples/demo.ts",
     "inspect": "tsx --inspect examples/demo.ts",
-    "build:prod": "rimraf dist && tsx ./config/esbuild.prod.ts",
-    "build": "npm run clean && tsc",
-    "prettier:all": "prettier --write ./src",
-    "lint": "eslint .",
+    "build": "pnpm run clean && tsc -p tsconfig.build.json",
     "postinstall": "simple-git-hooks",
-    "test": "jest"
+    "tsc:check": "tsc -p tsconfig.json --noEmit",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "lint:check": "oxlint && pnpm run tsc:check"
   },
   "simple-git-hooks": {
-    "pre-commit": "npm run lint"
+    "pre-commit": "pnpm exec lint-staged",
+    "commit-msg": "node ./scripts/check-commit-msg.js \"$1\"",
+    "pre-push": "pnpm run fmt:check && pnpm run lint:check"
+  },
+  "lint-staged": {
+    "*.{js,ts,jsx,tsx,json,jsonc}": [
+      "oxfmt",
+      "pnpm run lint:fix"
+    ]
+  },
+  "packageManager": "pnpm@11.23.0",
+  "engines": {
+    "node": ">=22.13.0",
+    "pnpm": ">=11.23.0"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^22.5.1",
     "@types/ws": "^8.18.1",
     "dotenv": "^16.4.7",
-    "esbuild": "^0.23.1",
-    "eslint": "^9.39.2",
-    "globals": "^15.14.0",
     "jest": "^30.2.0",
-    "prettier": "^3.3.3",
+    "lint-staged": "^17.5.1",
+    "nodemon": "^3.1.14",
+    "oxfmt": "^0.68.0",
+    "oxlint": "^1.83.0",
     "rimraf": "^6.0.1",
-    "simple-git-hooks": "^2.13.1",
+    "simple-git-hooks": "^2.14.0",
     "ts-jest": "^29.4.6",
-    "ts-node": "^10.9.2",
     "tsx": "^4.19.0",
-    "typescript": "^5.5.4",
-    "typescript-eslint": "^8.53.1"
+    "typescript": "^7.0.2"
   },
   "dependencies": {
     "ioredis": "^5.4.1",

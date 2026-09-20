@@ -1,21 +1,21 @@
 import {
-	IAuthData,
-	IConnectData,
-	IDisconnectData,
-	IPingData,
-	IPubAckData,
-	IPubCompData,
-	IPubRecData,
-	IPubRelData,
-	IPublishData,
-	ISubscribeData,
-	IUnsubscribeData,
-	Manager,
-	MqttServer,
-	MqttServerTLS,
-	MqttServerWebSocket,
-	MqttServerWebSocketSecure,
-	TClient,
+  IAuthData,
+  IConnectData,
+  IDisconnectData,
+  IPingData,
+  IPubAckData,
+  IPubCompData,
+  IPubRecData,
+  IPubRelData,
+  IPublishData,
+  ISubscribeData,
+  IUnsubscribeData,
+  Manager,
+  MqttServer,
+  MqttServerTLS,
+  MqttServerWebSocket,
+  MqttServerWebSocketSecure,
+  TClient,
 } from '../src';
 import { MemoryManager } from '../src/manager/memoryManager';
 import tls from 'tls';
@@ -23,9 +23,9 @@ import fs from 'fs';
 import path from 'path';
 
 const tlsOptions: tls.TlsOptions = {
-	cert: fs.readFileSync(path.join(__dirname, '../temp/test.com.crt')),
-	key: fs.readFileSync(path.join(__dirname, '../temp/test.com.key')),
-	keepAlive: true,
+  cert: fs.readFileSync(path.join(__dirname, '../temp/test.com.crt')),
+  key: fs.readFileSync(path.join(__dirname, '../temp/test.com.key')),
+  keepAlive: true,
 };
 
 // Create an in-memory client manager; ideal for demos or single-node setups
@@ -50,8 +50,8 @@ const wssMqttServer = new MqttServerWebSocketSecure(tlsOptions, clientManager);
  */
 
 const connectListener = async (_data: IConnectData, _client: TClient, _clientManager: Manager) => {
-	console.log('MQTT server connected.');
-	return true;
+  console.log('MQTT server connected.');
+  return true;
 };
 
 // Attach connect listeners for every transport; acts like a decorator around client sessions
@@ -62,71 +62,71 @@ wssMqttServer.onConnect(connectListener);
 
 // Register packet listeners when a client connects to keep per-client context encapsulated
 mqttServer.onConnection(async (client: TClient) => {
-	const contentData: any = {};
+  const contentData: any = {};
 
-	client.on('connect', (data: IConnectData, _client: TClient, _clientManager: Manager) => {
-		console.log(contentData);
-		console.log('MQTT client connected.', data);
+  client.on('connect', (data: IConnectData, _client: TClient, _clientManager: Manager) => {
+    console.log(contentData);
+    console.log('MQTT client connected.', data);
 
-		// Deny an incoming client by either:
-		// 1. Returning false
-		// return false;
-		// 2. Throwing an exception
-		// throw new ConnectAckException('disconnect the client', ConnectAckReasonCode.ProtocolError);
-	});
+    // Deny an incoming client by either:
+    // 1. Returning false
+    // return false;
+    // 2. Throwing an exception
+    // throw new ConnectAckException('disconnect the client', ConnectAckReasonCode.ProtocolError);
+  });
 
-	client.on('disconnect', (data: IDisconnectData, _client: TClient, _clientManager: Manager) => {
-		console.log(contentData);
-		console.log('MQTT client disconnected.', data);
-	});
+  client.on('disconnect', (data: IDisconnectData, _client: TClient, _clientManager: Manager) => {
+    console.log(contentData);
+    console.log('MQTT client disconnected.', data);
+  });
 
-	client.on('publish', (data: IPublishData, _client: TClient, _clientManager: Manager) => {
-		console.log('MQTT client published.', data);
-	});
+  client.on('publish', (data: IPublishData, _client: TClient, _clientManager: Manager) => {
+    console.log('MQTT client published.', data);
+  });
 
-	client.on('pubAck', (data: IPubAckData, _client: TClient, _clientManager: Manager) => {
-		console.log('MQTT client pubAck.', data);
-	});
+  client.on('pubAck', (data: IPubAckData, _client: TClient, _clientManager: Manager) => {
+    console.log('MQTT client pubAck.', data);
+  });
 
-	client.on('pubRec', (data: IPubRecData, _client: TClient, _clientManager: Manager) => {
-		console.log('MQTT client pubRec.', data);
-	});
+  client.on('pubRec', (data: IPubRecData, _client: TClient, _clientManager: Manager) => {
+    console.log('MQTT client pubRec.', data);
+  });
 
-	client.on('pubRel', (data: IPubRelData, _client: TClient, _clientManager: Manager) => {
-		console.log('MQTT client pubRel.', data);
-	});
+  client.on('pubRel', (data: IPubRelData, _client: TClient, _clientManager: Manager) => {
+    console.log('MQTT client pubRel.', data);
+  });
 
-	client.on('pubComp', (data: IPubCompData, _client: TClient, _clientManager: Manager) => {
-		console.log('MQTT client pubComp.', data);
-	});
+  client.on('pubComp', (data: IPubCompData, _client: TClient, _clientManager: Manager) => {
+    console.log('MQTT client pubComp.', data);
+  });
 
-	client.on('subscribe', (data: ISubscribeData, _client: TClient, _clientManager: Manager) => {
-		console.log('MQTT client subscribed.', data);
-	});
-	client.on('unsubscribe', (data: IUnsubscribeData, _client: TClient, _clientManager: Manager) => {
-		console.log('MQTT client unsubscribed.', data);
-	});
-	client.on('ping', (data: IPingData, _client: TClient, _clientManager: Manager) => {
-		console.log('MQTT client ping.', data);
-	});
-	client.on('auth', (data: IAuthData, _client: TClient, _clientManager: Manager) => {
-		console.log('MQTT client auth.', data);
-	});
+  client.on('subscribe', (data: ISubscribeData, _client: TClient, _clientManager: Manager) => {
+    console.log('MQTT client subscribed.', data);
+  });
+  client.on('unsubscribe', (data: IUnsubscribeData, _client: TClient, _clientManager: Manager) => {
+    console.log('MQTT client unsubscribed.', data);
+  });
+  client.on('ping', (data: IPingData, _client: TClient, _clientManager: Manager) => {
+    console.log('MQTT client ping.', data);
+  });
+  client.on('auth', (data: IAuthData, _client: TClient, _clientManager: Manager) => {
+    console.log('MQTT client auth.', data);
+  });
 });
 
 // Start all listeners; each runs independently on its own port
 mqttServer.listen(1883, () => {
-	console.log(`MQTT server listening on port 1883.`);
+  console.log(`MQTT server listening on port 1883.`);
 });
 
 mqttsServer.listen(8883, () => {
-	console.log(`MQTT TLS server listening on port 8883.`);
+  console.log(`MQTT TLS server listening on port 8883.`);
 });
 
 wsMqttServer.listen(8083, () => {
-	console.log(`MQTT WebSocket server listening on port 8083.`);
+  console.log(`MQTT WebSocket server listening on port 8083.`);
 });
 
 wssMqttServer.listen(8084, () => {
-	console.log(`MQTT WebSocket Secure server listening on port 8084.`);
+  console.log(`MQTT WebSocket Secure server listening on port 8084.`);
 });

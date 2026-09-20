@@ -50,15 +50,15 @@ const wsMqttServer = new MqttServerWebSocket(clientManager);
 mqttServer.maxConnections = 1000000;
 
 setInterval(() => {
-	console.log(new Date().toISOString(), 'client count:', clientManager.clientIdentifierManager.size);
+  console.log(new Date().toISOString(), 'client count:', clientManager.clientIdentifierManager.size);
 }, 5000);
 
 mqttServer.listen(1883, () => {
-	console.log('MQTT server started on port 1883.');
+  console.log('MQTT server started on port 1883.');
 });
 
 wsMqttServer.listen(8083, () => {
-	console.log('WebSocket server started on port 8083.');
+  console.log('WebSocket server started on port 8083.');
 });
 ```
 

@@ -37,19 +37,19 @@ const server = new MqttServer(clientManager);
 
 // Listen for connection events
 server.onConnect(async (data, client, clientManager) => {
-	console.log('Client connected:', data);
-	return true; // Allow connection
+  console.log('Client connected:', data);
+  return true; // Allow connection
 });
 
 // Listen for publish events
 server.onPublish(async (data, client, clientManager) => {
-	console.log('Message received:', data);
-	return true; // Allow publish
+  console.log('Message received:', data);
+  return true; // Allow publish
 });
 
 // Start server
 server.listen(1883, () => {
-	console.log('MQTT server listening on port 1883');
+  console.log('MQTT server listening on port 1883');
 });
 ```
 
@@ -62,14 +62,14 @@ import fs from 'fs';
 const clientManager = new MemoryManager();
 
 const tlsOptions = {
-	cert: fs.readFileSync('cert.pem'),
-	key: fs.readFileSync('key.pem'),
+  cert: fs.readFileSync('cert.pem'),
+  key: fs.readFileSync('key.pem'),
 };
 
 const server = new MqttServerTLS(tlsOptions, clientManager);
 
 server.listen(8883, () => {
-	console.log('MQTT TLS server listening on port 8883');
+  console.log('MQTT TLS server listening on port 8883');
 });
 ```
 
@@ -82,7 +82,7 @@ const clientManager = new MemoryManager();
 const server = new MqttServerWebSocket(clientManager);
 
 server.listen(8083, () => {
-	console.log('MQTT WebSocket server listening on port 8083');
+  console.log('MQTT WebSocket server listening on port 8083');
 });
 ```
 
@@ -95,14 +95,14 @@ import fs from 'fs';
 const clientManager = new MemoryManager();
 
 const httpsOptions = {
-	cert: fs.readFileSync('cert.pem'),
-	key: fs.readFileSync('key.pem'),
+  cert: fs.readFileSync('cert.pem'),
+  key: fs.readFileSync('key.pem'),
 };
 
 const server = new MqttServerWebSocketSecure(httpsOptions, clientManager);
 
 server.listen(8084, () => {
-	console.log('MQTT WebSocket Secure server listening on port 8084');
+  console.log('MQTT WebSocket Secure server listening on port 8084');
 });
 ```
 
@@ -126,10 +126,10 @@ Suitable for single-instance Redis deployment:
 import { RedisManager } from '@elfdream/mqtt5-backend';
 
 const clientManager = new RedisManager({
-	host: '127.0.0.1',
-	port: 6379,
-	password: 'your_password',
-	db: 0,
+  host: '127.0.0.1',
+  port: 6379,
+  password: 'your_password',
+  db: 0,
 });
 ```
 
@@ -141,11 +141,11 @@ Suitable for distributed deployment and horizontal scaling:
 import { Redis2Manager } from '@elfdream/mqtt5-backend';
 
 const clientManager = new Redis2Manager({
-	host: '127.0.0.1',
-	port: 6379,
-	username: 'your_username',
-	password: 'your_password',
-	db: 0,
+  host: '127.0.0.1',
+  port: 6379,
+  username: 'your_username',
+  password: 'your_password',
+  db: 0,
 });
 ```
 
@@ -223,24 +223,24 @@ server.getConnections(callback: (error: Error | null, count: number) => void)
 
 ```typescript
 interface IMqttOptions {
-	protocolName?: 'MQTT' | 'MQIsdp'; // Protocol name, default 'MQTT'
-	// MQTT v3.1 uses 'MQIsdp', MQTT v3.1.1 and v5.0 use 'MQTT'
-	protocolVersions?: Array<number>; // Protocol versions, default [3, 4, 5]
-	// 3 = MQTT v3.1, 4 = MQTT v3.1.1, 5 = MQTT v5.0
-	// Can be set to [3, 4] to support only v3.1 and v3.1.1, or [5] to support only v5.0
-	automaticallyAssignedClientIdentifier?: boolean; // Whether to automatically assign client ID, default true
-	maximumQoS?: QoSType; // Maximum QoS level, default QoS2
-	retainAvailable?: boolean; // Whether to support retained messages, default true
-	retainTTL?: number; // Retained message TTL (seconds), default 1800
-	maximumPacketSize?: number; // Maximum packet size, default 1MB
-	topicAliasMaximum?: number; // Maximum topic alias, default 65535 (MQTT v5.0 only)
-	wildcardSubscriptionAvailable?: boolean; // Whether to support wildcard subscriptions, default true
-	subscriptionIdentifierAvailable?: boolean; // Subscription identifier available, default true (MQTT v5.0 only)
-	sharedSubscriptionAvailable?: boolean; // Shared subscription available, default false (MQTT v5.0 only)
-	sessionExpiryInterval?: number; // Session expiry interval (seconds), default 0 (MQTT v5.0 only)
-	sendReasonMessage?: boolean; // Whether to send reason messages (MQTT v5.0 only)
-	receiveMaximum?: number; // Receive maximum, controls the number of PUBLISH QoS 1 and QoS 2 packets accepted, default 65535 (MQTT v5.0 only)
-	serverKeepAlive?: number; // Server keep alive time (seconds), default 0 (MQTT v5.0 only)
+  protocolName?: 'MQTT' | 'MQIsdp'; // Protocol name, default 'MQTT'
+  // MQTT v3.1 uses 'MQIsdp', MQTT v3.1.1 and v5.0 use 'MQTT'
+  protocolVersions?: Array<number>; // Protocol versions, default [3, 4, 5]
+  // 3 = MQTT v3.1, 4 = MQTT v3.1.1, 5 = MQTT v5.0
+  // Can be set to [3, 4] to support only v3.1 and v3.1.1, or [5] to support only v5.0
+  automaticallyAssignedClientIdentifier?: boolean; // Whether to automatically assign client ID, default true
+  maximumQoS?: QoSType; // Maximum QoS level, default QoS2
+  retainAvailable?: boolean; // Whether to support retained messages, default true
+  retainTTL?: number; // Retained message TTL (seconds), default 1800
+  maximumPacketSize?: number; // Maximum packet size, default 1MB
+  topicAliasMaximum?: number; // Maximum topic alias, default 65535 (MQTT v5.0 only)
+  wildcardSubscriptionAvailable?: boolean; // Whether to support wildcard subscriptions, default true
+  subscriptionIdentifierAvailable?: boolean; // Subscription identifier available, default true (MQTT v5.0 only)
+  sharedSubscriptionAvailable?: boolean; // Shared subscription available, default false (MQTT v5.0 only)
+  sessionExpiryInterval?: number; // Session expiry interval (seconds), default 0 (MQTT v5.0 only)
+  sendReasonMessage?: boolean; // Whether to send reason messages (MQTT v5.0 only)
+  receiveMaximum?: number; // Receive maximum, controls the number of PUBLISH QoS 1 and QoS 2 packets accepted, default 65535 (MQTT v5.0 only)
+  serverKeepAlive?: number; // Server keep alive time (seconds), default 0 (MQTT v5.0 only)
 }
 ```
 
@@ -293,7 +293,7 @@ const server = new MqttServer(clientManager);
 
 ```typescript
 const server = new MqttServer(clientManager, {
-	protocolVersions: [3, 4], // Support only v3.1 and v3.1.1
+  protocolVersions: [3, 4], // Support only v3.1 and v3.1.1
 });
 ```
 
@@ -301,7 +301,7 @@ const server = new MqttServer(clientManager, {
 
 ```typescript
 const server = new MqttServer(clientManager, {
-	protocolVersions: [5], // Support only v5.0
+  protocolVersions: [5], // Support only v5.0
 });
 ```
 
@@ -320,21 +320,21 @@ The server can handle client connections from different protocol versions simult
 ```typescript
 // Support v3.1, v3.1.1, and v5.0 clients simultaneously
 const server = new MqttServer(clientManager, {
-	protocolVersions: [3, 4, 5], // Default value
+  protocolVersions: [3, 4, 5], // Default value
 });
 
 server.onConnect(async (data, client, clientManager) => {
-	const version = data.header.protocolVersion;
-	if (version === 3) {
-		console.log('MQTT v3.1 client connected');
-	} else if (version === 4) {
-		console.log('MQTT v3.1.1 client connected');
-	} else if (version === 5) {
-		console.log('MQTT v5.0 client connected');
-		// Can use v5.0-specific features
-		console.log('Session expiry interval:', data.properties.sessionExpiryInterval);
-	}
-	return true;
+  const version = data.header.protocolVersion;
+  if (version === 3) {
+    console.log('MQTT v3.1 client connected');
+  } else if (version === 4) {
+    console.log('MQTT v3.1.1 client connected');
+  } else if (version === 5) {
+    console.log('MQTT v5.0 client connected');
+    // Can use v5.0-specific features
+    console.log('Session expiry interval:', data.properties.sessionExpiryInterval);
+  }
+  return true;
 });
 ```
 
@@ -345,25 +345,25 @@ server.onConnect(async (data, client, clientManager) => {
 ```typescript
 // QoS 1 message publish acknowledgment handling
 server.onPubAck(async (data, client, clientManager) => {
-	const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
-	console.log(`Client ${clientId} acknowledged QoS 1 message, packet ID: ${data.header.packetIdentifier}`);
-	return true;
+  const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
+  console.log(`Client ${clientId} acknowledged QoS 1 message, packet ID: ${data.header.packetIdentifier}`);
+  return true;
 });
 
 // QoS 2 message four-step handshake handling
 server.onPubRec(async (data, client, clientManager) => {
-	console.log(`Received QoS 2 message receive acknowledgment, packet ID: ${data.header.packetIdentifier}`);
-	return true;
+  console.log(`Received QoS 2 message receive acknowledgment, packet ID: ${data.header.packetIdentifier}`);
+  return true;
 });
 
 server.onPubRel(async (data, client, clientManager) => {
-	console.log(`Received QoS 2 message release request, packet ID: ${data.header.packetIdentifier}`);
-	return true;
+  console.log(`Received QoS 2 message release request, packet ID: ${data.header.packetIdentifier}`);
+  return true;
 });
 
 server.onPubComp(async (data, client, clientManager) => {
-	console.log(`QoS 2 message processing completed, packet ID: ${data.header.packetIdentifier}`);
-	return true;
+  console.log(`QoS 2 message processing completed, packet ID: ${data.header.packetIdentifier}`);
+  return true;
 });
 ```
 
@@ -371,20 +371,20 @@ server.onPubComp(async (data, client, clientManager) => {
 
 ```typescript
 server.onConnect(async (data, client, clientManager) => {
-	// Validate client ID
-	if (!data.payload.clientIdentifier) {
-		throw new ConnectAckException(ConnectAckReasonCode.CLIENT_IDENTIFIER_NOT_VALID);
-	}
+  // Validate client ID
+  if (!data.payload.clientIdentifier) {
+    throw new ConnectAckException(ConnectAckReasonCode.CLIENT_IDENTIFIER_NOT_VALID);
+  }
 
-	// Validate username and password
-	if (data.payload.username && data.payload.password) {
-		const isValid = await validateCredentials(data.payload.username, data.payload.password);
-		if (!isValid) {
-			throw new ConnectAckException(ConnectAckReasonCode.BAD_USER_NAME_OR_PASSWORD);
-		}
-	}
+  // Validate username and password
+  if (data.payload.username && data.payload.password) {
+    const isValid = await validateCredentials(data.payload.username, data.payload.password);
+    if (!isValid) {
+      throw new ConnectAckException(ConnectAckReasonCode.BAD_USER_NAME_OR_PASSWORD);
+    }
+  }
 
-	return true;
+  return true;
 });
 ```
 
@@ -392,20 +392,20 @@ server.onConnect(async (data, client, clientManager) => {
 
 ```typescript
 server.onAuth(async (data, client, clientManager) => {
-	// Handle MQTT v5 enhanced authentication
-	console.log('Authentication request received:', data);
+  // Handle MQTT v5 enhanced authentication
+  console.log('Authentication request received:', data);
 
-	// Validate authentication data
-	if (data.properties?.authenticationData) {
-		const authData = data.properties.authenticationData;
-		// Handle authentication logic
-		const isValid = await validateAuthData(authData);
-		if (!isValid) {
-			throw new AuthenticateException(AuthenticateReasonCode.CONTINUE_AUTHENTICATION);
-		}
-	}
+  // Validate authentication data
+  if (data.properties?.authenticationData) {
+    const authData = data.properties.authenticationData;
+    // Handle authentication logic
+    const isValid = await validateAuthData(authData);
+    if (!isValid) {
+      throw new AuthenticateException(AuthenticateReasonCode.CONTINUE_AUTHENTICATION);
+    }
+  }
 
-	return true;
+  return true;
 });
 ```
 
@@ -413,38 +413,38 @@ server.onAuth(async (data, client, clientManager) => {
 
 ```typescript
 server.onSubscribe(async (data, client, clientManager) => {
-	const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
+  const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
 
-	// Check subscription permissions
-	for (const subscription of data.subscriptions) {
-		const topic = subscription.topicFilter;
-		const qos = subscription.qos;
+  // Check subscription permissions
+  for (const subscription of data.subscriptions) {
+    const topic = subscription.topicFilter;
+    const qos = subscription.qos;
 
-		// Validate topic permissions
-		if (!hasSubscribePermission(clientId, topic)) {
-			throw new SubscribeAckException(SubscribeAckReasonCode.NOT_AUTHORIZED);
-		}
+    // Validate topic permissions
+    if (!hasSubscribePermission(clientId, topic)) {
+      throw new SubscribeAckException(SubscribeAckReasonCode.NOT_AUTHORIZED);
+    }
 
-		// Check QoS level
-		if (qos > MAX_QOS_LEVEL) {
-			throw new SubscribeAckException(SubscribeAckReasonCode.QOS_NOT_SUPPORTED);
-		}
+    // Check QoS level
+    if (qos > MAX_QOS_LEVEL) {
+      throw new SubscribeAckException(SubscribeAckReasonCode.QOS_NOT_SUPPORTED);
+    }
 
-		console.log(`Client ${clientId} subscribed to topic ${topic}, QoS: ${qos}`);
-	}
+    console.log(`Client ${clientId} subscribed to topic ${topic}, QoS: ${qos}`);
+  }
 
-	return true;
+  return true;
 });
 
 server.onUnsubscribe(async (data, client, clientManager) => {
-	const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
+  const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
 
-	// Log unsubscription
-	for (const topicFilter of data.topicFilters) {
-		console.log(`Client ${clientId} unsubscribed from topic ${topicFilter}`);
-	}
+  // Log unsubscription
+  for (const topicFilter of data.topicFilters) {
+    console.log(`Client ${clientId} unsubscribed from topic ${topicFilter}`);
+  }
 
-	return true;
+  return true;
 });
 ```
 
@@ -452,21 +452,21 @@ server.onUnsubscribe(async (data, client, clientManager) => {
 
 ```typescript
 server.onPublish(async (data, client, clientManager) => {
-	// Check topic permissions
-	const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
-	if (!hasTopicPermission(clientId, data.topic)) {
-		throw new PubAckException(PubAckReasonCode.NOT_AUTHORIZED);
-	}
+  // Check topic permissions
+  const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
+  if (!hasTopicPermission(clientId, data.topic)) {
+    throw new PubAckException(PubAckReasonCode.NOT_AUTHORIZED);
+  }
 
-	// Message content validation
-	if (data.payload.length > MAX_MESSAGE_SIZE) {
-		throw new PubAckException(PubAckReasonCode.PACKET_TOO_LARGE);
-	}
+  // Message content validation
+  if (data.payload.length > MAX_MESSAGE_SIZE) {
+    throw new PubAckException(PubAckReasonCode.PACKET_TOO_LARGE);
+  }
 
-	// Log message
-	console.log(`Client ${clientId} published message to topic ${data.topic}`);
+  // Log message
+  console.log(`Client ${clientId} published message to topic ${data.topic}`);
 
-	return true;
+  return true;
 });
 ```
 
@@ -474,46 +474,46 @@ server.onPublish(async (data, client, clientManager) => {
 
 ```typescript
 import {
-	ConnectAckException,
-	ConnectAckReasonCode,
-	PubAckException,
-	PubAckReasonCode,
-	SubscribeAckException,
-	SubscribeAckReasonCode,
-	AuthenticateException,
-	AuthenticateReasonCode,
+  ConnectAckException,
+  ConnectAckReasonCode,
+  PubAckException,
+  PubAckReasonCode,
+  SubscribeAckException,
+  SubscribeAckReasonCode,
+  AuthenticateException,
+  AuthenticateReasonCode,
 } from '@elfdream/mqtt5-backend';
 
 // Connection exception handling
 server.onConnect(async (data, client, clientManager) => {
-	try {
-		// Validation logic
-		if (!isValidClient(data.payload.clientIdentifier)) {
-			throw new ConnectAckException(ConnectAckReasonCode.CLIENT_IDENTIFIER_NOT_VALID);
-		}
-		return true;
-	} catch (error) {
-		// Exceptions are automatically handled and appropriate responses are sent
-		throw error;
-	}
+  try {
+    // Validation logic
+    if (!isValidClient(data.payload.clientIdentifier)) {
+      throw new ConnectAckException(ConnectAckReasonCode.CLIENT_IDENTIFIER_NOT_VALID);
+    }
+    return true;
+  } catch (error) {
+    // Exceptions are automatically handled and appropriate responses are sent
+    throw error;
+  }
 });
 
 // Publish exception handling
 server.onPublish(async (data, client, clientManager) => {
-	if (data.payload.length > MAX_SIZE) {
-		throw new PubAckException(PubAckReasonCode.PACKET_TOO_LARGE);
-	}
-	return true;
+  if (data.payload.length > MAX_SIZE) {
+    throw new PubAckException(PubAckReasonCode.PACKET_TOO_LARGE);
+  }
+  return true;
 });
 
 // Subscribe exception handling
 server.onSubscribe(async (data, client, clientManager) => {
-	for (const subscription of data.subscriptions) {
-		if (!isValidTopic(subscription.topicFilter)) {
-			throw new SubscribeAckException(SubscribeAckReasonCode.TOPIC_FILTER_INVALID);
-		}
-	}
-	return true;
+  for (const subscription of data.subscriptions) {
+    if (!isValidTopic(subscription.topicFilter)) {
+      throw new SubscribeAckException(SubscribeAckReasonCode.TOPIC_FILTER_INVALID);
+    }
+  }
+  return true;
 });
 ```
 
@@ -522,15 +522,13 @@ server.onSubscribe(async (data, client, clientManager) => {
 ```typescript
 // Add retained message
 await clientManager.addRetainMessage(
-	'sensor/temperature',
-	{
-		header: {
-			/* ... */
-		},
-		topic: 'sensor/temperature',
-		payload: Buffer.from('25.5'),
-	},
-	3600,
+  'sensor/temperature',
+  {
+    header: {/* ... */},
+    topic: 'sensor/temperature',
+    payload: Buffer.from('25.5'),
+  },
+  3600,
 ); // TTL: 1 hour
 
 // Get retained message
@@ -538,7 +536,7 @@ const retainMessage = await clientManager.getRetainMessage('sensor/temperature')
 
 // Iterate retained messages
 await clientManager.forEachRetainMessage(async (topic, data) => {
-	console.log(`Retained message - Topic: ${topic}, Content: ${data.payload}`);
+  console.log(`Retained message - Topic: ${topic}, Content: ${data.payload}`);
 }, 'sensor/+'); // Supports wildcards
 ```
 
@@ -571,14 +569,14 @@ REDIS_DB=0
 ```typescript
 // Instance 1
 const clientManager1 = new Redis2Manager({
-	host: 'redis-cluster-1.example.com',
-	port: 6379,
+  host: 'redis-cluster-1.example.com',
+  port: 6379,
 });
 
 // Instance 2
 const clientManager2 = new Redis2Manager({
-	host: 'redis-cluster-2.example.com',
-	port: 6379,
+  host: 'redis-cluster-2.example.com',
+  port: 6379,
 });
 
 // Both instances can share subscriptions and messages
@@ -621,13 +619,13 @@ The test report includes detailed analysis, comparison with other MQTT brokers, 
 
 ```typescript
 const clientManager = new Redis2Manager({
-	host: '127.0.0.1',
-	port: 6379,
-	lazyConnect: true,
-	maxRetriesPerRequest: 3,
-	retryDelayOnFailover: 100,
-	enableReadyCheck: false,
-	maxLoadingTimeout: 10000,
+  host: '127.0.0.1',
+  port: 6379,
+  lazyConnect: true,
+  maxRetriesPerRequest: 3,
+  retryDelayOnFailover: 100,
+  enableReadyCheck: false,
+  maxLoadingTimeout: 10000,
 });
 ```
 
@@ -642,9 +640,9 @@ const clientManager = new MemoryManager();
 
 ```typescript
 const server = new MqttServer(clientManager, {
-	maximumPacketSize: 1024 * 1024, // 1MB
-	retainTTL: 30 * 60, // 30 minutes
-	topicAliasMaximum: 1000,
+  maximumPacketSize: 1024 * 1024, // 1MB
+  retainTTL: 30 * 60, // 30 minutes
+  topicAliasMaximum: 1000,
 });
 
 // Set maximum connections
@@ -680,7 +678,7 @@ process.env.DEBUG = 'mqtt5-backend:*';
 
 // Listen for error events
 server.on('error', (err) => {
-	console.error('Server error:', err);
+  console.error('Server error:', err);
 });
 ```
 

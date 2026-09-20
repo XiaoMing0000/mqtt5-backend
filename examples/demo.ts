@@ -19,11 +19,11 @@ import { Redis2Manager } from '../src/manager/redis2Manager';
 
 // const clientManager = new MemoryManager();
 const clientManager = new Redis2Manager({
-	host: CONFIG.redisHost,
-	port: CONFIG.redisPort,
-	username: CONFIG.redisUsername,
-	password: CONFIG.redisPassword,
-	db: CONFIG.redisDB,
+  host: CONFIG.redisHost,
+  port: CONFIG.redisPort,
+  username: CONFIG.redisUsername,
+  password: CONFIG.redisPassword,
+  db: CONFIG.redisDB,
 });
 
 const server = new MqttServer(clientManager);
@@ -41,23 +41,23 @@ const wsMqttServer = new MqttServerWebSocket(clientManager);
 // });
 
 server.onConnection(async (client) => {
-	let identifier = '';
-	client.on('connect', (data: IConnectData, _client: TClient, _clientManager: Manager) => {
-		identifier = data.payload.clientIdentifier;
-		console.log('connect', data);
-	});
+  let identifier = '';
+  client.on('connect', (data: IConnectData, _client: TClient, _clientManager: Manager) => {
+    identifier = data.payload.clientIdentifier;
+    console.log('connect', data);
+  });
 
-	client.on('publish', (data: IPublishData, _client: TClient, _clientManager: Manager) => {
-		console.log('clientId: ', identifier);
-		console.log('publish: ', data);
-	});
+  client.on('publish', (data: IPublishData, _client: TClient, _clientManager: Manager) => {
+    console.log('clientId: ', identifier);
+    console.log('publish: ', data);
+  });
 });
 
 server.listen(CONFIG.mqttPort, () => {
-	console.log(`MQTT server listening on port ${CONFIG.mqttPort}`);
+  console.log(`MQTT server listening on port ${CONFIG.mqttPort}`);
 });
 wsMqttServer.listen(8083, async () => {
-	console.log(`MQTT WebSocket server listening on port ${8083}`);
+  console.log(`MQTT WebSocket server listening on port ${8083}`);
 });
 
 // TODO 共享订阅

@@ -1,17 +1,19 @@
+// IDE / 类型检查用：覆盖源码与示例
 {
-	"compilerOptions": {
-		"target": "es2020",
-		"module": "commonjs",
-		"outDir": "./dist",
-		"declaration": true,
-		"strict": true,
-		"esModuleInterop": true,
-		"sourceMap": true,
-		"noUnusedLocals": true, // 禁止未使用的局部变量
-		"noUnusedParameters": true, // 禁止未使用的参数
-	},
-	"include": [
-		"src/**/*"
-	],
-	"exclude": ["node_modules", "dist", "examples/**/*"]
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["esnext"],
+    "types": ["node"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "moduleDetection": "force",
+    "allowUnreachableCode": false,
+    "noEmit": true
+  },
+  "include": ["src/**/*", "examples/**/*"],
+  "exclude": ["node_modules", "dist"]
 }

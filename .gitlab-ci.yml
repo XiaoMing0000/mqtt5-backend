@@ -14,9 +14,11 @@ build:
   image: docker.io/library/node:24
   rules:
     - if: $CI_COMMIT_TAG
+  before_script:
+    - npm install -g pnpm
   script:
-    - npm install
-    - npm run build
+    - pnpm install
+    - pnpm run build
   artifacts:
     name: dist
     paths:

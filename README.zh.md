@@ -37,19 +37,19 @@ const server = new MqttServer(clientManager);
 
 // 监听连接事件
 server.onConnect(async (data, client, clientManager) => {
-	console.log('客户端连接:', data);
-	return true; // 允许连接
+  console.log('客户端连接:', data);
+  return true; // 允许连接
 });
 
 // 监听发布事件
 server.onPublish(async (data, client, clientManager) => {
-	console.log('收到消息:', data);
-	return true; // 允许发布
+  console.log('收到消息:', data);
+  return true; // 允许发布
 });
 
 // 启动服务器
 server.listen(1883, () => {
-	console.log('MQTT 服务器启动在端口 1883');
+  console.log('MQTT 服务器启动在端口 1883');
 });
 ```
 
@@ -62,14 +62,14 @@ import fs from 'fs';
 const clientManager = new MemoryManager();
 
 const tlsOptions = {
-	cert: fs.readFileSync('cert.pem'),
-	key: fs.readFileSync('key.pem'),
+  cert: fs.readFileSync('cert.pem'),
+  key: fs.readFileSync('key.pem'),
 };
 
 const server = new MqttServerTLS(tlsOptions, clientManager);
 
 server.listen(8883, () => {
-	console.log('MQTT TLS 服务器启动在端口 8883');
+  console.log('MQTT TLS 服务器启动在端口 8883');
 });
 ```
 
@@ -82,7 +82,7 @@ const clientManager = new MemoryManager();
 const server = new MqttServerWebSocket(clientManager);
 
 server.listen(8083, () => {
-	console.log('MQTT WebSocket 服务器启动在端口 8083');
+  console.log('MQTT WebSocket 服务器启动在端口 8083');
 });
 ```
 
@@ -95,14 +95,14 @@ import fs from 'fs';
 const clientManager = new MemoryManager();
 
 const httpsOptions = {
-	cert: fs.readFileSync('cert.pem'),
-	key: fs.readFileSync('key.pem'),
+  cert: fs.readFileSync('cert.pem'),
+  key: fs.readFileSync('key.pem'),
 };
 
 const server = new MqttServerWebSocketSecure(httpsOptions, clientManager);
 
 server.listen(8084, () => {
-	console.log('MQTT WebSocket Secure 服务器启动在端口 8084');
+  console.log('MQTT WebSocket Secure 服务器启动在端口 8084');
 });
 ```
 
@@ -126,10 +126,10 @@ const clientManager = new MemoryManager();
 import { RedisManager } from '@elfdream/mqtt5-backend';
 
 const clientManager = new RedisManager({
-	host: '127.0.0.1',
-	port: 6379,
-	password: 'your_password',
-	db: 0,
+  host: '127.0.0.1',
+  port: 6379,
+  password: 'your_password',
+  db: 0,
 });
 ```
 
@@ -141,11 +141,11 @@ const clientManager = new RedisManager({
 import { Redis2Manager } from '@elfdream/mqtt5-backend';
 
 const clientManager = new Redis2Manager({
-	host: '127.0.0.1',
-	port: 6379,
-	username: 'your_username',
-	password: 'your_password',
-	db: 0,
+  host: '127.0.0.1',
+  port: 6379,
+  username: 'your_username',
+  password: 'your_password',
+  db: 0,
 });
 ```
 
@@ -223,24 +223,24 @@ server.getConnections(callback: (error: Error | null, count: number) => void)
 
 ```typescript
 interface IMqttOptions {
-	protocolName?: 'MQTT' | 'MQIsdp'; // 协议名称，默认 'MQTT'
-	// MQTT v3.1 使用 'MQIsdp'，MQTT v3.1.1 和 v5.0 使用 'MQTT'
-	protocolVersions?: Array<number>; // 协议版本，默认 [3, 4, 5]
-	// 3 = MQTT v3.1, 4 = MQTT v3.1.1, 5 = MQTT v5.0
-	// 可以设置为 [3, 4] 仅支持 v3.1 和 v3.1.1，或 [5] 仅支持 v5.0
-	automaticallyAssignedClientIdentifier?: boolean; // 是否自动分配客户端ID，默认 true
-	maximumQoS?: QoSType; // 最大QoS级别，默认 QoS2
-	retainAvailable?: boolean; // 是否支持保留消息，默认 true
-	retainTTL?: number; // 保留消息TTL（秒），默认 1800
-	maximumPacketSize?: number; // 最大数据包大小，默认 1MB
-	topicAliasMaximum?: number; // 主题别名最大值，默认 65535（仅 MQTT v5.0）
-	wildcardSubscriptionAvailable?: boolean; // 是否支持通配符订阅，默认 true
-	subscriptionIdentifierAvailable?: boolean; // 订阅标识符可用，默认 true（仅 MQTT v5.0）
-	sharedSubscriptionAvailable?: boolean; // 共享订阅可用，默认 false（仅 MQTT v5.0）
-	sessionExpiryInterval?: number; // 会话过期时间（秒），默认 0（仅 MQTT v5.0）
-	sendReasonMessage?: boolean; // 是否发送原因消息（仅 MQTT v5.0）
-	receiveMaximum?: number; // 接收最大值，控制接受 PUBLISH QoS 1 和 QoS 2 报文数量，默认 65535（仅 MQTT v5.0）
-	serverKeepAlive?: number; // 服务端保持连接时间（秒），默认 0（仅 MQTT v5.0）
+  protocolName?: 'MQTT' | 'MQIsdp'; // 协议名称，默认 'MQTT'
+  // MQTT v3.1 使用 'MQIsdp'，MQTT v3.1.1 和 v5.0 使用 'MQTT'
+  protocolVersions?: Array<number>; // 协议版本，默认 [3, 4, 5]
+  // 3 = MQTT v3.1, 4 = MQTT v3.1.1, 5 = MQTT v5.0
+  // 可以设置为 [3, 4] 仅支持 v3.1 和 v3.1.1，或 [5] 仅支持 v5.0
+  automaticallyAssignedClientIdentifier?: boolean; // 是否自动分配客户端ID，默认 true
+  maximumQoS?: QoSType; // 最大QoS级别，默认 QoS2
+  retainAvailable?: boolean; // 是否支持保留消息，默认 true
+  retainTTL?: number; // 保留消息TTL（秒），默认 1800
+  maximumPacketSize?: number; // 最大数据包大小，默认 1MB
+  topicAliasMaximum?: number; // 主题别名最大值，默认 65535（仅 MQTT v5.0）
+  wildcardSubscriptionAvailable?: boolean; // 是否支持通配符订阅，默认 true
+  subscriptionIdentifierAvailable?: boolean; // 订阅标识符可用，默认 true（仅 MQTT v5.0）
+  sharedSubscriptionAvailable?: boolean; // 共享订阅可用，默认 false（仅 MQTT v5.0）
+  sessionExpiryInterval?: number; // 会话过期时间（秒），默认 0（仅 MQTT v5.0）
+  sendReasonMessage?: boolean; // 是否发送原因消息（仅 MQTT v5.0）
+  receiveMaximum?: number; // 接收最大值，控制接受 PUBLISH QoS 1 和 QoS 2 报文数量，默认 65535（仅 MQTT v5.0）
+  serverKeepAlive?: number; // 服务端保持连接时间（秒），默认 0（仅 MQTT v5.0）
 }
 ```
 
@@ -293,7 +293,7 @@ const server = new MqttServer(clientManager);
 
 ```typescript
 const server = new MqttServer(clientManager, {
-	protocolVersions: [3, 4], // 仅支持 v3.1 和 v3.1.1
+  protocolVersions: [3, 4], // 仅支持 v3.1 和 v3.1.1
 });
 ```
 
@@ -301,7 +301,7 @@ const server = new MqttServer(clientManager, {
 
 ```typescript
 const server = new MqttServer(clientManager, {
-	protocolVersions: [5], // 仅支持 v5.0
+  protocolVersions: [5], // 仅支持 v5.0
 });
 ```
 
@@ -320,21 +320,21 @@ const server = new MqttServer(clientManager, {
 ```typescript
 // 同时支持 v3.1、v3.1.1 和 v5.0 客户端
 const server = new MqttServer(clientManager, {
-	protocolVersions: [3, 4, 5], // 默认值
+  protocolVersions: [3, 4, 5], // 默认值
 });
 
 server.onConnect(async (data, client, clientManager) => {
-	const version = data.header.protocolVersion;
-	if (version === 3) {
-		console.log('MQTT v3.1 客户端连接');
-	} else if (version === 4) {
-		console.log('MQTT v3.1.1 客户端连接');
-	} else if (version === 5) {
-		console.log('MQTT v5.0 客户端连接');
-		// 可以使用 v5.0 特有特性
-		console.log('会话过期时间:', data.properties.sessionExpiryInterval);
-	}
-	return true;
+  const version = data.header.protocolVersion;
+  if (version === 3) {
+    console.log('MQTT v3.1 客户端连接');
+  } else if (version === 4) {
+    console.log('MQTT v3.1.1 客户端连接');
+  } else if (version === 5) {
+    console.log('MQTT v5.0 客户端连接');
+    // 可以使用 v5.0 特有特性
+    console.log('会话过期时间:', data.properties.sessionExpiryInterval);
+  }
+  return true;
 });
 ```
 
@@ -345,25 +345,25 @@ server.onConnect(async (data, client, clientManager) => {
 ```typescript
 // QoS 1 消息发布确认处理
 server.onPubAck(async (data, client, clientManager) => {
-	const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
-	console.log(`客户端 ${clientId} 确认收到 QoS 1 消息，包ID: ${data.header.packetIdentifier}`);
-	return true;
+  const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
+  console.log(`客户端 ${clientId} 确认收到 QoS 1 消息，包ID: ${data.header.packetIdentifier}`);
+  return true;
 });
 
 // QoS 2 消息四步握手处理
 server.onPubRec(async (data, client, clientManager) => {
-	console.log(`收到 QoS 2 消息接收确认，包ID: ${data.header.packetIdentifier}`);
-	return true;
+  console.log(`收到 QoS 2 消息接收确认，包ID: ${data.header.packetIdentifier}`);
+  return true;
 });
 
 server.onPubRel(async (data, client, clientManager) => {
-	console.log(`收到 QoS 2 消息释放请求，包ID: ${data.header.packetIdentifier}`);
-	return true;
+  console.log(`收到 QoS 2 消息释放请求，包ID: ${data.header.packetIdentifier}`);
+  return true;
 });
 
 server.onPubComp(async (data, client, clientManager) => {
-	console.log(`QoS 2 消息处理完成，包ID: ${data.header.packetIdentifier}`);
-	return true;
+  console.log(`QoS 2 消息处理完成，包ID: ${data.header.packetIdentifier}`);
+  return true;
 });
 ```
 
@@ -371,20 +371,20 @@ server.onPubComp(async (data, client, clientManager) => {
 
 ```typescript
 server.onConnect(async (data, client, clientManager) => {
-	// 验证客户端ID
-	if (!data.payload.clientIdentifier) {
-		throw new ConnectAckException(ConnectAckReasonCode.CLIENT_IDENTIFIER_NOT_VALID);
-	}
+  // 验证客户端ID
+  if (!data.payload.clientIdentifier) {
+    throw new ConnectAckException(ConnectAckReasonCode.CLIENT_IDENTIFIER_NOT_VALID);
+  }
 
-	// 验证用户名密码
-	if (data.payload.username && data.payload.password) {
-		const isValid = await validateCredentials(data.payload.username, data.payload.password);
-		if (!isValid) {
-			throw new ConnectAckException(ConnectAckReasonCode.BAD_USER_NAME_OR_PASSWORD);
-		}
-	}
+  // 验证用户名密码
+  if (data.payload.username && data.payload.password) {
+    const isValid = await validateCredentials(data.payload.username, data.payload.password);
+    if (!isValid) {
+      throw new ConnectAckException(ConnectAckReasonCode.BAD_USER_NAME_OR_PASSWORD);
+    }
+  }
 
-	return true;
+  return true;
 });
 ```
 
@@ -392,20 +392,20 @@ server.onConnect(async (data, client, clientManager) => {
 
 ```typescript
 server.onAuth(async (data, client, clientManager) => {
-	// 处理 MQTT v5 增强认证
-	console.log('收到认证请求:', data);
+  // 处理 MQTT v5 增强认证
+  console.log('收到认证请求:', data);
 
-	// 验证认证数据
-	if (data.properties?.authenticationData) {
-		const authData = data.properties.authenticationData;
-		// 处理认证逻辑
-		const isValid = await validateAuthData(authData);
-		if (!isValid) {
-			throw new AuthenticateException(AuthenticateReasonCode.CONTINUE_AUTHENTICATION);
-		}
-	}
+  // 验证认证数据
+  if (data.properties?.authenticationData) {
+    const authData = data.properties.authenticationData;
+    // 处理认证逻辑
+    const isValid = await validateAuthData(authData);
+    if (!isValid) {
+      throw new AuthenticateException(AuthenticateReasonCode.CONTINUE_AUTHENTICATION);
+    }
+  }
 
-	return true;
+  return true;
 });
 ```
 
@@ -413,38 +413,38 @@ server.onAuth(async (data, client, clientManager) => {
 
 ```typescript
 server.onSubscribe(async (data, client, clientManager) => {
-	const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
+  const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
 
-	// 检查订阅权限
-	for (const subscription of data.subscriptions) {
-		const topic = subscription.topicFilter;
-		const qos = subscription.qos;
+  // 检查订阅权限
+  for (const subscription of data.subscriptions) {
+    const topic = subscription.topicFilter;
+    const qos = subscription.qos;
 
-		// 验证主题权限
-		if (!hasSubscribePermission(clientId, topic)) {
-			throw new SubscribeAckException(SubscribeAckReasonCode.NOT_AUTHORIZED);
-		}
+    // 验证主题权限
+    if (!hasSubscribePermission(clientId, topic)) {
+      throw new SubscribeAckException(SubscribeAckReasonCode.NOT_AUTHORIZED);
+    }
 
-		// 检查 QoS 级别
-		if (qos > MAX_QOS_LEVEL) {
-			throw new SubscribeAckException(SubscribeAckReasonCode.QOS_NOT_SUPPORTED);
-		}
+    // 检查 QoS 级别
+    if (qos > MAX_QOS_LEVEL) {
+      throw new SubscribeAckException(SubscribeAckReasonCode.QOS_NOT_SUPPORTED);
+    }
 
-		console.log(`客户端 ${clientId} 订阅主题 ${topic}，QoS: ${qos}`);
-	}
+    console.log(`客户端 ${clientId} 订阅主题 ${topic}，QoS: ${qos}`);
+  }
 
-	return true;
+  return true;
 });
 
 server.onUnsubscribe(async (data, client, clientManager) => {
-	const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
+  const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
 
-	// 记录取消订阅
-	for (const topicFilter of data.topicFilters) {
-		console.log(`客户端 ${clientId} 取消订阅主题 ${topicFilter}`);
-	}
+  // 记录取消订阅
+  for (const topicFilter of data.topicFilters) {
+    console.log(`客户端 ${clientId} 取消订阅主题 ${topicFilter}`);
+  }
 
-	return true;
+  return true;
 });
 ```
 
@@ -452,21 +452,21 @@ server.onUnsubscribe(async (data, client, clientManager) => {
 
 ```typescript
 server.onPublish(async (data, client, clientManager) => {
-	// 检查主题权限
-	const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
-	if (!hasTopicPermission(clientId, data.topic)) {
-		throw new PubAckException(PubAckReasonCode.NOT_AUTHORIZED);
-	}
+  // 检查主题权限
+  const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
+  if (!hasTopicPermission(clientId, data.topic)) {
+    throw new PubAckException(PubAckReasonCode.NOT_AUTHORIZED);
+  }
 
-	// 消息内容验证
-	if (data.payload.length > MAX_MESSAGE_SIZE) {
-		throw new PubAckException(PubAckReasonCode.PACKET_TOO_LARGE);
-	}
+  // 消息内容验证
+  if (data.payload.length > MAX_MESSAGE_SIZE) {
+    throw new PubAckException(PubAckReasonCode.PACKET_TOO_LARGE);
+  }
 
-	// 记录消息日志
-	console.log(`客户端 ${clientId} 发布消息到主题 ${data.topic}`);
+  // 记录消息日志
+  console.log(`客户端 ${clientId} 发布消息到主题 ${data.topic}`);
 
-	return true;
+  return true;
 });
 ```
 
@@ -474,46 +474,46 @@ server.onPublish(async (data, client, clientManager) => {
 
 ```typescript
 import {
-	ConnectAckException,
-	ConnectAckReasonCode,
-	PubAckException,
-	PubAckReasonCode,
-	SubscribeAckException,
-	SubscribeAckReasonCode,
-	AuthenticateException,
-	AuthenticateReasonCode,
+  ConnectAckException,
+  ConnectAckReasonCode,
+  PubAckException,
+  PubAckReasonCode,
+  SubscribeAckException,
+  SubscribeAckReasonCode,
+  AuthenticateException,
+  AuthenticateReasonCode,
 } from '@elfdream/mqtt5-backend';
 
 // 连接异常处理
 server.onConnect(async (data, client, clientManager) => {
-	try {
-		// 验证逻辑
-		if (!isValidClient(data.payload.clientIdentifier)) {
-			throw new ConnectAckException(ConnectAckReasonCode.CLIENT_IDENTIFIER_NOT_VALID);
-		}
-		return true;
-	} catch (error) {
-		// 异常会被自动处理并发送相应的响应
-		throw error;
-	}
+  try {
+    // 验证逻辑
+    if (!isValidClient(data.payload.clientIdentifier)) {
+      throw new ConnectAckException(ConnectAckReasonCode.CLIENT_IDENTIFIER_NOT_VALID);
+    }
+    return true;
+  } catch (error) {
+    // 异常会被自动处理并发送相应的响应
+    throw error;
+  }
 });
 
 // 发布异常处理
 server.onPublish(async (data, client, clientManager) => {
-	if (data.payload.length > MAX_SIZE) {
-		throw new PubAckException(PubAckReasonCode.PACKET_TOO_LARGE);
-	}
-	return true;
+  if (data.payload.length > MAX_SIZE) {
+    throw new PubAckException(PubAckReasonCode.PACKET_TOO_LARGE);
+  }
+  return true;
 });
 
 // 订阅异常处理
 server.onSubscribe(async (data, client, clientManager) => {
-	for (const subscription of data.subscriptions) {
-		if (!isValidTopic(subscription.topicFilter)) {
-			throw new SubscribeAckException(SubscribeAckReasonCode.TOPIC_FILTER_INVALID);
-		}
-	}
-	return true;
+  for (const subscription of data.subscriptions) {
+    if (!isValidTopic(subscription.topicFilter)) {
+      throw new SubscribeAckException(SubscribeAckReasonCode.TOPIC_FILTER_INVALID);
+    }
+  }
+  return true;
 });
 ```
 
@@ -522,15 +522,13 @@ server.onSubscribe(async (data, client, clientManager) => {
 ```typescript
 // 添加保留消息
 await clientManager.addRetainMessage(
-	'sensor/temperature',
-	{
-		header: {
-			/* ... */
-		},
-		topic: 'sensor/temperature',
-		payload: Buffer.from('25.5'),
-	},
-	3600,
+  'sensor/temperature',
+  {
+    header: {/* ... */},
+    topic: 'sensor/temperature',
+    payload: Buffer.from('25.5'),
+  },
+  3600,
 ); // TTL: 1小时
 
 // 获取保留消息
@@ -538,7 +536,7 @@ const retainMessage = await clientManager.getRetainMessage('sensor/temperature')
 
 // 遍历保留消息
 await clientManager.forEachRetainMessage(async (topic, data) => {
-	console.log(`保留消息 - 主题: ${topic}, 内容: ${data.payload}`);
+  console.log(`保留消息 - 主题: ${topic}, 内容: ${data.payload}`);
 }, 'sensor/+'); // 支持通配符
 ```
 
@@ -571,14 +569,14 @@ REDIS_DB=0
 ```typescript
 // 实例 1
 const clientManager1 = new Redis2Manager({
-	host: 'redis-cluster-1.example.com',
-	port: 6379,
+  host: 'redis-cluster-1.example.com',
+  port: 6379,
 });
 
 // 实例 2
 const clientManager2 = new Redis2Manager({
-	host: 'redis-cluster-2.example.com',
-	port: 6379,
+  host: 'redis-cluster-2.example.com',
+  port: 6379,
 });
 
 // 两个实例可以共享订阅和消息
@@ -621,13 +619,13 @@ npm run build:prod
 
 ```typescript
 const clientManager = new Redis2Manager({
-	host: '127.0.0.1',
-	port: 6379,
-	lazyConnect: true,
-	maxRetriesPerRequest: 3,
-	retryDelayOnFailover: 100,
-	enableReadyCheck: false,
-	maxLoadingTimeout: 10000,
+  host: '127.0.0.1',
+  port: 6379,
+  lazyConnect: true,
+  maxRetriesPerRequest: 3,
+  retryDelayOnFailover: 100,
+  enableReadyCheck: false,
+  maxLoadingTimeout: 10000,
 });
 ```
 
@@ -642,9 +640,9 @@ const clientManager = new MemoryManager();
 
 ```typescript
 const server = new MqttServer(clientManager, {
-	maximumPacketSize: 1024 * 1024, // 1MB
-	retainTTL: 30 * 60, // 30分钟
-	topicAliasMaximum: 1000,
+  maximumPacketSize: 1024 * 1024, // 1MB
+  retainTTL: 30 * 60, // 30分钟
+  topicAliasMaximum: 1000,
 });
 
 // 设置最大连接数
@@ -680,7 +678,7 @@ process.env.DEBUG = 'mqtt5-backend:*';
 
 // 监听错误事件
 server.on('error', (err) => {
-	console.error('服务器错误:', err);
+  console.error('服务器错误:', err);
 });
 ```
 
