@@ -381,7 +381,11 @@ export class Redis2Manager extends Manager {
   public async clearConnect(clientIdentifier: TClient | TIdentifier): Promise<void> {
     const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : this.clientIdentifierManager.getClient(clientIdentifier)?.identifier;
     const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdentifier(clientIdentifier) : clientIdentifier;
-    if (client && identifier) {
+    if (client && identifier && client === this.clientIdentifierManager.getIdentifier(identifier)) {
+      const idClient = this.clientIdentifierManager.getIdentifier(identifier);
+      if (typeof clientIdentifier !== 'string' && clientIdentifier !== idClient) {
+        return;
+      }
       this.clearPendingClient(client);
       const connDataRaw = await this.redisPub.get(this.connectKey(identifier));
       const sessionExpiryInterval = connDataRaw ? ((JSON.parse(connDataRaw) as IConnectData).properties?.sessionExpiryInterval ?? 0) : 0;

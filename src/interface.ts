@@ -403,7 +403,7 @@ export interface IConnectData {
     packetFlags: number;
     remainingLength?: number;
     protocolName: 'MQTT' | 'MQIsdp' | string;
-    protocolVersion: number;
+    protocolVersion: ProtocolVersion;
     keepAlive: number;
   };
   connectFlags: IConnectFlags;

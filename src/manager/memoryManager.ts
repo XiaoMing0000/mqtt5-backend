@@ -177,6 +177,10 @@ export class MemoryManager extends Manager {
     const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : this.clientIdentifierManager.getClient(clientIdentifier)?.identifier;
     const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdentifier(clientIdentifier) : clientIdentifier;
     if (client && identifier) {
+      const idClient = this.clientIdentifierManager.getIdentifier(identifier);
+      if (typeof clientIdentifier !== 'string' && clientIdentifier !== idClient) {
+        return;
+      }
       this.clearPendingClient(client);
       this.connectDataMap.delete(client);
 

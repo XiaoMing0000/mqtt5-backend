@@ -1,5 +1,6 @@
 import net from 'net';
-import { IConnectData, IPublishData, PacketType, ProtocolVersion, QoSType } from '../interface';
+import { IConnectData, IDisconnectData, IPublishData, PacketType, ProtocolVersion, QoSType } from '../interface';
+import { encodeDisconnect } from '../parse';
 
 /** MQTT topic filter or name (string). */
 export type TTopic = string;
@@ -259,8 +260,12 @@ export abstract class Manager {
    *
    * @param clientIdentifier - Client id string, or the socket to end.
    */
-  public disconnect(clientIdentifier: string | TClient): void {
-    typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdentifier(clientIdentifier)?.end() : clientIdentifier.end();
+  public disconnect(clientIdentifier: string | TClient, disconnectData?: IDisconnectData, protocolVersion?: ProtocolVersion): void {
+    // TODO: [MQTT-3.1.2.5] If the existing Client has a Will Message, that Will Message is published as described in section 3.1.2.5.
+    const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdentifier(clientIdentifier) : clientIdentifier;
+    if (client) {
+      client.end(Buffer.from(disconnectData ? encodeDisconnect(disconnectData, protocolVersion) : []));
+    }
   }
 
   /**

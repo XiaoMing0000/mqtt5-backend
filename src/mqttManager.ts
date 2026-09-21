@@ -73,7 +73,7 @@ export class MqttManager {
       packetFlags: 0,
       remainingLength: 0,
       protocolName: '',
-      protocolVersion: 0,
+      protocolVersion: ProtocolVersion.V5,
       keepAlive: 0,
     },
     connectFlags: {} as any,
@@ -236,6 +236,7 @@ export class MqttManager {
    */
   public async connectHandle(connData: IConnectData, emitAsync?: (client: TClient, event: string, ...args: any[]) => Promise<boolean>) {
     this.connData = connData;
+    // [MQTT-3.1.3-6] A Server MAY allow a Client to supply a ClientID that has a length of zero bytes, however if it does so the Server MUST treat this as a special case and assign a unique ClientID to that Client.
     if (!connData.payload.clientIdentifier) {
       if (this.options.automaticallyAssignedClientIdentifier !== false) {
         connData.payload.clientIdentifier = generateClientIdentifier();
@@ -243,9 +244,12 @@ export class MqttManager {
         throw new ConnectAckException('Client Identifier not valid', ConnectAckReasonCode.ClientIdentifierNotValid);
       }
     }
+    // check if protocol version is supported
     if (!this.options.protocolVersions?.includes(connData.header.protocolVersion)) {
       throw new DisconnectException('Unsupported Protocol Version.', DisconnectReasonCode.ProtocolError);
     }
+
+    // [MQTT-3.1.2.4] clear subscribe data if clean start is true
     if (this.connData.connectFlags.cleanStart) {
       await this.clientManager.clearSubscribe(connData.payload.clientIdentifier);
       this.receiveCounter = 0;
@@ -263,26 +267,35 @@ export class MqttManager {
       this.authMethod = this.connData.properties.authenticationMethod;
     }
     this.connData.properties.receiveMaximum ??= this.options.receiveMaximum ?? 0xffff;
-    const targetId = this.clientIdentifier || connData.payload.clientIdentifier;
-    const existingClient = this.clientManager.clientIdentifierManager.getIdentifier(targetId);
-    if (existingClient && existingClient !== this.client) {
-      const takeoverDisconnect = encodeDisconnect({
-        header: {
-          packetType: PacketType.DISCONNECT,
-          received: 0,
-          remainingLength: 0,
-          reasonCode: DisconnectReasonCode.SessionTakenOver,
-        },
-        properties: {},
-      });
-      existingClient.end(Buffer.from(takeoverDisconnect));
-      this.clientManager.clearConnect(existingClient);
-    }
     if (emitAsync && !(await emitAsync(this.client, 'connect', this.connData, this.client, this.clientManager))) {
       throw new DisconnectException('Client connection failed.', DisconnectReasonCode.UnspecifiedError);
     }
-    await this.handleConnAck(this.connData);
+
+    const targetId = this.clientIdentifier || connData.payload.clientIdentifier;
+
+    // [MQTT-3.1.4-3] If the ClientID represents a Client already connected to the Server, the Server sends a DISCONNECT packet to the existing Client with Reason Code of 0x8E (Session taken over) as described in section 4.13 and MUST close the Network Connection of the existing Client [MQTT-3.1.4-3].
+    const existingClient = this.clientManager.clientIdentifierManager.getIdentifier(targetId);
+    if (existingClient && existingClient !== this.client) {
+      this.clientManager.disconnect(
+        existingClient,
+        {
+          header: {
+            packetType: PacketType.DISCONNECT,
+            received: 0,
+            remainingLength: 0,
+            reasonCode: DisconnectReasonCode.SessionTakenOver,
+          },
+          properties: {
+            reasonString: 'Session taken over.',
+          },
+        },
+        this.connData.header.protocolVersion,
+      );
+      this.clientManager.clearConnect(existingClient);
+    }
+
     await this.clientManager.connect(targetId, connData, this.client);
+    await this.handleConnAck(this.connData);
     this.clientIdentifier = targetId;
     if (!this.connData.connectFlags.cleanStart) {
       await this.restoreOutboundQueue(targetId);
@@ -309,15 +322,18 @@ export class MqttManager {
    * @param properties - MQTT 5 disconnect properties.
    */
   public async handleDisconnect(reasonCode: DisconnectReasonCode, properties: IDisconnectProperties) {
-    const disconnectPacket = encodeDisconnect({
-      header: {
-        packetType: PacketType.DISCONNECT,
-        received: 0,
-        remainingLength: 0,
-        reasonCode: reasonCode,
+    const disconnectPacket = encodeDisconnect(
+      {
+        header: {
+          packetType: PacketType.DISCONNECT,
+          received: 0,
+          remainingLength: 0,
+          reasonCode: reasonCode,
+        },
+        properties: properties,
       },
-      properties: properties,
-    });
+      this.connData.header.protocolVersion,
+    );
     this.client.end(Buffer.from(disconnectPacket));
   }
   /**

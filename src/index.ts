@@ -64,7 +64,6 @@ const mqttDefaultOptions: IMqttOptions = {
   serverKeepAlive: 0,
   qosRetryCount: 3,
 };
-
 /**
  * Bridges a low-level transport {@link net.Server} (or compatible) to MQTT sessions via {@link MqttManager}.
  * Exposes Node-style server APIs and registers per-client MQTT lifecycle hooks.
@@ -472,7 +471,7 @@ class MqttEvent {
               delete (error as any).msg;
             }
             await catchMqttError(error, mqttManager, data);
-            console.log('Capture Evnet Error:', error);
+            console.error('Capture Event Error:', error);
             break;
           }
         }
@@ -494,7 +493,7 @@ class MqttEvent {
     });
 
     client.on('error', (err) => {
-      this.clientManager.disconnect(client);
+      mqttManager.handleDisconnect(DisconnectReasonCode.UnspecifiedError, { reasonString: err.message });
       console.error('Client error:', err);
     });
 
@@ -508,7 +507,7 @@ class MqttEvent {
         });
       });
       if (hadError) {
-        console.log('Connection closed due to error!');
+        console.error('Connection closed due to error!');
       }
     });
   }

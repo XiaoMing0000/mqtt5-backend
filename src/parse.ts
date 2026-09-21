@@ -912,13 +912,15 @@ export function encodeConnAck(connAckData: IConnAckData, protocolVersion: Protoc
  * @param disconnectData - Logical DISCONNECT content.
  * @returns Complete packet buffer.
  */
-export function encodeDisconnect(disconnectData: IDisconnectData) {
+export function encodeDisconnect(disconnectData?: IDisconnectData, protocolVersion?: ProtocolVersion) {
+  if (protocolVersion === ProtocolVersion.V3_1_1 || protocolVersion === ProtocolVersion.V3_1 || !disconnectData) {
+    return Buffer.from([PacketType.DISCONNECT << 4]);
+  }
   const fixedHeader = (disconnectData.header.packetType << 4) | disconnectData.header.received;
-
   const properties = new EncoderProperties();
-  properties.push(disconnectData.properties);
+  protocolVersion === ProtocolVersion.V5 && properties.push(disconnectData.properties);
 
-  const remainingBuffer = [disconnectData.header.reasonCode, ...properties.buffer];
+  const remainingBuffer = [disconnectData.header.reasonCode, ...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : [])];
   return Buffer.from([fixedHeader, ...encodeVariableByteInteger(remainingBuffer.length), ...remainingBuffer]);
 }
 
