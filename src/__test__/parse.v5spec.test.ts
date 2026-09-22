@@ -671,7 +671,7 @@ describe('encode/decode roundtrip', () => {
       header: { packetType: PacketType.DISCONNECT, received: 0, remainingLength: 0, reasonCode: 0x8b },
       properties: { reasonString: 'shutdown' },
     };
-    const encoded = encodeDisconnect(original);
+    const encoded = encodeDisconnect(original, ProtocolVersion.V5);
     const parsed = emptyDisconnectData();
     parseDisconnect(encoded, parsed, ProtocolVersion.V5);
     expect(parsed.header.reasonCode).toBe(0x8b);

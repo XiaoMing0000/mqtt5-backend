@@ -10,7 +10,8 @@
   ],
   "scripts": {
     "clean": "rimraf dist",
-    "test": "jest",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
     "test:commit-msg": "node --test scripts/check-commit-msg.test.js",
     "dev": "nodemon --exec tsx examples/demo.ts",
     "inspect": "tsx --inspect examples/demo.ts",
@@ -40,20 +41,19 @@
     "pnpm": ">=11.23.0"
   },
   "devDependencies": {
-    "@types/jest": "^30.0.0",
     "@types/node": "^22.5.1",
     "@types/ws": "^8.18.1",
+    "@vitest/coverage-v8": "^5.0.1",
     "dotenv": "^16.4.7",
-    "jest": "^30.2.0",
     "lint-staged": "^17.5.1",
     "nodemon": "^3.1.14",
     "oxfmt": "^0.68.0",
     "oxlint": "^1.83.0",
     "rimraf": "^6.0.1",
     "simple-git-hooks": "^2.14.0",
-    "ts-jest": "^29.4.6",
     "tsx": "^4.19.0",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
   },
   "dependencies": {
     "ioredis": "^5.4.1",
