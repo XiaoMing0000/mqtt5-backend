@@ -514,7 +514,7 @@ export function parseConnect(buffer: Buffer): IConnectData {
     username: !!((connectFlagsValue >> 7) & 1),
     password: !!((connectFlagsValue >> 6) & 1),
     willRetain: !!((connectFlagsValue >> 5) & 1),
-    willQoS: (connectFlagsValue >> 3) & 3,
+    willQoS: ((connectFlagsValue >> 3) & 3) as QoSType,
     willFlag: !!((connectFlagsValue >> 2) & 1),
     cleanStart: !!((connectFlagsValue >> 1) & 1),
     reserved: !!(connectFlagsValue & 1),

@@ -197,7 +197,7 @@ export interface IConnectFlags {
   username: boolean;
   password: boolean;
   willRetain: boolean;
-  willQoS: number;
+  willQoS: QoSType;
   willFlag: boolean;
   cleanStart: boolean;
   reserved: boolean;
