@@ -45,6 +45,8 @@ export interface IMqttOptions {
   serverKeepAlive?: number;
   /** Max retry count when the server delivers QoS 1/QoS 2 messages to the client. */
   qosRetryCount?: number;
+  /** Time-to-live for packet identifiers. */
+  packetIdentifierTTL?: number;
 }
 
 /** MQTT control packet type (fixed header first nibble). */
@@ -224,7 +226,7 @@ export interface IProperties {
   maximumQoS?: boolean;
   retainAvailable?: boolean;
   reasonString?: string;
-  subscriptionIdentifier?: number | Array<number>;
+  subscriptionIdentifier?: Array<number>;
   serverKeepAlive?: number;
   responseInformation?: string;
   serverReference?: string;
@@ -303,7 +305,7 @@ export interface IDisconnectProperties {
 
 /** Properties on SUBSCRIBE. */
 export interface ISubscribeProperties {
-  subscriptionIdentifier?: number;
+  subscriptionIdentifier?: Array<number>;
   userProperty?: { [key: string]: any };
 }
 

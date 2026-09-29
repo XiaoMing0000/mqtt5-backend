@@ -1,9 +1,9 @@
-import { Socket } from 'net';
 import { IConnectData, IPublishData, QoSType } from '../interface';
-import { ClientIdentifierManager, Manager, TClient, TClientSubscription, TIdentifier, TSubscribeData } from './manager';
+import { ClientIdentifierManager, Manager, TSocketSubscription, TIdentifier, TSubscribeData } from './manager';
 import Redis, { RedisOptions } from 'ioredis';
 import { isWildcardTopic, topicToRegEx } from '../topicFilters';
 import { encodePublishPacket } from '../parse';
+import { MqttClient } from '../mqttClient';
 
 /**
  * Converts an MQTT subscription topic filter into a Redis `SUBSCRIBE` / `PSUBSCRIBE` pattern.
@@ -80,7 +80,7 @@ function checkRedisTopic(pattern: string, channel: string) {
  */
 class SubscribeManager {
   private topicsMap = new Map<string, Set<string>>();
-  private clientIdentifierMap = new Map<string, TClientSubscription>();
+  private clientIdentifierMap = new Map<string, TSocketSubscription>();
 
   /**
    * Records a client's subscription to a Redis pattern and stores subscription options.
@@ -90,16 +90,16 @@ class SubscribeManager {
    * @param data - MQTT subscription options for this pattern.
    */
   subscribe(clientIdentifier: string, topic: string, data: TSubscribeData) {
-    const getClientIdentifierSet = this.topicsMap.get(topic);
-    if (getClientIdentifierSet) {
-      getClientIdentifierSet.add(clientIdentifier);
+    const geTSocketIdentifierSet = this.topicsMap.get(topic);
+    if (geTSocketIdentifierSet) {
+      geTSocketIdentifierSet.add(clientIdentifier);
     } else {
       this.topicsMap.set(topic, new Set([clientIdentifier]));
     }
 
-    const getClientTopicMap = this.clientIdentifierMap.get(clientIdentifier);
-    if (getClientTopicMap) {
-      getClientTopicMap.set(topic, data);
+    const geTSocketTopicMap = this.clientIdentifierMap.get(clientIdentifier);
+    if (geTSocketTopicMap) {
+      geTSocketTopicMap.set(topic, data);
     } else {
       this.clientIdentifierMap.set(clientIdentifier, new Map([[topic, data]]));
     }
@@ -145,9 +145,9 @@ class SubscribeManager {
   }
 
   // clearSubscribe(clientIdentifier: string) {
-  // 	const getClientTopicMap = this.clientIdentifierMap.get(clientIdentifier);
-  // 	if (getClientTopicMap) {
-  // 		getClientTopicMap.forEach((_value, key) => {
+  // 	const geTSocketTopicMap = this.clientIdentifierMap.get(clientIdentifier);
+  // 	if (geTSocketTopicMap) {
+  // 		geTSocketTopicMap.forEach((_value, key) => {
   // 			this.unsubscribe(clientIdentifier, key);
   // 		});
   // 	}
@@ -165,7 +165,7 @@ class SubscribeManager {
    * @param clientIdentifier - Logical client id.
    * @returns Map of pattern → subscription data for that client, or undefined.
    */
-  getClientAllTopic(clientIdentifier: string) {
+  geTSocketAllTopic(clientIdentifier: string) {
     return this.clientIdentifierMap.get(clientIdentifier);
   }
 
@@ -174,7 +174,7 @@ class SubscribeManager {
    * @param topic - Redis subscription pattern string.
    * @returns Subscription options for this client and pattern, or undefined.
    */
-  getClientSubscription(clientIdentifier: string, topic: string) {
+  geTSocketSubscription(clientIdentifier: string, topic: string) {
     return this.clientIdentifierMap.get(clientIdentifier)?.get(topic);
   }
 
@@ -233,9 +233,9 @@ export class Redis2Manager extends Manager {
         case '__keyevent@0__:expired': {
           if (message.startsWith('connect:')) {
             const clientIdentifier = message.substring('connect:'.length);
-            const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);
+            const client = this.clientIdentifierManager.getClient(clientIdentifier);
             if (client) {
-              client.end();
+              client.socket.end();
             }
           }
           break;
@@ -274,9 +274,9 @@ export class Redis2Manager extends Manager {
         retain: pubData.header.retain,
       };
       this.subscribeManager.getTopicClientIdentifier(pattern)?.forEach((clientIdentifier) => {
-        const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);
+        const client = this.clientIdentifierManager.getClient(clientIdentifier);
         if (client) {
-          const subFlags = this.subscribeManager.getClientSubscription(clientIdentifier, pattern);
+          const subFlags = this.subscribeManager.geTSocketSubscription(clientIdentifier, pattern);
           if (!subFlags) {
             return;
           }
@@ -298,7 +298,7 @@ export class Redis2Manager extends Manager {
           }
           const minQoS = Math.min(...selected.map((sub) => sub.qos), staticSourceData.qos);
           if (minQoS > QoSType.QoS0) {
-            distributeData.header.packetIdentifier = this.newPacketIdentifier(client);
+            distributeData.header.packetIdentifier = client.packetIdentifierManager.newPacketIdentifier();
             distributeData.header.dupFlag = false;
           } else {
             delete distributeData.header.packetIdentifier;
@@ -320,7 +320,7 @@ export class Redis2Manager extends Manager {
             delete distributeData.properties.subscriptionIdentifier;
           }
           const pubPacket = encodePublishPacket(distributeData, selected[0].protocolVersion);
-          client.write(pubPacket);
+          client.socket.write(pubPacket);
           if (minQoS > QoSType.QoS0 && distributeData.header.packetIdentifier !== undefined) {
             this.registerPendingPacket(client, distributeData.header.packetIdentifier, pubPacket, 'publish');
           }
@@ -341,29 +341,29 @@ export class Redis2Manager extends Manager {
   }
 
   /**
-   * @param key - Client id string or live socket wrapper.
+   * @param key - Client id string or live {@link MqttClient}.
    * @returns Whether Redis still has a `connect:*` key for this client.
    */
-  async isConnected(key: TClient | TIdentifier): Promise<boolean> {
+  async isConnected(key: MqttClient | TIdentifier): Promise<boolean> {
     if (typeof key === 'string') {
       return !!(await this.redisPub.exists(this.connectKey(key)));
     } else {
-      const clientID = this.clientIdentifierManager.getClient(key);
+      const clientID = key.clientIdentifier;
       if (clientID) {
-        return !!(await this.redisPub.exists(this.connectKey(clientID.identifier)));
+        return !!(await this.redisPub.exists(this.connectKey(key.clientIdentifier)));
       }
       return false;
     }
   }
 
   /**
-   * Registers the socket, stores connect payload in Redis, and refreshes session keys.
+   * Registers the {@link MqttClient}, stores connect payload in Redis, and refreshes session keys.
    *
    * @param clientIdentifier - Logical client id.
    * @param connData - Parsed CONNECT packet data.
-   * @param client - Underlying TCP socket for this connection.
+   * @param client - Live {@link MqttClient} for this connection.
    */
-  async connect(clientIdentifier: string, connData: IConnectData, client: Socket): Promise<void> {
+  async connect(clientIdentifier: string, connData: IConnectData, client: MqttClient): Promise<void> {
     this.clientIdentifierManager.set(clientIdentifier, client);
     await this.redisPub.set(this.connectKey(clientIdentifier), JSON.stringify(connData));
     await this.redisPub.set(this.sessionKey(clientIdentifier), '1');
@@ -376,13 +376,13 @@ export class Redis2Manager extends Manager {
   /**
    * Drops local pending state, optionally preserves session per `sessionExpiryInterval`, removes connect key.
    *
-   * @param clientIdentifier - Client id string or socket reference.
+   * @param clientIdentifier - Client id string or {@link MqttClient} reference.
    */
-  public async clearConnect(clientIdentifier: TClient | TIdentifier): Promise<void> {
-    const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : this.clientIdentifierManager.getClient(clientIdentifier)?.identifier;
-    const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdentifier(clientIdentifier) : clientIdentifier;
-    if (client && identifier && client === this.clientIdentifierManager.getIdentifier(identifier)) {
-      const idClient = this.clientIdentifierManager.getIdentifier(identifier);
+  public async clearConnect(clientIdentifier: MqttClient | TIdentifier): Promise<void> {
+    const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : clientIdentifier.clientIdentifier;
+    const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getClient(clientIdentifier) : clientIdentifier;
+    if (client && identifier && client === this.clientIdentifierManager.getClient(identifier)) {
+      const idClient = this.clientIdentifierManager.getClient(identifier);
       if (typeof clientIdentifier !== 'string' && clientIdentifier !== idClient) {
         return;
       }
@@ -395,7 +395,7 @@ export class Redis2Manager extends Manager {
       } else {
         await this.redisPub.expire(this.sessionKey(identifier), sessionExpiryInterval);
       }
-      this.clientIdentifierManager.delete(client);
+      this.clientIdentifierManager.delete(identifier);
 
       await this.redisPub.del(this.connectKey(identifier));
     }
@@ -407,7 +407,7 @@ export class Redis2Manager extends Manager {
    * @param clientIdentifier - Logical client id.
    */
   async clearSubscribe(clientIdentifier: string): Promise<void> {
-    const topicMap = this.subscribeManager.getClientAllTopic(clientIdentifier);
+    const topicMap = this.subscribeManager.geTSocketAllTopic(clientIdentifier);
     if (!topicMap) {
       return;
     }

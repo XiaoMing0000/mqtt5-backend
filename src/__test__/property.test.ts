@@ -17,452 +17,863 @@ import {
   encodeProperties,
 } from '../property';
 import { PropertyIdentifier } from '../interface';
-import { DisconnectException } from '../exception';
-import { encodeUTF8String, integerToOneUint8, integerToTwoUint8, integerToFourUint8 } from '../parse';
+import { DisconnectException, DisconnectReasonCode } from '../exception';
+import {
+  encodeBinaryData,
+  encodeUTF8String,
+  encodeVariableByteInteger,
+  integerToFourUint8,
+  integerToOneUint8,
+  integerToTwoUint8,
+} from '../parse';
+
+/** Concatenate property byte sequences into one Buffer. */
+function propBuffer(...chunks: Array<number | number[]>): Buffer {
+  const bytes: number[] = [];
+  for (const chunk of chunks) {
+    if (typeof chunk === 'number') bytes.push(chunk);
+    else bytes.push(...chunk);
+  }
+  return Buffer.from(bytes);
+}
+
+function utf8Property(id: PropertyIdentifier, value: string): number[] {
+  return [id, ...encodeUTF8String(value)];
+}
+
+function binaryProperty(id: PropertyIdentifier, value: Buffer): number[] {
+  return [id, ...encodeBinaryData(value)];
+}
+
+function oneByteProperty(id: PropertyIdentifier, value: number): number[] {
+  return [id, integerToOneUint8(value)];
+}
+
+function twoByteProperty(id: PropertyIdentifier, value: number): number[] {
+  return [id, ...integerToTwoUint8(value)];
+}
+
+function fourByteProperty(id: PropertyIdentifier, value: number): number[] {
+  return [id, ...integerToFourUint8(value)];
+}
+
+function expectProtocolError(fn: () => unknown) {
+  expect(fn).toThrow(DisconnectException);
+  try {
+    fn();
+  } catch (error) {
+    expect(error).toBeInstanceOf(DisconnectException);
+    expect((error as DisconnectException).code).toBe(DisconnectReasonCode.ProtocolError);
+  }
+}
 
 describe('property', () => {
   describe('parseProperties', () => {
     test('should parse empty buffer', () => {
-      const buffer = Buffer.from([]);
-      const result = parseProperties(buffer);
-      expect(result).toEqual({});
+      expect(parseProperties(Buffer.from([]))).toEqual({});
     });
 
-    test('should parse payloadFormatIndicator', () => {
-      const buffer = Buffer.from([PropertyIdentifier.payloadFormatIndicator, 0x01]);
+    test('should parse from a non-zero index', () => {
+      const buffer = propBuffer([0x00, 0x00], oneByteProperty(PropertyIdentifier.payloadFormatIndicator, 0x01));
+      expect(parseProperties(buffer, 2).payloadFormatIndicator).toBe(0x01);
+    });
+
+    test('should stop at unknown property identifier', () => {
+      const buffer = propBuffer(oneByteProperty(PropertyIdentifier.payloadFormatIndicator, 0x01), [0xfe, 0x01]);
       const result = parseProperties(buffer);
       expect(result.payloadFormatIndicator).toBe(0x01);
+      expect(Object.keys(result)).toEqual(['payloadFormatIndicator']);
     });
 
-    test('should parse messageExpiryInterval', () => {
-      const buffer = Buffer.from([PropertyIdentifier.messageExpiryInterval, 0x00, 0x00, 0x00, 0xff]);
-      const result = parseProperties(buffer);
-      expect(result.messageExpiryInterval).toBe(0xff);
+    describe('payloadFormatIndicator', () => {
+      test('parses valid value', () => {
+        const result = parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.payloadFormatIndicator, 0x01)));
+        expect(result.payloadFormatIndicator).toBe(0x01);
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(
+              oneByteProperty(PropertyIdentifier.payloadFormatIndicator, 0x01),
+              oneByteProperty(PropertyIdentifier.payloadFormatIndicator, 0x00),
+            ),
+          ),
+        );
+      });
     });
 
-    test('should parse contentType', () => {
-      const str = 'application/json';
-      const strBytes = Buffer.from(str);
-      const buffer = Buffer.from([PropertyIdentifier.contentType, 0x00, strBytes.length, ...strBytes]);
-      const result = parseProperties(buffer);
-      expect(result.contentType).toBe(str);
+    describe('messageExpiryInterval', () => {
+      test('parses valid value', () => {
+        const result = parseProperties(propBuffer(fourByteProperty(PropertyIdentifier.messageExpiryInterval, 0xff)));
+        expect(result.messageExpiryInterval).toBe(0xff);
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(
+              fourByteProperty(PropertyIdentifier.messageExpiryInterval, 1),
+              fourByteProperty(PropertyIdentifier.messageExpiryInterval, 2),
+            ),
+          ),
+        );
+      });
     });
 
-    test('should parse userProperty', () => {
-      const key = 'key';
-      const value = 'value';
-      const keyBytes = Buffer.from(key);
-      const valueBytes = Buffer.from(value);
-      const buffer = Buffer.from([PropertyIdentifier.userProperty, 0x00, keyBytes.length, ...keyBytes, 0x00, valueBytes.length, ...valueBytes]);
-      const result = parseProperties(buffer);
-      expect(result.userProperty).toEqual({ [key]: value });
+    describe('contentType', () => {
+      test('parses valid value', () => {
+        const result = parseProperties(propBuffer(utf8Property(PropertyIdentifier.contentType, 'application/json')));
+        expect(result.contentType).toBe('application/json');
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(utf8Property(PropertyIdentifier.contentType, 'a'), utf8Property(PropertyIdentifier.contentType, 'b')),
+          ),
+        );
+      });
     });
 
-    test('should parse multiple userProperty', () => {
-      const key1 = 'key1';
-      const value1 = 'value1';
-      const key2 = 'key2';
-      const value2 = 'value2';
-      const key1Bytes = Buffer.from(key1);
-      const value1Bytes = Buffer.from(value1);
-      const key2Bytes = Buffer.from(key2);
-      const value2Bytes = Buffer.from(value2);
-      const buffer = Buffer.from([
-        PropertyIdentifier.userProperty,
-        0x00,
-        key1Bytes.length,
-        ...key1Bytes,
-        0x00,
-        value1Bytes.length,
-        ...value1Bytes,
-        PropertyIdentifier.userProperty,
-        0x00,
-        key2Bytes.length,
-        ...key2Bytes,
-        0x00,
-        value2Bytes.length,
-        ...value2Bytes,
-      ]);
-      const result = parseProperties(buffer);
-      expect(result.userProperty).toEqual({ [key1]: value1, [key2]: value2 });
+    describe('responseTopic', () => {
+      test('parses valid value', () => {
+        const result = parseProperties(propBuffer(utf8Property(PropertyIdentifier.responseTopic, 'response/topic')));
+        expect(result.responseTopic).toBe('response/topic');
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(utf8Property(PropertyIdentifier.responseTopic, 'a'), utf8Property(PropertyIdentifier.responseTopic, 'b')),
+          ),
+        );
+      });
     });
 
-    test('should throw error for duplicate payloadFormatIndicator', () => {
-      const buffer = Buffer.from([PropertyIdentifier.payloadFormatIndicator, 0x01, PropertyIdentifier.payloadFormatIndicator, 0x02]);
-      expect(() => parseProperties(buffer)).toThrow(DisconnectException);
+    describe('correlationData', () => {
+      test('parses valid binary value', () => {
+        const data = Buffer.from([0x01, 0x02, 0x03]);
+        const result = parseProperties(propBuffer(binaryProperty(PropertyIdentifier.correlationData, data)));
+        expect(result.correlationData).toEqual(data);
+      });
+
+      test('throws on duplicate', () => {
+        const data = Buffer.from([0x01]);
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(binaryProperty(PropertyIdentifier.correlationData, data), binaryProperty(PropertyIdentifier.correlationData, data)),
+          ),
+        );
+      });
     });
 
-    test('should throw error for subscriptionIdentifier with value 0', () => {
-      const buffer = Buffer.from([PropertyIdentifier.subscriptionIdentifier, 0x00]);
-      expect(() => parseProperties(buffer)).toThrow(DisconnectException);
+    describe('subscriptionIdentifier', () => {
+      test('parses a single identifier into an array', () => {
+        const result = parseProperties(propBuffer([PropertyIdentifier.subscriptionIdentifier, ...encodeVariableByteInteger(1)]));
+        expect(result.subscriptionIdentifier).toEqual([1]);
+      });
+
+      test('parses multiple identifiers', () => {
+        const result = parseProperties(
+          propBuffer(
+            [PropertyIdentifier.subscriptionIdentifier, ...encodeVariableByteInteger(1)],
+            [PropertyIdentifier.subscriptionIdentifier, ...encodeVariableByteInteger(2)],
+          ),
+        );
+        expect(result.subscriptionIdentifier).toEqual([1, 2]);
+      });
+
+      test('throws when value is 0', () => {
+        expectProtocolError(() => parseProperties(propBuffer([PropertyIdentifier.subscriptionIdentifier, 0x00])));
+      });
     });
 
-    test('should parse subscriptionIdentifier', () => {
-      const buffer = Buffer.from([PropertyIdentifier.subscriptionIdentifier, 0x01]);
-      const result = parseProperties(buffer);
-      expect(result.subscriptionIdentifier).toBe(1);
+    describe('sessionExpiryInterval', () => {
+      test('parses valid value', () => {
+        const result = parseProperties(propBuffer(fourByteProperty(PropertyIdentifier.sessionExpiryInterval, 0xff)));
+        expect(result.sessionExpiryInterval).toBe(0xff);
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(
+              fourByteProperty(PropertyIdentifier.sessionExpiryInterval, 1),
+              fourByteProperty(PropertyIdentifier.sessionExpiryInterval, 2),
+            ),
+          ),
+        );
+      });
+    });
+
+    describe('assignedClientIdentifier', () => {
+      test('parses valid value', () => {
+        const result = parseProperties(propBuffer(utf8Property(PropertyIdentifier.assignedClientIdentifier, 'client-id')));
+        expect(result.assignedClientIdentifier).toBe('client-id');
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(
+              utf8Property(PropertyIdentifier.assignedClientIdentifier, 'a'),
+              utf8Property(PropertyIdentifier.assignedClientIdentifier, 'b'),
+            ),
+          ),
+        );
+      });
+    });
+
+    describe('serverKeepAlive', () => {
+      test('parses valid value', () => {
+        const result = parseProperties(propBuffer(twoByteProperty(PropertyIdentifier.serverKeepAlive, 0x1234)));
+        expect(result.serverKeepAlive).toBe(0x1234);
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(twoByteProperty(PropertyIdentifier.serverKeepAlive, 1), twoByteProperty(PropertyIdentifier.serverKeepAlive, 2)),
+          ),
+        );
+      });
+    });
+
+    describe('authenticationMethod', () => {
+      test('parses valid value', () => {
+        const result = parseProperties(propBuffer(utf8Property(PropertyIdentifier.authenticationMethod, 'PLAIN')));
+        expect(result.authenticationMethod).toBe('PLAIN');
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(
+              utf8Property(PropertyIdentifier.authenticationMethod, 'a'),
+              utf8Property(PropertyIdentifier.authenticationMethod, 'b'),
+            ),
+          ),
+        );
+      });
+    });
+
+    describe('authenticationData', () => {
+      test('parses valid value', () => {
+        const result = parseProperties(propBuffer(utf8Property(PropertyIdentifier.authenticationData, 'auth-data')));
+        expect(result.authenticationData).toBe('auth-data');
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(utf8Property(PropertyIdentifier.authenticationData, 'a'), utf8Property(PropertyIdentifier.authenticationData, 'b')),
+          ),
+        );
+      });
+    });
+
+    describe('requestProblemInformation', () => {
+      test('parses 0 as false', () => {
+        const result = parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.requestProblemInformation, 0)));
+        expect(result.requestProblemInformation).toBe(false);
+      });
+
+      test('parses 1 as true', () => {
+        const result = parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.requestProblemInformation, 1)));
+        expect(result.requestProblemInformation).toBe(true);
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(
+              oneByteProperty(PropertyIdentifier.requestProblemInformation, 0),
+              oneByteProperty(PropertyIdentifier.requestProblemInformation, 1),
+            ),
+          ),
+        );
+      });
+
+      test('throws when value is greater than 1', () => {
+        expectProtocolError(() => parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.requestProblemInformation, 2))));
+      });
+    });
+
+    describe('willDelayInterval', () => {
+      test('parses valid value', () => {
+        const result = parseProperties(propBuffer(fourByteProperty(PropertyIdentifier.willDelayInterval, 0xff)));
+        expect(result.willDelayInterval).toBe(0xff);
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(fourByteProperty(PropertyIdentifier.willDelayInterval, 1), fourByteProperty(PropertyIdentifier.willDelayInterval, 2)),
+          ),
+        );
+      });
+    });
+
+    describe('requestResponseInformation', () => {
+      test('parses 0 as false', () => {
+        const result = parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.requestResponseInformation, 0)));
+        expect(result.requestResponseInformation).toBe(false);
+      });
+
+      test('parses 1 as true', () => {
+        const result = parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.requestResponseInformation, 1)));
+        expect(result.requestResponseInformation).toBe(true);
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(
+              oneByteProperty(PropertyIdentifier.requestResponseInformation, 0),
+              oneByteProperty(PropertyIdentifier.requestResponseInformation, 1),
+            ),
+          ),
+        );
+      });
+
+      test('throws when value is greater than 1', () => {
+        expectProtocolError(() => parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.requestResponseInformation, 2))));
+      });
+    });
+
+    describe('responseInformation', () => {
+      test('parses valid value', () => {
+        const result = parseProperties(propBuffer(utf8Property(PropertyIdentifier.responseInformation, 'info')));
+        expect(result.responseInformation).toBe('info');
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(utf8Property(PropertyIdentifier.responseInformation, 'a'), utf8Property(PropertyIdentifier.responseInformation, 'b')),
+          ),
+        );
+      });
+    });
+
+    describe('serverReference', () => {
+      test('parses valid value', () => {
+        const result = parseProperties(propBuffer(utf8Property(PropertyIdentifier.serverReference, 'mqtt://broker')));
+        expect(result.serverReference).toBe('mqtt://broker');
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(utf8Property(PropertyIdentifier.serverReference, 'a'), utf8Property(PropertyIdentifier.serverReference, 'b')),
+          ),
+        );
+      });
+    });
+
+    describe('reasonString', () => {
+      test('parses valid value', () => {
+        const result = parseProperties(propBuffer(utf8Property(PropertyIdentifier.reasonString, 'Disconnect reason')));
+        expect(result.reasonString).toBe('Disconnect reason');
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(propBuffer(utf8Property(PropertyIdentifier.reasonString, 'a'), utf8Property(PropertyIdentifier.reasonString, 'b'))),
+        );
+      });
+    });
+
+    describe('receiveMaximum', () => {
+      test('parses valid value', () => {
+        const result = parseProperties(propBuffer(twoByteProperty(PropertyIdentifier.receiveMaximum, 0x1234)));
+        expect(result.receiveMaximum).toBe(0x1234);
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(twoByteProperty(PropertyIdentifier.receiveMaximum, 1), twoByteProperty(PropertyIdentifier.receiveMaximum, 2)),
+          ),
+        );
+      });
+    });
+
+    describe('topicAliasMaximum', () => {
+      test('parses valid value', () => {
+        const result = parseProperties(propBuffer(twoByteProperty(PropertyIdentifier.topicAliasMaximum, 0x0100)));
+        expect(result.topicAliasMaximum).toBe(0x0100);
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(twoByteProperty(PropertyIdentifier.topicAliasMaximum, 1), twoByteProperty(PropertyIdentifier.topicAliasMaximum, 2)),
+          ),
+        );
+      });
+    });
+
+    describe('topicAlias', () => {
+      test('parses valid value', () => {
+        const result = parseProperties(propBuffer(twoByteProperty(PropertyIdentifier.topicAlias, 0x000a)));
+        expect(result.topicAlias).toBe(0x000a);
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(propBuffer(twoByteProperty(PropertyIdentifier.topicAlias, 1), twoByteProperty(PropertyIdentifier.topicAlias, 2))),
+        );
+      });
+    });
+
+    describe('maximumQoS', () => {
+      test('parses 0 as false', () => {
+        const result = parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.maximumQoS, 0)));
+        expect(result.maximumQoS).toBe(false);
+      });
+
+      test('parses 1 as true', () => {
+        const result = parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.maximumQoS, 1)));
+        expect(result.maximumQoS).toBe(true);
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.maximumQoS, 0), oneByteProperty(PropertyIdentifier.maximumQoS, 1))),
+        );
+      });
+
+      test('throws when value is greater than 1', () => {
+        expectProtocolError(() => parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.maximumQoS, 2))));
+      });
+    });
+
+    describe('retainAvailable', () => {
+      test('parses 0 as false', () => {
+        const result = parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.retainAvailable, 0)));
+        expect(result.retainAvailable).toBe(false);
+      });
+
+      test('parses 1 as true', () => {
+        const result = parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.retainAvailable, 1)));
+        expect(result.retainAvailable).toBe(true);
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(oneByteProperty(PropertyIdentifier.retainAvailable, 0), oneByteProperty(PropertyIdentifier.retainAvailable, 1)),
+          ),
+        );
+      });
+
+      test('throws when value is greater than 1', () => {
+        expectProtocolError(() => parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.retainAvailable, 2))));
+      });
+    });
+
+    describe('userProperty', () => {
+      test('parses a single key/value pair', () => {
+        const result = parseProperties(
+          propBuffer([PropertyIdentifier.userProperty, ...encodeUTF8String('key'), ...encodeUTF8String('value')]),
+        );
+        expect(result.userProperty).toEqual({ key: 'value' });
+      });
+
+      test('parses multiple key/value pairs', () => {
+        const result = parseProperties(
+          propBuffer(
+            [PropertyIdentifier.userProperty, ...encodeUTF8String('key1'), ...encodeUTF8String('value1')],
+            [PropertyIdentifier.userProperty, ...encodeUTF8String('key2'), ...encodeUTF8String('value2')],
+          ),
+        );
+        expect(result.userProperty).toEqual({ key1: 'value1', key2: 'value2' });
+      });
+
+      test('later duplicate key overwrites earlier value', () => {
+        const result = parseProperties(
+          propBuffer(
+            [PropertyIdentifier.userProperty, ...encodeUTF8String('key'), ...encodeUTF8String('old')],
+            [PropertyIdentifier.userProperty, ...encodeUTF8String('key'), ...encodeUTF8String('new')],
+          ),
+        );
+        expect(result.userProperty).toEqual({ key: 'new' });
+      });
+    });
+
+    describe('maximumPacketSize', () => {
+      test('parses valid value', () => {
+        const result = parseProperties(propBuffer(fourByteProperty(PropertyIdentifier.maximumPacketSize, 0x12345678)));
+        expect(result.maximumPacketSize).toBe(0x12345678);
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(fourByteProperty(PropertyIdentifier.maximumPacketSize, 1), fourByteProperty(PropertyIdentifier.maximumPacketSize, 2)),
+          ),
+        );
+      });
+    });
+
+    describe('wildcardSubscriptionAvailable', () => {
+      test('parses 0 as false', () => {
+        const result = parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.wildcardSubscriptionAvailable, 0)));
+        expect(result.wildcardSubscriptionAvailable).toBe(false);
+      });
+
+      test('parses 1 as true', () => {
+        const result = parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.wildcardSubscriptionAvailable, 1)));
+        expect(result.wildcardSubscriptionAvailable).toBe(true);
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(
+              oneByteProperty(PropertyIdentifier.wildcardSubscriptionAvailable, 0),
+              oneByteProperty(PropertyIdentifier.wildcardSubscriptionAvailable, 1),
+            ),
+          ),
+        );
+      });
+
+      test('throws when value is greater than 1', () => {
+        expectProtocolError(() => parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.wildcardSubscriptionAvailable, 2))));
+      });
+    });
+
+    describe('subscriptionIdentifierAvailable', () => {
+      test('parses 0 as false', () => {
+        const result = parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.subscriptionIdentifierAvailable, 0)));
+        expect(result.subscriptionIdentifierAvailable).toBe(false);
+      });
+
+      test('parses 1 as true', () => {
+        const result = parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.subscriptionIdentifierAvailable, 1)));
+        expect(result.subscriptionIdentifierAvailable).toBe(true);
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(
+              oneByteProperty(PropertyIdentifier.subscriptionIdentifierAvailable, 0),
+              oneByteProperty(PropertyIdentifier.subscriptionIdentifierAvailable, 1),
+            ),
+          ),
+        );
+      });
+
+      test('throws when value is greater than 1', () => {
+        expectProtocolError(() => parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.subscriptionIdentifierAvailable, 2))));
+      });
+    });
+
+    describe('sharedSubscriptionAvailable', () => {
+      test('parses 0 as false', () => {
+        const result = parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.sharedSubscriptionAvailable, 0)));
+        expect(result.sharedSubscriptionAvailable).toBe(false);
+      });
+
+      test('parses 1 as true', () => {
+        const result = parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.sharedSubscriptionAvailable, 1)));
+        expect(result.sharedSubscriptionAvailable).toBe(true);
+      });
+
+      test('throws on duplicate', () => {
+        expectProtocolError(() =>
+          parseProperties(
+            propBuffer(
+              oneByteProperty(PropertyIdentifier.sharedSubscriptionAvailable, 0),
+              oneByteProperty(PropertyIdentifier.sharedSubscriptionAvailable, 1),
+            ),
+          ),
+        );
+      });
+
+      test('throws when value is greater than 1', () => {
+        expectProtocolError(() => parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.sharedSubscriptionAvailable, 2))));
+      });
+    });
+
+    test('parses multiple different properties in one buffer', () => {
+      const result = parseProperties(
+        propBuffer(
+          oneByteProperty(PropertyIdentifier.payloadFormatIndicator, 1),
+          fourByteProperty(PropertyIdentifier.messageExpiryInterval, 60),
+          utf8Property(PropertyIdentifier.contentType, 'text/plain'),
+          twoByteProperty(PropertyIdentifier.topicAlias, 7),
+        ),
+      );
+      expect(result).toMatchObject({
+        payloadFormatIndicator: 1,
+        messageExpiryInterval: 60,
+        contentType: 'text/plain',
+        topicAlias: 7,
+      });
     });
   });
 
-  describe('parseConnectProperties', () => {
-    test('should parse sessionExpiryInterval', () => {
-      const buffer = Buffer.from([PropertyIdentifier.sessionExpiryInterval, 0x00, 0x00, 0x00, 0xff]);
-      const result = parseConnectProperties(buffer);
-      expect(result.sessionExpiryInterval).toBe(0xff);
+  describe('typed parse*Properties wrappers', () => {
+    test('parseConnectProperties', () => {
+      expect(parseConnectProperties(propBuffer(fourByteProperty(PropertyIdentifier.sessionExpiryInterval, 0xff))).sessionExpiryInterval).toBe(
+        0xff,
+      );
     });
 
-    test('should parse receiveMaximum', () => {
-      const buffer = Buffer.from([PropertyIdentifier.receiveMaximum, 0x12, 0x34]);
-      const result = parseConnectProperties(buffer);
-      expect(result.receiveMaximum).toBe(0x1234);
+    test('parseConnAckProperties', () => {
+      expect(
+        parseConnAckProperties(propBuffer(utf8Property(PropertyIdentifier.assignedClientIdentifier, 'client-id'))).assignedClientIdentifier,
+      ).toBe('client-id');
     });
 
-    test('should parse userProperty', () => {
-      const key = 'key';
-      const value = 'value';
-      const keyBytes = Buffer.from(key);
-      const valueBytes = Buffer.from(value);
-      const buffer = Buffer.from([PropertyIdentifier.userProperty, 0x00, keyBytes.length, ...keyBytes, 0x00, valueBytes.length, ...valueBytes]);
-      const result = parseConnectProperties(buffer);
-      expect(result.userProperty).toEqual({ [key]: value });
-    });
-  });
-
-  describe('parsePublishProperties', () => {
-    test('should parse payloadFormatIndicator', () => {
-      const buffer = Buffer.from([PropertyIdentifier.payloadFormatIndicator, 0x01]);
-      const result = parsePublishProperties(buffer);
-      expect(result.payloadFormatIndicator).toBe(0x01);
+    test('parsePublishProperties', () => {
+      expect(parsePublishProperties(propBuffer(oneByteProperty(PropertyIdentifier.payloadFormatIndicator, 1))).payloadFormatIndicator).toBe(1);
     });
 
-    test('should parse responseTopic', () => {
-      const topic = 'response/topic';
-      const topicBytes = Buffer.from(topic);
-      const buffer = Buffer.from([PropertyIdentifier.responseTopic, 0x00, topicBytes.length, ...topicBytes]);
-      const result = parsePublishProperties(buffer);
-      expect(result.responseTopic).toBe(topic);
+    test('parseSubscribeProperties', () => {
+      expect(
+        parseSubscribeProperties(propBuffer([PropertyIdentifier.subscriptionIdentifier, ...encodeVariableByteInteger(1)]))
+          .subscriptionIdentifier?.[0],
+      ).toBe(1);
     });
 
-    test('should throw error for responseTopic with wildcard', () => {
-      const topic = 'response/#';
-      const topicBytes = Buffer.from(topic);
-      const buffer = Buffer.from([PropertyIdentifier.responseTopic, 0x00, topicBytes.length, ...topicBytes]);
-      expect(() => parsePublishProperties(buffer)).toThrow(DisconnectException);
+    test('parseDisconnectProperties', () => {
+      expect(parseDisconnectProperties(propBuffer(utf8Property(PropertyIdentifier.reasonString, 'bye'))).reasonString).toBe('bye');
     });
 
-    test('should parse subscriptionIdentifier array', () => {
-      const buffer = Buffer.from([PropertyIdentifier.subscriptionIdentifier, 0x01, PropertyIdentifier.subscriptionIdentifier, 0x02]);
-      const result = parsePublishProperties(buffer);
-      expect(result.subscriptionIdentifier).toEqual([1, 2]);
+    test('parseAuthProperties', () => {
+      expect(parseAuthProperties(propBuffer(utf8Property(PropertyIdentifier.authenticationMethod, 'PLAIN'))).authenticationMethod).toBe(
+        'PLAIN',
+      );
     });
 
-    test('should throw error for subscriptionIdentifier with value 0', () => {
-      const buffer = Buffer.from([PropertyIdentifier.subscriptionIdentifier, 0x00]);
-      expect(() => parsePublishProperties(buffer)).toThrow(DisconnectException);
-    });
-  });
-
-  describe('parseSubscribeProperties', () => {
-    test('should parse subscriptionIdentifier', () => {
-      const buffer = Buffer.from([PropertyIdentifier.subscriptionIdentifier, 0x01]);
-      const result = parseSubscribeProperties(buffer);
-      expect(result.subscriptionIdentifier).toBe(1);
+    test('parseConnectWillProperties', () => {
+      expect(parseConnectWillProperties(propBuffer(fourByteProperty(PropertyIdentifier.willDelayInterval, 0xff))).willDelayInterval).toBe(0xff);
     });
 
-    test('should throw error for subscriptionIdentifier with value 0', () => {
-      const buffer = Buffer.from([PropertyIdentifier.subscriptionIdentifier, 0x00]);
-      expect(() => parseSubscribeProperties(buffer)).toThrow(DisconnectException);
+    test('parsePubAckProperties / parsePubRecProperties / parsePubRelProperties / parsePubCompProperties / parseSubAckProperties', () => {
+      const reason = propBuffer(utf8Property(PropertyIdentifier.reasonString, 'Reason'));
+      expect(parsePubAckProperties(reason).reasonString).toBe('Reason');
+      expect(parsePubRecProperties(reason).reasonString).toBe('Reason');
+      expect(parsePubRelProperties(reason).reasonString).toBe('Reason');
+      expect(parsePubCompProperties(reason).reasonString).toBe('Reason');
+      expect(parseSubAckProperties(reason).reasonString).toBe('Reason');
     });
 
-    test('should throw error for duplicate subscriptionIdentifier', () => {
-      const buffer = Buffer.from([PropertyIdentifier.subscriptionIdentifier, 0x01, PropertyIdentifier.subscriptionIdentifier, 0x02]);
-      expect(() => parseSubscribeProperties(buffer)).toThrow(DisconnectException);
-    });
-  });
-
-  describe('parseDisconnectProperties', () => {
-    test('should parse sessionExpiryInterval', () => {
-      const buffer = Buffer.from([PropertyIdentifier.sessionExpiryInterval, 0x00, 0x00, 0x00, 0xff]);
-      const result = parseDisconnectProperties(buffer);
-      expect(result.sessionExpiryInterval).toBe(0xff);
-    });
-
-    test('should parse reasonString', () => {
-      const reason = 'Disconnect reason';
-      const reasonBytes = Buffer.from(reason);
-      const buffer = Buffer.from([PropertyIdentifier.reasonString, 0x00, reasonBytes.length, ...reasonBytes]);
-      const result = parseDisconnectProperties(buffer);
-      expect(result.reasonString).toBe(reason);
-    });
-
-    test('should parse userProperty', () => {
-      const key = 'key';
-      const value = 'value';
-      const keyBytes = Buffer.from(key);
-      const valueBytes = Buffer.from(value);
-      const buffer = Buffer.from([PropertyIdentifier.userProperty, 0x00, keyBytes.length, ...keyBytes, 0x00, valueBytes.length, ...valueBytes]);
-      const result = parseDisconnectProperties(buffer);
-      expect(result.userProperty).toEqual({ [key]: value });
-    });
-  });
-
-  describe('parseAuthProperties', () => {
-    test('should parse authenticationMethod', () => {
-      const method = 'PLAIN';
-      const methodBytes = Buffer.from(method);
-      const buffer = Buffer.from([PropertyIdentifier.authenticationMethod, 0x00, methodBytes.length, ...methodBytes]);
-      const result = parseAuthProperties(buffer);
-      expect(result.authenticationMethod).toBe(method);
-    });
-
-    test('should parse authenticationData', () => {
-      const data = 'auth-data';
-      const dataBytes = Buffer.from(data);
-      const buffer = Buffer.from([PropertyIdentifier.authenticationData, 0x00, dataBytes.length, ...dataBytes]);
-      const result = parseAuthProperties(buffer);
-      expect(result.authenticationData).toBe(data);
-    });
-
-    test('should parse userProperty', () => {
-      const key = 'key';
-      const value = 'value';
-      const keyBytes = Buffer.from(key);
-      const valueBytes = Buffer.from(value);
-      const buffer = Buffer.from([PropertyIdentifier.userProperty, 0x00, keyBytes.length, ...keyBytes, 0x00, valueBytes.length, ...valueBytes]);
-      const result = parseAuthProperties(buffer);
-      expect(result.userProperty).toEqual({ [key]: value });
-    });
-  });
-
-  describe('parseConnectWillProperties', () => {
-    test('should parse willDelayInterval', () => {
-      const buffer = Buffer.from([PropertyIdentifier.willDelayInterval, 0x00, 0x00, 0x00, 0xff]);
-      const result = parseConnectWillProperties(buffer);
-      expect(result.willDelayInterval).toBe(0xff);
-    });
-
-    test('should parse payloadFormatIndicator', () => {
-      const buffer = Buffer.from([PropertyIdentifier.payloadFormatIndicator, 0x01]);
-      const result = parseConnectWillProperties(buffer);
-      expect(result.payloadFormatIndicator).toBe(0x01);
-    });
-
-    test('should throw error for responseTopic with wildcard', () => {
-      const topic = 'response/#';
-      const topicBytes = Buffer.from(topic);
-      const buffer = Buffer.from([PropertyIdentifier.responseTopic, 0x00, topicBytes.length, ...topicBytes]);
-      expect(() => parseConnectWillProperties(buffer)).toThrow(DisconnectException);
-    });
-  });
-
-  describe('parseConnAckProperties', () => {
-    test('should parse assignedClientIdentifier', () => {
-      const clientId = 'client-id';
-      const clientIdBytes = Buffer.from(clientId);
-      const buffer = Buffer.from([PropertyIdentifier.assignedClientIdentifier, 0x00, clientIdBytes.length, ...clientIdBytes]);
-      const result = parseConnAckProperties(buffer);
-      expect(result.assignedClientIdentifier).toBe(clientId);
-    });
-
-    test('should parse serverKeepAlive', () => {
-      const buffer = Buffer.from([PropertyIdentifier.serverKeepAlive, 0x12, 0x34]);
-      const result = parseConnAckProperties(buffer);
-      expect(result.serverKeepAlive).toBe(0x1234);
-    });
-  });
-
-  describe('parsePubAckProperties', () => {
-    test('should parse reasonString', () => {
-      const reason = 'Reason';
-      const reasonBytes = Buffer.from(reason);
-      const buffer = Buffer.from([PropertyIdentifier.reasonString, 0x00, reasonBytes.length, ...reasonBytes]);
-      const result = parsePubAckProperties(buffer);
-      expect(result.reasonString).toBe(reason);
-    });
-
-    test('should parse userProperty', () => {
-      const key = 'key';
-      const value = 'value';
-      const keyBytes = Buffer.from(key);
-      const valueBytes = Buffer.from(value);
-      const buffer = Buffer.from([PropertyIdentifier.userProperty, 0x00, keyBytes.length, ...keyBytes, 0x00, valueBytes.length, ...valueBytes]);
-      const result = parsePubAckProperties(buffer);
-      expect(result.userProperty).toEqual({ [key]: value });
-    });
-  });
-
-  describe('parsePubRecProperties', () => {
-    test('should parse reasonString', () => {
-      const reason = 'Reason';
-      const reasonBytes = Buffer.from(reason);
-      const buffer = Buffer.from([PropertyIdentifier.reasonString, 0x00, reasonBytes.length, ...reasonBytes]);
-      const result = parsePubRecProperties(buffer);
-      expect(result.reasonString).toBe(reason);
-    });
-  });
-
-  describe('parsePubRelProperties', () => {
-    test('should parse reasonString', () => {
-      const reason = 'Reason';
-      const reasonBytes = Buffer.from(reason);
-      const buffer = Buffer.from([PropertyIdentifier.reasonString, 0x00, reasonBytes.length, ...reasonBytes]);
-      const result = parsePubRelProperties(buffer);
-      expect(result.reasonString).toBe(reason);
-    });
-  });
-
-  describe('parsePubCompProperties', () => {
-    test('should parse reasonString', () => {
-      const reason = 'Reason';
-      const reasonBytes = Buffer.from(reason);
-      const buffer = Buffer.from([PropertyIdentifier.reasonString, 0x00, reasonBytes.length, ...reasonBytes]);
-      const result = parsePubCompProperties(buffer);
-      expect(result.reasonString).toBe(reason);
-    });
-  });
-
-  describe('parseSubAckProperties', () => {
-    test('should parse reasonString', () => {
-      const reason = 'Reason';
-      const reasonBytes = Buffer.from(reason);
-      const buffer = Buffer.from([PropertyIdentifier.reasonString, 0x00, reasonBytes.length, ...reasonBytes]);
-      const result = parseSubAckProperties(buffer);
-      expect(result.reasonString).toBe(reason);
-    });
-  });
-
-  describe('parseUnsubscribeProperties', () => {
-    test('should parse userProperty', () => {
-      const key = 'key';
-      const value = 'value';
-      const keyBytes = Buffer.from(key);
-      const valueBytes = Buffer.from(value);
-      const buffer = Buffer.from([PropertyIdentifier.userProperty, 0x00, keyBytes.length, ...keyBytes, 0x00, valueBytes.length, ...valueBytes]);
-      const result = parseUnsubscribeProperties(buffer);
-      expect(result.userProperty).toEqual({ [key]: value });
-    });
-  });
-
-  describe('parseUnsubscribeAckProperties', () => {
-    test('should parse userProperty', () => {
-      const key = 'key';
-      const value = 'value';
-      const keyBytes = Buffer.from(key);
-      const valueBytes = Buffer.from(value);
-      const buffer = Buffer.from([PropertyIdentifier.userProperty, 0x00, keyBytes.length, ...keyBytes, 0x00, valueBytes.length, ...valueBytes]);
-      const result = parseUnsubscribeAckProperties(buffer);
-      expect(result.userProperty).toEqual({ [key]: value });
+    test('parseUnsubscribeProperties / parseUnsubscribeAckProperties', () => {
+      const user = propBuffer([PropertyIdentifier.userProperty, ...encodeUTF8String('key'), ...encodeUTF8String('value')]);
+      expect(parseUnsubscribeProperties(user).userProperty).toEqual({ key: 'value' });
+      expect(parseUnsubscribeAckProperties(user).userProperty).toEqual({ key: 'value' });
     });
   });
 
   describe('encodeProperties', () => {
     test('should encode payloadFormatIndicator', () => {
-      const result = encodeProperties(PropertyIdentifier.payloadFormatIndicator, 0x01);
-      expect(result).toEqual([PropertyIdentifier.payloadFormatIndicator, 0x01]);
+      expect(encodeProperties(PropertyIdentifier.payloadFormatIndicator, 0x01)).toEqual([
+        PropertyIdentifier.payloadFormatIndicator,
+        0x01,
+      ]);
     });
 
     test('should encode messageExpiryInterval', () => {
-      const result = encodeProperties(PropertyIdentifier.messageExpiryInterval, 0x12345678);
-      expect(result).toEqual([PropertyIdentifier.messageExpiryInterval, ...integerToFourUint8(0x12345678)]);
+      expect(encodeProperties(PropertyIdentifier.messageExpiryInterval, 0x12345678)).toEqual([
+        PropertyIdentifier.messageExpiryInterval,
+        ...integerToFourUint8(0x12345678),
+      ]);
     });
 
     test('should encode contentType', () => {
       const str = 'application/json';
-      const result = encodeProperties(PropertyIdentifier.contentType, str);
-      expect(result).toEqual([PropertyIdentifier.contentType, ...encodeUTF8String(str)]);
+      expect(encodeProperties(PropertyIdentifier.contentType, str)).toEqual([PropertyIdentifier.contentType, ...encodeUTF8String(str)]);
     });
 
     test('should encode responseTopic', () => {
       const topic = 'response/topic';
-      const result = encodeProperties(PropertyIdentifier.responseTopic, topic);
-      expect(result).toEqual([PropertyIdentifier.responseTopic, ...encodeUTF8String(topic)]);
+      expect(encodeProperties(PropertyIdentifier.responseTopic, topic)).toEqual([
+        PropertyIdentifier.responseTopic,
+        ...encodeUTF8String(topic),
+      ]);
+    });
+
+    test('should encode correlationData from Buffer', () => {
+      const data = Buffer.from([0x01, 0x02]);
+      expect(encodeProperties(PropertyIdentifier.correlationData, data)).toEqual([
+        PropertyIdentifier.correlationData,
+        ...encodeBinaryData(data),
+      ]);
+    });
+
+    test('should encode correlationData from string', () => {
+      const data = 'corr';
+      expect(encodeProperties(PropertyIdentifier.correlationData, data)).toEqual([
+        PropertyIdentifier.correlationData,
+        ...encodeUTF8String(data),
+      ]);
     });
 
     test('should encode subscriptionIdentifier as array', () => {
-      const ids = [1, 2, 3];
-      const result = encodeProperties(PropertyIdentifier.subscriptionIdentifier, ids as any);
-      expect(result.length).toBeGreaterThan(0);
-      expect(result[0]).toBe(PropertyIdentifier.subscriptionIdentifier);
+      const result = encodeProperties(PropertyIdentifier.subscriptionIdentifier, [1, 2, 3] as any);
+      expect(result).toEqual([
+        PropertyIdentifier.subscriptionIdentifier,
+        ...encodeVariableByteInteger(1),
+        PropertyIdentifier.subscriptionIdentifier,
+        ...encodeVariableByteInteger(2),
+        PropertyIdentifier.subscriptionIdentifier,
+        ...encodeVariableByteInteger(3),
+      ]);
+    });
+
+    test('should encode subscriptionIdentifier as string via stringToVariableByteInteger', () => {
+      const result = encodeProperties(PropertyIdentifier.subscriptionIdentifier, '42' as any);
+      expect(result).toEqual([PropertyIdentifier.subscriptionIdentifier, ...encodeUTF8String('42')]);
     });
 
     test('should encode sessionExpiryInterval', () => {
-      const result = encodeProperties(PropertyIdentifier.sessionExpiryInterval, 0x12345678);
-      expect(result).toEqual([PropertyIdentifier.sessionExpiryInterval, ...integerToFourUint8(0x12345678)]);
+      expect(encodeProperties(PropertyIdentifier.sessionExpiryInterval, 0x12345678)).toEqual([
+        PropertyIdentifier.sessionExpiryInterval,
+        ...integerToFourUint8(0x12345678),
+      ]);
     });
 
     test('should encode assignedClientIdentifier', () => {
       const clientId = 'client-id';
-      const result = encodeProperties(PropertyIdentifier.assignedClientIdentifier, clientId);
-      expect(result).toEqual([PropertyIdentifier.assignedClientIdentifier, ...encodeUTF8String(clientId)]);
+      expect(encodeProperties(PropertyIdentifier.assignedClientIdentifier, clientId)).toEqual([
+        PropertyIdentifier.assignedClientIdentifier,
+        ...encodeUTF8String(clientId),
+      ]);
     });
 
     test('should encode serverKeepAlive', () => {
-      const result = encodeProperties(PropertyIdentifier.serverKeepAlive, 0x1234);
-      expect(result).toEqual([PropertyIdentifier.serverKeepAlive, ...integerToTwoUint8(0x1234)]);
+      expect(encodeProperties(PropertyIdentifier.serverKeepAlive, 0x1234)).toEqual([
+        PropertyIdentifier.serverKeepAlive,
+        ...integerToTwoUint8(0x1234),
+      ]);
     });
 
     test('should encode authenticationMethod', () => {
       const method = 'PLAIN';
-      const result = encodeProperties(PropertyIdentifier.authenticationMethod, method);
-      expect(result).toEqual([PropertyIdentifier.authenticationMethod, ...encodeUTF8String(method)]);
+      expect(encodeProperties(PropertyIdentifier.authenticationMethod, method)).toEqual([
+        PropertyIdentifier.authenticationMethod,
+        ...encodeUTF8String(method),
+      ]);
+    });
+
+    test('should encode authenticationData', () => {
+      const data = 'auth-bytes';
+      expect(encodeProperties(PropertyIdentifier.authenticationData, data)).toEqual([
+        PropertyIdentifier.authenticationData,
+        ...encodeUTF8String(data),
+      ]);
     });
 
     test('should encode requestProblemInformation', () => {
-      const result = encodeProperties(PropertyIdentifier.requestProblemInformation, 1);
-      expect(result).toEqual([PropertyIdentifier.requestProblemInformation, integerToOneUint8(1)]);
+      expect(encodeProperties(PropertyIdentifier.requestProblemInformation, 1)).toEqual([
+        PropertyIdentifier.requestProblemInformation,
+        integerToOneUint8(1),
+      ]);
+    });
+
+    test('should encode willDelayInterval', () => {
+      expect(encodeProperties(PropertyIdentifier.willDelayInterval, 0x01020304)).toEqual([
+        PropertyIdentifier.willDelayInterval,
+        ...integerToFourUint8(0x01020304),
+      ]);
+    });
+
+    test('should encode requestResponseInformation', () => {
+      expect(encodeProperties(PropertyIdentifier.requestResponseInformation, 1)).toEqual([
+        PropertyIdentifier.requestResponseInformation,
+        integerToOneUint8(1),
+      ]);
+    });
+
+    test('should encode responseInformation', () => {
+      expect(encodeProperties(PropertyIdentifier.responseInformation, 'info')).toEqual([
+        PropertyIdentifier.responseInformation,
+        ...encodeUTF8String('info'),
+      ]);
+    });
+
+    test('should encode serverReference', () => {
+      expect(encodeProperties(PropertyIdentifier.serverReference, 'mqtt://broker')).toEqual([
+        PropertyIdentifier.serverReference,
+        ...encodeUTF8String('mqtt://broker'),
+      ]);
+    });
+
+    test('should encode reasonString', () => {
+      expect(encodeProperties(PropertyIdentifier.reasonString, 'reason')).toEqual([
+        PropertyIdentifier.reasonString,
+        ...encodeUTF8String('reason'),
+      ]);
+    });
+
+    test('should encode receiveMaximum', () => {
+      expect(encodeProperties(PropertyIdentifier.receiveMaximum, 0x1234)).toEqual([
+        PropertyIdentifier.receiveMaximum,
+        ...integerToTwoUint8(0x1234),
+      ]);
+    });
+
+    test('should encode topicAliasMaximum', () => {
+      expect(encodeProperties(PropertyIdentifier.topicAliasMaximum, 0x00ff)).toEqual([
+        PropertyIdentifier.topicAliasMaximum,
+        ...integerToTwoUint8(0x00ff),
+      ]);
     });
 
     test('should encode userProperty', () => {
-      const userProperty = { key1: 'value1', key2: 'value2' };
-      const result = encodeProperties(PropertyIdentifier.userProperty, userProperty as any);
-      expect(result.length).toBeGreaterThan(0);
+      const result = encodeProperties(PropertyIdentifier.userProperty, { key1: 'value1', key2: 'value2' } as any);
       expect(result[0]).toBe(PropertyIdentifier.userProperty);
+      expect(result.length).toBeGreaterThan(0);
     });
 
     test('should encode topicAlias', () => {
-      const result = encodeProperties(PropertyIdentifier.topicAlias, 0x1234);
-      expect(result).toEqual([PropertyIdentifier.topicAlias, ...integerToTwoUint8(0x1234)]);
+      expect(encodeProperties(PropertyIdentifier.topicAlias, 0x1234)).toEqual([PropertyIdentifier.topicAlias, ...integerToTwoUint8(0x1234)]);
     });
 
     test('should encode maximumQoS', () => {
-      const result = encodeProperties(PropertyIdentifier.maximumQoS, true);
-      expect(result).toEqual([PropertyIdentifier.maximumQoS, integerToOneUint8(1)]);
+      expect(encodeProperties(PropertyIdentifier.maximumQoS, true)).toEqual([PropertyIdentifier.maximumQoS, integerToOneUint8(1)]);
     });
 
     test('should encode retainAvailable', () => {
-      const result = encodeProperties(PropertyIdentifier.retainAvailable, true);
-      expect(result).toEqual([PropertyIdentifier.retainAvailable, integerToOneUint8(1)]);
+      expect(encodeProperties(PropertyIdentifier.retainAvailable, true)).toEqual([PropertyIdentifier.retainAvailable, integerToOneUint8(1)]);
     });
 
     test('should encode maximumPacketSize', () => {
-      const result = encodeProperties(PropertyIdentifier.maximumPacketSize, 0x12345678);
-      expect(result).toEqual([PropertyIdentifier.maximumPacketSize, ...integerToFourUint8(0x12345678)]);
+      expect(encodeProperties(PropertyIdentifier.maximumPacketSize, 0x12345678)).toEqual([
+        PropertyIdentifier.maximumPacketSize,
+        ...integerToFourUint8(0x12345678),
+      ]);
+    });
+
+    test('should encode wildcardSubscriptionAvailable', () => {
+      expect(encodeProperties(PropertyIdentifier.wildcardSubscriptionAvailable, true)).toEqual([
+        PropertyIdentifier.wildcardSubscriptionAvailable,
+        integerToOneUint8(1),
+      ]);
+    });
+
+    test('should encode subscriptionIdentifierAvailable', () => {
+      expect(encodeProperties(PropertyIdentifier.subscriptionIdentifierAvailable, false)).toEqual([
+        PropertyIdentifier.subscriptionIdentifierAvailable,
+        integerToOneUint8(0),
+      ]);
+    });
+
+    test('should encode sharedSubscriptionAvailable', () => {
+      expect(encodeProperties(PropertyIdentifier.sharedSubscriptionAvailable, true)).toEqual([
+        PropertyIdentifier.sharedSubscriptionAvailable,
+        integerToOneUint8(1),
+      ]);
     });
 
     test('should return empty array for unknown property', () => {
-      const result = encodeProperties(0xff as any, 'test');
-      expect(result).toEqual([]);
-    });
-  });
-
-  describe('parseProperties with index', () => {
-    test('should parse properties starting from index', () => {
-      const buffer = Buffer.from([
-        0x00,
-        0x00,
-        PropertyIdentifier.payloadFormatIndicator,
-        0x01,
-        PropertyIdentifier.contentType,
-        0x00,
-        0x04,
-        0x74,
-        0x65,
-        0x73,
-        0x74,
-      ]);
-      const result = parseProperties(buffer, 2);
-      expect(result.payloadFormatIndicator).toBe(0x01);
-      expect(result.contentType).toBe('test');
+      expect(encodeProperties(0xff as any, 'test')).toEqual([]);
     });
   });
 });

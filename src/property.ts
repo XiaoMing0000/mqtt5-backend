@@ -94,19 +94,15 @@ export function parseProperties(buffer: Buffer, index?: number) {
         break;
       case PropertyIdentifier.subscriptionIdentifier:
         data.index++;
-        if (properties.subscriptionIdentifier) {
-          throw new DisconnectException(
-            'It is a Protocol Error to include the Subscription Identifier more than once.',
-            DisconnectReasonCode.ProtocolError,
-          );
-        }
-        properties.subscriptionIdentifier = variableByteInteger(data, 4);
-        if (properties.subscriptionIdentifier == 0) {
+        const subscriptionIdentifier = variableByteInteger(data, 4);
+
+        if (subscriptionIdentifier == 0) {
           throw new DisconnectException(
             'It is a Protocol Error if the Subscription Identifier has a value of 0. ',
             DisconnectReasonCode.ProtocolError,
           );
         }
+        (properties.subscriptionIdentifier ??= []).push(subscriptionIdentifier);
         break;
       case PropertyIdentifier.sessionExpiryInterval:
         data.index++;

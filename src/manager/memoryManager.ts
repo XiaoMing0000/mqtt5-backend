@@ -1,16 +1,17 @@
 import { IConnectData, IPublishData, QoSType } from '../interface';
+import { MqttClient } from '../mqttClient';
 import { encodePublishPacket } from '../parse';
-import { ClientIdentifierManager, Manager, TClient, TClientSubscription, TIdentifier, TSubscribeData, TTopic } from './manager';
+import { ClientIdentifierManager, Manager, TSocketSubscription, TIdentifier, TSubscribeData, TTopic } from './manager';
 
 interface IRoute {
   [key: string]: {
-    clients: Map<TClient, TTopic>;
+    clients: Map<MqttClient, TTopic>;
     child?: IRoute;
   };
 }
 
 interface ISessionData {
-  subscription: TClientSubscription;
+  subscription: TSocketSubscription;
   sessionExpiryInterval: number;
   expireAt?: number;
 }
@@ -28,16 +29,15 @@ interface ISessionData {
 export class MemoryManager extends Manager {
   readonly clientIdentifierManager: ClientIdentifierManager;
   private readonly retainMessage = new Map<string, { data: IPublishData; TTL: number }>();
-  private readonly connectDataMap = new Map<TClient, { data: IConnectData; expire: number }>();
   private readonly sessionStore = new Map<string, ISessionData>();
   private readonly retainCleanupTimer: NodeJS.Timeout;
   private readonly keepAliveTimer: NodeJS.Timeout;
   private readonly sessionCleanupTimer: NodeJS.Timeout;
 
   private readonly clientDataMap = new Map<
-    TClient,
+    MqttClient,
     {
-      subscription: TClientSubscription;
+      subscription: TSocketSubscription;
     }
   >();
   private route: IRoute = {};
@@ -61,9 +61,9 @@ export class MemoryManager extends Manager {
 
     this.keepAliveTimer = setInterval(() => {
       const timestamp = Math.floor(Date.now() / 1000);
-      this.connectDataMap.forEach((value, key) => {
-        if (timestamp > value.expire) {
-          this.disconnect(key);
+      this.clientIdentifierManager.clientForEach((client, identifier) => {
+        if (timestamp > client.expire) {
+          this.disconnect(identifier);
         }
       });
     }, 1000);
@@ -91,26 +91,26 @@ export class MemoryManager extends Manager {
   }
 
   /**
-   * Resolves the live socket for a client identifier, if connected.
+   * Resolves the live {@link MqttClient} for a client identifier, if connected.
    *
-   * @param clientIdentifier - MQTT client id string.
-   * @returns The client socket, or `undefined` if unknown.
+   * @param identifier - MQTT client id string.
+   * @returns The {@link MqttClient}, or `undefined` if unknown.
    */
-  getClient(clientIdentifier: TIdentifier) {
-    return this.clientIdentifierManager.getIdentifier(clientIdentifier);
+  geTSocket(identifier: TIdentifier) {
+    return this.clientIdentifierManager.getClient(identifier);
   }
 
-  isConnected(key: TClient): Promise<boolean>;
+  isConnected(key: MqttClient): Promise<boolean>;
   isConnected(key: TIdentifier): Promise<boolean>;
   /**
-   * Returns whether the given client socket or client id currently has an active in-memory session.
+   * Returns whether the given {@link MqttClient} or client id currently has an active in-memory session.
    *
-   * @param key - Connected socket or client identifier string.
+   * @param key - Connected {@link MqttClient} or client identifier string.
    * @returns `true` if the client is tracked in the in-memory client map.
    */
-  async isConnected(key: TClient | TIdentifier): Promise<boolean> {
+  async isConnected(key: MqttClient | TIdentifier): Promise<boolean> {
     if (typeof key === 'string') {
-      const client = this.clientIdentifierManager.getIdentifier(key);
+      const client = this.clientIdentifierManager.getClient(key);
       if (client) {
         return this.clientDataMap.has(client);
       }
@@ -121,19 +121,19 @@ export class MemoryManager extends Manager {
   }
 
   /**
-   * Registers a new connection: maps the identifier to the socket, initializes or restores session state, and updates the session store.
+   * Registers a new connection: maps the identifier to the {@link MqttClient}, initializes or restores session state, and updates the session store.
    *
    * If a persisted session exists and `cleanStart` is false, subscriptions are restored into the trie; otherwise a fresh subscription map is created.
    *
-   * @param clientIdentifier - MQTT client id.
+   * @param identifier - MQTT client id.
    * @param connData - CONNECT packet payload (keep-alive, flags, properties).
-   * @param client - Underlying TCP socket.
+   * @param client - Live {@link MqttClient} for this connection.
    */
-  public async connect(clientIdentifier: string, connData: IConnectData, client: TClient): Promise<void> {
-    this.clientIdentifierManager.set(clientIdentifier, client);
-    this.connectDataMap.set(client, { data: connData, expire: Date.now() / 1000 + connData.header.keepAlive * 1.5 });
+  public async connect(identifier: string, connData: IConnectData, client: MqttClient): Promise<void> {
+    this.clientIdentifierManager.set(identifier, client);
+    client.expire = Date.now() / 1000 + connData.header.keepAlive * 1.5;
 
-    const existingSession = this.sessionStore.get(clientIdentifier);
+    const existingSession = this.sessionStore.get(identifier);
     if (existingSession && !connData.connectFlags.cleanStart) {
       existingSession.expireAt = undefined;
       this.clientDataMap.set(client, { subscription: existingSession.subscription });
@@ -145,7 +145,7 @@ export class MemoryManager extends Manager {
     }
 
     const sessionExpiryInterval = connData.properties?.sessionExpiryInterval ?? 0;
-    this.sessionStore.set(clientIdentifier, {
+    this.sessionStore.set(identifier, {
       subscription: this.clientDataMap.get(client)!.subscription,
       sessionExpiryInterval,
     });
@@ -157,12 +157,9 @@ export class MemoryManager extends Manager {
    * @param clientIdentifier - MQTT client id.
    */
   public async ping(clientIdentifier: string): Promise<void> {
-    const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);
+    const client = this.clientIdentifierManager.getClient(clientIdentifier);
     if (client) {
-      const connData = this.connectDataMap.get(client);
-      if (connData) {
-        connData.expire = Date.now() / 1000 + connData.data.header.keepAlive * 1.5;
-      }
+      client.expire = Date.now() / 1000 + client.connData.header.keepAlive * 1.5;
     }
   }
 
@@ -171,18 +168,17 @@ export class MemoryManager extends Manager {
    *
    * When `sessionExpiryInterval` is greater than 0, routes are removed and `expireAt` is set; otherwise subscriptions and session row are deleted immediately.
    *
-   * @param clientIdentifier - Client id string or connected socket.
+   * @param clientIdentifier - Client id string or connected {@link MqttClient}.
    */
-  public clearConnect(clientIdentifier: TClient | TIdentifier): void {
-    const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : this.clientIdentifierManager.getClient(clientIdentifier)?.identifier;
-    const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdentifier(clientIdentifier) : clientIdentifier;
+  public clearConnect(clientIdentifier: MqttClient | TIdentifier): void {
+    const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : clientIdentifier.clientIdentifier;
+    const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getClient(clientIdentifier) : clientIdentifier;
     if (client && identifier) {
-      const idClient = this.clientIdentifierManager.getIdentifier(identifier);
+      const idClient = this.clientIdentifierManager.getClient(identifier);
       if (typeof clientIdentifier !== 'string' && clientIdentifier !== idClient) {
         return;
       }
       this.clearPendingClient(client);
-      this.connectDataMap.delete(client);
 
       const session = this.sessionStore.get(identifier);
       if (session && session.sessionExpiryInterval > 0) {
@@ -194,7 +190,7 @@ export class MemoryManager extends Manager {
         this.sessionStore.delete(identifier);
       }
 
-      this.clientIdentifierManager.delete(client);
+      this.clientIdentifierManager.delete(identifier);
     }
   }
 
@@ -217,10 +213,10 @@ export class MemoryManager extends Manager {
   /**
    * Inserts the client's subscription topic filter into the trie so publish matching can find this client.
    *
-   * @param client - Connected socket.
+   * @param client - Connected {@link MqttClient}.
    * @param topic - Topic filter string (path segments separated by `/`).
    */
-  private addRouteForClient(client: TClient, topic: string) {
+  private addRouteForClient(client: MqttClient, topic: string) {
     const nodes = topic.split('/');
     function push(nodeList: Array<string>, index: number, route: IRoute) {
       if (!route[nodeList[index]]) {
@@ -240,9 +236,9 @@ export class MemoryManager extends Manager {
   /**
    * Removes this client from every trie node (and prunes empty branches).
    *
-   * @param client - Connected socket.
+   * @param client - Connected {@link MqttClient}.
    */
-  private removeRouteForClient(client: TClient) {
+  private removeRouteForClient(client: MqttClient) {
     const removeFromRoute = (route: IRoute) => {
       for (const key of Object.keys(route)) {
         route[key].clients.delete(client);
@@ -275,7 +271,7 @@ export class MemoryManager extends Manager {
    * @param clientIdentifier - MQTT client id.
    */
   public async clearSubscribe(clientIdentifier: string): Promise<void> {
-    const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);
+    const client = this.clientIdentifierManager.getClient(clientIdentifier);
     if (client) {
       this.clientDataMap.get(client)?.subscription.forEach((_value, key) => {
         this.unsubscribe(clientIdentifier, key);
@@ -293,7 +289,7 @@ export class MemoryManager extends Manager {
    * @param data - Subscription options (QoS, flags, shared group, etc.).
    */
   public async subscribe(clientIdentifier: string, topic: string, data: TSubscribeData): Promise<void> {
-    const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);
+    const client = this.clientIdentifierManager.getClient(clientIdentifier);
     if (client) {
       if (this.clientDataMap.has(client)) {
         this.clientDataMap.get(client)?.subscription.set(topic, data);
@@ -330,7 +326,7 @@ export class MemoryManager extends Manager {
    * @param topic - Topic filter to remove.
    */
   public async unsubscribe(clientIdentifier: string, topic: string): Promise<void> {
-    const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);
+    const client = this.clientIdentifierManager.getClient(clientIdentifier);
     if (client) {
       if (this.clientDataMap.has(client)) {
         this.clientDataMap.get(client)?.subscription.delete(topic);
@@ -366,9 +362,9 @@ export class MemoryManager extends Manager {
    * @param pubData - PUBLISH payload and headers.
    */
   public publish(clientIdentifier: string, topic: string, pubData: IPublishData) {
-    const pubClient = this.getClient(clientIdentifier);
-    const matchedByClient = new Map<TClient, TSubscribeData[]>();
-    const putMatch = (client: TClient, subFlags: TSubscribeData) => {
+    const pubClient = this.geTSocket(clientIdentifier);
+    const matchedByClient = new Map<MqttClient, TSubscribeData[]>();
+    const putMatch = (client: MqttClient, subFlags: TSubscribeData) => {
       const list = matchedByClient.get(client) ?? [];
       list.push(subFlags);
       matchedByClient.set(client, list);
@@ -441,7 +437,7 @@ export class MemoryManager extends Manager {
       }
       const minQoS = Math.min(...selected.map((sub) => sub.qos || 0), pubData.header.qosLevel);
       if (minQoS > QoSType.QoS0) {
-        distributeData.header.packetIdentifier = this.newPacketIdentifier(client);
+        distributeData.header.packetIdentifier = client.packetIdentifierManager.newPacketIdentifier();
         distributeData.header.dupFlag = false;
       } else {
         delete distributeData.header.packetIdentifier;
@@ -464,7 +460,7 @@ export class MemoryManager extends Manager {
       }
       const protocolVersion = selected[0].protocolVersion;
       const pubPacket = encodePublishPacket(distributeData, protocolVersion);
-      client.write(pubPacket);
+      client.socket.write(pubPacket);
       if (minQoS > QoSType.QoS0 && distributeData.header.packetIdentifier !== undefined) {
         this.registerPendingPacket(client, distributeData.header.packetIdentifier, pubPacket, 'publish');
       }
@@ -479,7 +475,7 @@ export class MemoryManager extends Manager {
    * @returns `true` if the subscription map contains `topic`.
    */
   public async isSubscribe(clientIdentifier: string, topic: string) {
-    const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);
+    const client = this.clientIdentifierManager.getClient(clientIdentifier);
     if (client) {
       return !!this.clientDataMap.get(client)?.subscription.has(topic);
     }
@@ -494,7 +490,7 @@ export class MemoryManager extends Manager {
    * @returns The stored {@link TSubscribeData}, or `undefined`.
    */
   public async getSubscription(clientIdentifier: TIdentifier, topic: string): Promise<TSubscribeData | undefined> {
-    const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);
+    const client = this.clientIdentifierManager.getClient(clientIdentifier);
     if (client) {
       return this.clientDataMap.get(client)?.subscription.get(topic);
     }

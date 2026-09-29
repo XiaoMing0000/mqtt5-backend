@@ -208,6 +208,13 @@ describe('StreamFramer', () => {
       expect(framer.bufferedBytes).toBe(0);
     });
 
+    it('waits when remaining-length VBI is incomplete (probeFrameLength returns null)', () => {
+      const framer = new StreamFramer();
+      const frames = framer.extractFrames(Buffer.from([0x30, 0x80]));
+      expect(frames).toHaveLength(0);
+      expect(framer.bufferedBytes).toBe(2);
+    });
+
     it('extracts multiple frames from interleaved complete + partial chunks', () => {
       const framer = new StreamFramer();
       const ping = makePingReqPacket();

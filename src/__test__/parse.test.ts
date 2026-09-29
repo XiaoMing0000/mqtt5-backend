@@ -15,6 +15,8 @@ import {
   mergeUint8Arrays,
   encodeUTF8String,
   encodeBinaryData,
+  stringToVariableByteInteger,
+  parseAllPacket,
   parsePacket,
   parseConnect,
   parsePublish,
@@ -32,9 +34,10 @@ import {
   encodePubControlPacket,
   encodeSubAckPacket,
   EncoderProperties,
+  probeFrameLength,
 } from '../parse';
 import { PacketType, ProtocolVersion, QoSType } from '../interface';
-import { DisconnectException, PubAckException } from '../exception';
+import { DisconnectException, DisconnectReasonCode, PubAckException } from '../exception';
 import type {
   BufferData,
   IPublishData,
@@ -329,6 +332,29 @@ describe('parse', () => {
     });
   });
 
+  describe('stringToVariableByteInteger', () => {
+    test('encodes string as two-byte length prefix plus UTF-8 bytes', () => {
+      expect(stringToVariableByteInteger('ab')).toEqual(encodeUTF8String('ab'));
+    });
+  });
+
+  describe('parseAllPacket', () => {
+    test('parses multiple complete packets from one buffer', () => {
+      const ping = Buffer.from([PacketType.PINGREQ << 4, 0x00]);
+      const disconnect = Buffer.from([PacketType.DISCONNECT << 4, 0x00]);
+      const result = parseAllPacket(Buffer.concat([ping, disconnect]), ProtocolVersion.V5);
+      expect(result).toHaveLength(2);
+      expect(result[0].header.packetType).toBe(PacketType.PINGREQ);
+      expect(result[1].header.packetType).toBe(PacketType.DISCONNECT);
+    });
+
+    test('throws when a frame extends past the buffer', () => {
+      // Declares remaining length 5 but only provides 1 payload byte
+      const truncated = Buffer.from([PacketType.PUBLISH << 4, 0x05, 0x00]);
+      expect(() => parseAllPacket(truncated, ProtocolVersion.V5)).toThrow(DisconnectException);
+    });
+  });
+
   describe('parsePacket', () => {
     test('should parse PINGREQ packet', () => {
       const buffer = Buffer.from([PacketType.PINGREQ << 4, 0x00]);
@@ -339,6 +365,29 @@ describe('parse', () => {
     test('should throw error for unknown packet type', () => {
       const buffer = Buffer.from([0x00, 0x00]); // RESERVED packet type
       expect(() => parsePacket(buffer, ProtocolVersion.V5)).toThrow(DisconnectException);
+    });
+
+    test('dispatches PUBACK / PUBREC / PUBREL / PUBCOMP', () => {
+      const cases: Array<[number, PacketType]> = [
+        [PacketType.PUBACK << 4, PacketType.PUBACK],
+        [PacketType.PUBREC << 4, PacketType.PUBREC],
+        [(PacketType.PUBREL << 4) | 0x02, PacketType.PUBREL],
+        [PacketType.PUBCOMP << 4, PacketType.PUBCOMP],
+      ];
+      for (const [fixedHeader, expectedType] of cases) {
+        const buffer = Buffer.from([fixedHeader, 0x02, 0x00, 0x01]);
+        const result = parsePacket(buffer, ProtocolVersion.V5);
+        expect(result.header.packetType).toBe(expectedType);
+      }
+    });
+
+    test('dispatches UNSUBSCRIBE', () => {
+      const topic = encodeUTF8String('a/b');
+      const body = [0x00, 0x01, 0x00, ...topic];
+      const buffer = Buffer.from([(PacketType.UNSUBSCRIBE << 4) | 0x02, ...encodeVariableByteInteger(body.length), ...body]);
+      const result = parsePacket(buffer, ProtocolVersion.V5);
+      expect(result.header.packetType).toBe(PacketType.UNSUBSCRIBE);
+      expect((result as IUnsubscribeData).payloads).toEqual(['a/b']);
     });
   });
 
@@ -798,6 +847,40 @@ describe('parse', () => {
       parseSubscribe(buffer, subData, ProtocolVersion.V5);
       expect(subData.payloads?.map((item) => item.topicFilter)).toEqual([topic1, topic2]);
     });
+
+    test('should throw when reserved retain bits (6-7) are non-zero', () => {
+      const topic = 'test/topic';
+      const topicBytes = Buffer.from(topic);
+      const buffer = Buffer.from([
+        (PacketType.SUBSCRIBE << 4) | 0x02,
+        2 + 1 + 2 + topicBytes.length + 1,
+        0x12,
+        0x34,
+        0x00,
+        0x00,
+        topicBytes.length,
+        ...topicBytes,
+        0x40, // bit 6 set → retain != 0
+      ]);
+      const subData: ISubscribeData = {
+        header: {
+          packetType: PacketType.RESERVED,
+          received: 0x02,
+          remainingLength: 0,
+          packetIdentifier: 0,
+        },
+        properties: {},
+        payload: '',
+        options: {
+          qos: QoSType.QoS0,
+          noLocal: false,
+          retainAsPublished: false,
+          retainHandling: 0,
+          retain: 0,
+        },
+      };
+      expect(() => parseSubscribe(buffer, subData, ProtocolVersion.V5)).toThrow(DisconnectException);
+    });
   });
 
   describe('parseUnsubscribe', () => {
@@ -1003,6 +1086,21 @@ describe('parse', () => {
       expect(Buffer.isBuffer(buffer)).toBe(true);
       expect(buffer[0] >> 4).toBe(PacketType.DISCONNECT);
     });
+
+    test('should encode MQTT 3.1.1 / missing data as a single-byte DISCONNECT', () => {
+      const disconnectData: IDisconnectData = {
+        header: {
+          packetType: PacketType.DISCONNECT,
+          received: 0,
+          remainingLength: 0,
+          reasonCode: 0x00,
+        },
+        properties: {},
+      };
+      expect(encodeDisconnect(disconnectData, ProtocolVersion.V3_1_1)).toEqual(Buffer.from([PacketType.DISCONNECT << 4]));
+      expect(encodeDisconnect(disconnectData, ProtocolVersion.V3_1)).toEqual(Buffer.from([PacketType.DISCONNECT << 4]));
+      expect(encodeDisconnect()).toEqual(Buffer.from([PacketType.DISCONNECT << 4]));
+    });
   });
 
   describe('encodePublishPacket', () => {
@@ -1041,6 +1139,25 @@ describe('parse', () => {
       const buffer = encodePublishPacket(pubData, ProtocolVersion.V5);
       expect(Buffer.isBuffer(buffer)).toBe(true);
     });
+
+    test('should encode PUBLISH without property section for MQTT 3.1.1', () => {
+      const pubData: IPublishData = {
+        header: {
+          packetType: PacketType.PUBLISH,
+          dupFlag: false,
+          qosLevel: QoSType.QoS0,
+          retain: false,
+          remainingLength: 0,
+          topicName: 't',
+        },
+        properties: { contentType: 'ignored' },
+        payload: 'x',
+      };
+      const v5 = encodePublishPacket(pubData, ProtocolVersion.V5);
+      const v311 = encodePublishPacket(pubData, ProtocolVersion.V3_1_1);
+      expect(v311.length).toBeLessThan(v5.length);
+      expect(v311[0] >> 4).toBe(PacketType.PUBLISH);
+    });
   });
 
   describe('encodePubControlPacket', () => {
@@ -1058,6 +1175,22 @@ describe('parse', () => {
       const buffer = encodePubControlPacket(pubAckData, ProtocolVersion.V5);
       expect(Buffer.isBuffer(buffer)).toBe(true);
       expect(buffer[0] >> 4).toBe(PacketType.PUBACK);
+    });
+
+    test('should encode PUBACK without properties for MQTT 3.1.1', () => {
+      const pubAckData: IPubAckData = {
+        header: {
+          packetType: PacketType.PUBACK,
+          received: 0x00,
+          remainingLength: 0,
+          packetIdentifier: 0x0001,
+          reasonCode: 0x00,
+        },
+        properties: { reasonString: 'ignored' },
+      };
+      const buffer = encodePubControlPacket(pubAckData, ProtocolVersion.V3_1_1);
+      // fixed + remaining length(3) + packet id(2) + reason(1) = 5 bytes, no property section
+      expect(buffer).toEqual(Buffer.from([PacketType.PUBACK << 4, 0x03, 0x00, 0x01, 0x00]));
     });
   });
 
@@ -1077,6 +1210,20 @@ describe('parse', () => {
       expect(buffer[0] >> 4).toBe(PacketType.SUBACK);
     });
 
+    test('should encode SUBACK without properties for MQTT 3.1.1', () => {
+      const subAckData: ISubAckData = {
+        header: {
+          packetType: PacketType.SUBACK,
+          retain: 0,
+          packetIdentifier: 0x0002,
+        },
+        properties: {},
+        reasonCode: 0x00,
+      };
+      const buffer = encodeSubAckPacket(subAckData, ProtocolVersion.V3_1_1);
+      expect(buffer).toEqual(Buffer.from([PacketType.SUBACK << 4, 0x03, 0x00, 0x02, 0x00]));
+    });
+
     test('should encode SUBACK packet with multiple reason codes', () => {
       const subAckData: ISubAckData = {
         header: {
@@ -1091,6 +1238,18 @@ describe('parse', () => {
       const buffer = encodeSubAckPacket(subAckData, ProtocolVersion.V5);
       expect(buffer[0] >> 4).toBe(PacketType.SUBACK);
       expect(buffer.slice(-3)).toEqual(Buffer.from([0x00, 0x01, 0x80]));
+    });
+  });
+
+  describe('probeFrameLength malformed remaining length', () => {
+    test('throws when remaining length uses more than four continuation bytes', () => {
+      const buf = Buffer.from([0x30, 0x80, 0x80, 0x80, 0x80]);
+      expect(() => probeFrameLength(buf)).toThrow(DisconnectException);
+      try {
+        probeFrameLength(buf);
+      } catch (error) {
+        expect((error as DisconnectException).code).toBe(DisconnectReasonCode.ProtocolError);
+      }
     });
   });
 });

@@ -1,20 +1,127 @@
 import net from 'net';
-import { IConnectData, IDisconnectData, IPublishData, PacketType, ProtocolVersion, QoSType } from '../interface';
+import {
+  IAuthData,
+  IConnectData,
+  IDisconnectData,
+  IPubAckData,
+  IPubCompData,
+  IPublishData,
+  IPubRecData,
+  IPubRelData,
+  ISubscribeData,
+  IUnsubscribeData,
+  PacketType,
+  ProtocolVersion,
+  QoSType,
+} from '../interface';
 import { encodeDisconnect } from '../parse';
+import { MqttClient } from '../mqttClient';
 
 /** MQTT topic filter or name (string). */
 export type TTopic = string;
-/** Underlying TCP socket for a connected MQTT client. */
-export type TClient = net.Socket;
+
+/**
+ * Typed args + return for MQTT lifecycle events on a {@link TSocket}.
+ * Source of truth for {@link MqttEvent} `on*` hooks and `socket.on(...)`.
+ */
+export interface TMqttSocketEventMap {
+  connection: {
+    args: [socket: TSocket];
+    return: Promise<void>;
+  };
+  connect: {
+    args: [data: IConnectData, client: MqttClient, clientManager: Manager];
+    return: Promise<boolean | void>;
+  };
+  disconnect: {
+    args: [data: IDisconnectData, client: MqttClient, clientManager: Manager];
+    return: Promise<boolean | void>;
+  };
+  publish: {
+    args: [data: IPublishData, client: MqttClient, clientManager: Manager];
+    return: Promise<boolean | void>;
+  };
+  pubAck: {
+    args: [data: IPubAckData, client: MqttClient, clientManager: Manager];
+    return: Promise<boolean | void>;
+  };
+  pubRec: {
+    args: [data: IPubRecData, client: MqttClient, clientManager: Manager];
+    return: Promise<boolean | void>;
+  };
+  pubRel: {
+    args: [data: IPubRelData, client: MqttClient, clientManager: Manager];
+    return: Promise<boolean | void>;
+  };
+  pubComp: {
+    args: [data: IPubCompData, client: MqttClient, clientManager: Manager];
+    return: Promise<boolean | void>;
+  };
+  subscribe: {
+    args: [data: ISubscribeData, client: MqttClient, clientManager: Manager];
+    return: Promise<boolean | void>;
+  };
+  unsubscribe: {
+    args: [data: IUnsubscribeData, client: MqttClient, clientManager: Manager];
+    return: Promise<boolean | void>;
+  };
+  /** PINGREQ: no packet payload is forwarded — only the socket and manager. */
+  ping: {
+    args: [socket: TSocket, clientManager: Manager];
+    return: Promise<boolean | void>;
+  };
+  auth: {
+    args: [data: IAuthData, client: MqttClient, clientManager: Manager];
+    return: Promise<boolean | void>;
+  };
+}
+
+/** Listener signature for one MQTT socket event (args + return from {@link TMqttSocketEventMap}). */
+export type TMqttSocketListener<E extends keyof TMqttSocketEventMap> = (...args: TMqttSocketEventMap[E]['args']) => TMqttSocketEventMap[E]['return'];
+
+/** Typed `clientEmitAsync` callback used by packet handlers. */
+export type TMqttClientEmitAsync = <E extends keyof TMqttSocketEventMap>(
+  socket: TSocket,
+  event: E,
+  ...args: TMqttSocketEventMap[E]['args']
+) => Promise<boolean>;
+
+/** Common {@link net.Socket} events kept typed after `on` / `once` are remapped. */
+interface TSocketNativeEventMap {
+  data: { args: [buffer: Buffer]; return: void };
+  end: { args: []; return: void };
+  error: { args: [err: Error]; return: void };
+  close: { args: [hadError: boolean]; return: void };
+}
+
+type TSocketEventMap = TMqttSocketEventMap & TSocketNativeEventMap;
+
+/** Listener for `socket.on` / `once`: allows sync returns in addition to the mapped Promise return. */
+type TSocketEventListener<E extends keyof TSocketEventMap> = (
+  ...args: TSocketEventMap[E]['args']
+) => TSocketEventMap[E]['return'] | Awaited<TSocketEventMap[E]['return']>;
+
+/**
+ * TCP (or WebSocket-adapted) socket with typed MQTT + native `on` / `once` overloads.
+ *
+ * @remarks
+ * Implemented as `Omit<net.Socket, 'on' | 'once'> & …` so MQTT event keys do not replace
+ * Socket’s built-in overloads (interface `extends` would wipe `data` / `error` / …).
+ */
+export type TSocket = Omit<net.Socket, 'on' | 'once'> & {
+  on<E extends keyof TSocketEventMap>(event: E, listener: TSocketEventListener<E>): TSocket;
+  on(event: string | symbol, listener: (...args: any[]) => void): TSocket;
+  once<E extends keyof TSocketEventMap>(event: E, listener: TSocketEventListener<E>): TSocket;
+  once(event: string | symbol, listener: (...args: any[]) => void): TSocket;
+};
+
 /** Stable client identifier string (MQTT Client ID). */
 export type TIdentifier = string;
-type TClientID = { identifier: TIdentifier; packetIdentifier: Set<number>; dynamicId: number };
-/** Maps each live socket to its client id, outbound packet-ids in use, and id allocator state. */
-export type TClientMap = Map<TClient, TClientID>;
-/** Maps client identifier string to the active socket, if any. */
-export type TIdentifierMap = Map<TIdentifier, TClient>;
+/** Maps each MQTT client id to its live {@link MqttClient}. */
+export type TClientMap = Map<TIdentifier, MqttClient>;
+
 /** Maps each socket to its client identifier string (convenience view). */
-export type ClientIdentifierMap = Map<TClient, string>;
+export type ClientIdentifierMap = Map<MqttClient, string>;
 
 /** Per-topic subscription options for a client (QoS, MQTT 5 options, protocol version). */
 export type TSubscribeData = {
@@ -27,85 +134,66 @@ export type TSubscribeData = {
   sharedGroup?: string;
 };
 /** Map from topic (or filter) to subscription metadata for one client. */
-export type TClientSubscription = Map<TTopic, TSubscribeData>;
+export type TSocketSubscription = Map<TTopic, TSubscribeData>;
 
 /**
- * Bidirectional registry of MQTT clients: socket ↔ client identifier, plus per-socket packet identifier bookkeeping.
+ * Registry of live MQTT clients keyed by client identifier.
  *
  * @remarks
- * Used to look up connections by id or socket, and to allocate/recycle 16-bit packet identifiers for outbound server→client traffic.
+ * Look up a connected {@link MqttClient} (or its {@link TSocket}) by MQTT client id.
  */
 export class ClientIdentifierManager {
   private readonly clientMap: TClientMap;
-  private readonly identifierMap: TIdentifierMap;
   constructor() {
     this.clientMap = new Map();
-    this.identifierMap = new Map();
   }
 
   /**
-   * @param key - Client socket or identifier string.
-   * @returns Whether the given socket or identifier is registered.
+   * @param identifier - MQTT client identifier string.
+   * @returns Whether the given identifier is registered.
    */
-  has(key: TClient | TIdentifier) {
-    if (typeof key === 'string') {
-      return this.identifierMap.has(key);
-    }
-    return this.clientMap.has(key);
+  has(identifier: TIdentifier) {
+    return this.clientMap.has(identifier);
   }
 
   /**
-   * @param client - Connected socket.
-   * @returns Per-socket state (identifier, packet ids, allocator), if registered.
+   * @param identifier - MQTT client identifier string.
+   * @returns The underlying {@link TSocket} for that id, if connected.
    */
-  getClient(client: TClient) {
-    return this.clientMap.get(client);
+  geTSocket(identifier: TIdentifier) {
+    return this.clientMap.get(identifier)?.socket;
   }
   /**
-   * @param identifier - Client identifier string.
-   * @returns The socket for that id, if connected.
+   * @param identifier - MQTT client identifier string.
+   * @returns The {@link MqttClient} for that id, if connected.
    */
-  getIdentifier(identifier: TIdentifier) {
-    return this.identifierMap.get(identifier);
+  getClient(identifier: TIdentifier) {
+    return this.clientMap.get(identifier);
   }
 
   /**
-   * Registers a client: associates identifier with socket and initializes packet-id tracking.
+   * Registers a client: associates identifier with the live session.
    *
-   * @param key - Client identifier.
-   * @param value - Connected socket.
+   * @param identifier - MQTT client identifier.
+   * @param client - Connected {@link MqttClient}.
    */
-  set(key: TIdentifier, value: TClient): void {
-    this.identifierMap.set(key, value);
-    this.clientMap.set(value, { identifier: key, packetIdentifier: new Set(), dynamicId: 1 });
+  set(identifier: TIdentifier, client: MqttClient): void {
+    this.clientMap.set(identifier, client);
   }
 
   /**
-   * Removes a client by socket or by identifier string.
+   * Removes a client by identifier string.
    *
-   * @param key - Socket or client identifier.
+   * @param identifier - MQTT client identifier.
    * @returns Whether an entry was removed.
    */
-  delete(key: TClient | TIdentifier) {
-    if (typeof key === 'string') {
-      const client = this.identifierMap.get(key);
-      if (client) {
-        this.clientMap.delete(client);
-      }
-      return this.identifierMap.delete(key);
-    } else {
-      const client = this.clientMap.get(key);
-      if (client) {
-        this.identifierMap.delete(client.identifier);
-      }
-      return this.clientMap.delete(key);
-    }
+  delete(identifier: TIdentifier) {
+    return this.clientMap.delete(identifier);
   }
 
   /** Removes all client registrations. */
   clear() {
     this.clientMap.clear();
-    this.identifierMap.clear();
   }
 
   /** Number of registered clients (same as identifier map size). */
@@ -114,7 +202,7 @@ export class ClientIdentifierManager {
   }
 
   /**
-   * @returns Iterator over registered sockets.
+   * @returns Iterator over registered client identifier strings.
    */
   clientKeys() {
     return this.clientMap.keys();
@@ -124,96 +212,21 @@ export class ClientIdentifierManager {
    * @returns Iterator over registered client identifier strings.
    */
   identifierKeys() {
-    return this.identifierMap.keys();
+    return this.clientMap.keys();
   }
 
   /**
-   * @returns Iterator over per-socket state objects.
+   * @returns Iterator over registered {@link MqttClient} instances.
    */
   clientValues() {
     return this.clientMap.values();
   }
-  /**
-   * @returns Iterator over sockets (values of identifier map).
-   */
-  identifierValues() {
-    return this.identifierMap.values();
-  }
 
   /**
-   * @param callbackfn - Called for each socket and its state.
+   * @param callbackfn - Called for each {@link MqttClient} and its identifier.
    */
-  clientForEarch(callbackfn: (value: TClientID, key: TClient, map: Map<TClient, TClientID>) => void) {
+  clientForEach(callbackfn: (value: MqttClient, key: TIdentifier, map: Map<TIdentifier, MqttClient>) => void) {
     this.clientMap.forEach(callbackfn);
-  }
-
-  /**
-   * @param callbackfn - Called for each identifier and its socket.
-   */
-  identifierForeEach(callbackfn: (value: TClient, key: TIdentifier, map: Map<TIdentifier, TClient>) => void) {
-    this.identifierMap.forEach(callbackfn);
-  }
-
-  /**
-   * Iterates packet identifiers currently allocated for outbound traffic to this client.
-   *
-   * @param client - Connected socket.
-   * @returns Iterator of packet ids, or `undefined` if the client is unknown.
-   */
-  public getPacketIdentifierValues(client: TClient) {
-    return this.clientMap.get(client)?.packetIdentifier.values();
-  }
-
-  /**
-   * Allocates the next unused 16-bit packet identifier for server→client publishes (and related control).
-   *
-   * @remarks
-   * Used when the broker sends PUBLISH (or similar) to the client and must track the id until PUBACK/PUBREC/PUBCOMP completes.
-   *
-   * @param client - Target socket.
-   * @returns New packet id in 1..65535, or `0` if the client is not registered.
-   */
-  public newPacketIdentifier(client: TClient) {
-    let newPacketIdentifier = 0;
-    const manager = this.clientMap.get(client);
-    if (manager) {
-      do {
-        newPacketIdentifier = manager.dynamicId++ & 0xffff;
-      } while (manager.packetIdentifier.has(newPacketIdentifier) && !newPacketIdentifier);
-      manager.packetIdentifier.add(newPacketIdentifier);
-    }
-    return newPacketIdentifier;
-  }
-
-  /**
-   * Releases a packet identifier after the publish flow completes.
-   *
-   * @remarks
-   * Call when the exchange finishes; applies to PUBACK, PUBREC, and PUBCOMP paths as appropriate.
-   *
-   * @param client - Client socket.
-   * @param id - Packet identifier to release.
-   */
-  public deletePacketIdentifier(client: TClient, id: number) {
-    this.clientMap.get(client)?.packetIdentifier.delete(id);
-  }
-
-  /**
-   * @param client - Client socket.
-   * @param id - Packet identifier to test.
-   * @returns Whether that id is still tracked for the client.
-   */
-  public hasPacketIdentifier(client: TClient, id: number) {
-    return this.clientMap.get(client)?.packetIdentifier.has(id);
-  }
-
-  /**
-   * Drops all tracked packet identifiers for a client (e.g. on disconnect).
-   *
-   * @param client - Client socket.
-   */
-  public clearPacketIdentifier(client: TClient) {
-    this.clientMap.get(client)?.packetIdentifier.clear();
   }
 }
 
@@ -229,17 +242,17 @@ export abstract class Manager {
   private qosRetryCount = 3;
   private readonly qosRetryIntervalMs = 5000;
   private readonly pendingRetryMap = new Map<
-    TClient,
+    MqttClient,
     Map<number, { packet: Buffer; type: 'publish' | 'pubrel'; attempts: number; timer?: NodeJS.Timeout }>
   >();
 
   /**
    * Whether the client is connected (e.g. anywhere in the cluster vs. only this process — implementation-defined).
    *
-   * @param key - Connected socket **or** client identifier string, depending on overload.
+   * @param key - Connected {@link MqttClient} **or** client identifier string, depending on overload.
    * @returns True if considered connected.
    */
-  abstract isConnected(key: TClient): Promise<boolean>;
+  abstract isConnected(key: MqttClient): Promise<boolean>;
   /**
    * @param key - Client identifier string.
    * @returns True if considered connected.
@@ -251,29 +264,29 @@ export abstract class Manager {
    *
    * @param clientIdentifier - MQTT client id.
    * @param connData - CONNECT payload-derived session options.
-   * @param client - TCP socket for this session.
+   * @param client - Live {@link MqttClient} for this session.
    */
-  abstract connect(clientIdentifier: string, connData: IConnectData, client: TClient): Promise<void>;
+  abstract connect(clientIdentifier: string, connData: IConnectData, client: MqttClient): Promise<void>;
 
   /**
-   * Gracefully closes the socket for a client id or the given socket.
+   * Gracefully closes the transport for a client id or the given {@link MqttClient}.
    *
-   * @param clientIdentifier - Client id string, or the socket to end.
+   * @param clientIdentifier - Client id string, or the {@link MqttClient} to end.
    */
-  public disconnect(clientIdentifier: string | TClient, disconnectData?: IDisconnectData, protocolVersion?: ProtocolVersion): void {
+  public disconnect(clientIdentifier: string | MqttClient, disconnectData?: IDisconnectData, protocolVersion?: ProtocolVersion): void {
     // TODO: [MQTT-3.1.2.5] If the existing Client has a Will Message, that Will Message is published as described in section 3.1.2.5.
-    const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdentifier(clientIdentifier) : clientIdentifier;
+    const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getClient(clientIdentifier) : clientIdentifier;
     if (client) {
-      client.end(Buffer.from(disconnectData ? encodeDisconnect(disconnectData, protocolVersion) : []));
+      client.socket.end(Buffer.from(disconnectData ? encodeDisconnect(disconnectData, protocolVersion) : []));
     }
   }
 
   /**
    * Clears session state for a disconnect: closes transport and applies session expiry policy per `sessionExpiryInterval`.
    *
-   * @param clientIdentifier - Socket or client id.
+   * @param clientIdentifier - {@link MqttClient} or client id.
    */
-  abstract clearConnect(clientIdentifier: TClient | TIdentifier): void;
+  abstract clearConnect(clientIdentifier: MqttClient | TIdentifier): void;
 
   /**
    * @param clientIdentifier - MQTT client id.
@@ -336,27 +349,6 @@ export abstract class Manager {
   abstract ping(clientIdentifier: string): Promise<void>;
 
   /**
-   * @param client - Client socket.
-   * @returns Iterator of packet ids in use for that socket, or `undefined`.
-   */
-  public getPacketIdentifierValues(client: TClient) {
-    return this.clientIdentifierManager.getPacketIdentifierValues(client);
-  }
-
-  /**
-   * Allocates a new outbound packet identifier via {@link ClientIdentifierManager}.
-   *
-   * @remarks
-   * Used when the server sends PUBLISH to the client.
-   *
-   * @param client - Target socket.
-   * @returns New packet id, or `0` if unregistered.
-   */
-  public newPacketIdentifier(client: TClient) {
-    return this.clientIdentifierManager.newPacketIdentifier(client);
-  }
-
-  /**
    * Sets how many QoS retry rounds to attempt before failing the client.
    *
    * @param count - Non-negative integer; invalid values are ignored.
@@ -370,10 +362,10 @@ export abstract class Manager {
   /**
    * Lazily creates the per-client map of pending QoS retry entries.
    *
-   * @param client - Client socket.
+   * @param client - Connected {@link MqttClient}.
    * @returns Pending id → retry state map for that client.
    */
-  private getPendingMap(client: TClient) {
+  private getPendingMap(client: MqttClient) {
     let map = this.pendingRetryMap.get(client);
     if (!map) {
       map = new Map();
@@ -385,12 +377,12 @@ export abstract class Manager {
   /**
    * Registers a copied packet for QoS retry until acked; schedules the first retry.
    *
-   * @param client - Client socket.
+   * @param client - Connected {@link MqttClient}.
    * @param id - Packet identifier.
    * @param packet - Raw PUBLISH or PUBREL bytes.
    * @param type - Whether this is a publish or pubrel retry.
    */
-  public registerPendingPacket(client: TClient, id: number, packet: Buffer, type: 'publish' | 'pubrel' = 'publish') {
+  public registerPendingPacket(client: MqttClient, id: number, packet: Buffer, type: 'publish' | 'pubrel' = 'publish') {
     const map = this.getPendingMap(client);
     const old = map.get(id);
     if (old?.timer) {
@@ -404,21 +396,21 @@ export abstract class Manager {
   /**
    * Replaces a pending PUBLISH entry with a PUBREL retry for the same packet id.
    *
-   * @param client - Client socket.
+   * @param client - Connected {@link MqttClient}.
    * @param id - Packet identifier.
    * @param packet - PUBREL buffer.
    */
-  public promotePendingToPubRel(client: TClient, id: number, packet: Buffer) {
+  public promotePendingToPubRel(client: MqttClient, id: number, packet: Buffer) {
     this.registerPendingPacket(client, id, packet, 'pubrel');
   }
 
   /**
    * Cancels retry for one packet id and clears the client entry if empty.
    *
-   * @param client - Client socket.
+   * @param client - Connected {@link MqttClient}.
    * @param id - Packet identifier.
    */
-  public clearPendingPacket(client: TClient, id: number) {
+  public clearPendingPacket(client: MqttClient, id: number) {
     const map = this.pendingRetryMap.get(client);
     const pending = map?.get(id);
     if (pending?.timer) {
@@ -433,9 +425,9 @@ export abstract class Manager {
   /**
    * Clears all pending QoS retries and timers for a client.
    *
-   * @param client - Client socket.
+   * @param client - Connected {@link MqttClient}.
    */
-  public clearPendingClient(client: TClient) {
+  public clearPendingClient(client: MqttClient) {
     const map = this.pendingRetryMap.get(client);
     if (!map) return;
     for (const pending of map.values()) {
@@ -449,10 +441,10 @@ export abstract class Manager {
   /**
    * Schedules or reschedules a timed retry: resends with DUP on PUBLISH when applicable, or ends the client after max attempts.
    *
-   * @param client - Client socket.
+   * @param client - Connected {@link MqttClient}.
    * @param id - Packet identifier.
    */
-  private scheduleRetry(client: TClient, id: number) {
+  private scheduleRetry(client: MqttClient, id: number) {
     const map = this.pendingRetryMap.get(client);
     const pending = map?.get(id);
     if (!pending) return;
@@ -461,8 +453,8 @@ export abstract class Manager {
       if (!current) return;
       if (current.attempts >= this.qosRetryCount) {
         this.clearPendingPacket(client, id);
-        this.deletePacketIdentifier(client, id);
-        client.end();
+        client.packetIdentifierManager.delete(id);
+        client.socket.end();
         return;
       }
       current.attempts += 1;
@@ -470,41 +462,9 @@ export abstract class Manager {
       if (current.type === 'publish' && retryPacket[0] >> 4 === PacketType.PUBLISH) {
         retryPacket[0] = retryPacket[0] | 0x08;
       }
-      client.write(retryPacket);
+      client.socket.write(retryPacket);
       this.scheduleRetry(client, id);
     }, this.qosRetryIntervalMs);
-  }
-
-  /**
-   * Releases the packet identifier and clears any pending QoS retry for it.
-   *
-   * @remarks
-   * Invoke when the publish exchange completes (PUBACK / PUBREC / PUBCOMP handling).
-   *
-   * @param client - Client socket.
-   * @param id - Packet identifier to release.
-   */
-  public deletePacketIdentifier(client: TClient, id: number) {
-    this.clientIdentifierManager.deletePacketIdentifier(client, id);
-    this.clearPendingPacket(client, id);
-  }
-
-  /**
-   * @param client - Client socket.
-   * @param id - Packet identifier.
-   * @returns Whether the id is still tracked in {@link ClientIdentifierManager}.
-   */
-  public hasPacketIdentifier(client: TClient, id: number) {
-    return this.clientIdentifierManager.hasPacketIdentifier(client, id);
-  }
-
-  /**
-   * Clears all tracked packet identifiers for a client in {@link ClientIdentifierManager}.
-   *
-   * @param client - Client socket.
-   */
-  public clearPacketIdentifier(client: TClient) {
-    this.clientIdentifierManager.clearPacketIdentifier(client);
   }
 
   /** Retained message store: add or replace retained message for a topic (optional TTL). */
@@ -529,5 +489,29 @@ export abstract class Manager {
    */
   public async dispose(): Promise<void> {
     // default no-op
+  }
+}
+
+export class ClientPacketIdentifierManager extends Map<number, number> {
+  private dynamicId = 0;
+  private readonly ttl: number;
+  constructor(ttl: number) {
+    super();
+    this.ttl = ttl * 1000;
+  }
+
+  public newPacketIdentifier() {
+    this.dynamicId = ++this.dynamicId & 0xffff || (this.dynamicId = 1);
+    this.set(this.dynamicId, new Date().getTime() + this.ttl);
+    return this.dynamicId;
+  }
+
+  public clearExpiredIdentifiers() {
+    const now = new Date().getTime();
+    for (const [id, ttl] of this.entries()) {
+      if (ttl < now) {
+        this.delete(id);
+      }
+    }
   }
 }

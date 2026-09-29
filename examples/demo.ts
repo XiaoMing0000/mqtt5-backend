@@ -1,7 +1,7 @@
 // import tls from 'tls';
 // import fs from 'fs';
 // import path from 'path';
-import { IConnectData, IDisconnectData, IPublishData, Manager, MqttServer, MqttServerWebSocket, TClient } from '../src';
+import { IConnectData, IDisconnectData, IPublishData, Manager, MqttClient, MqttServer, MqttServerWebSocket } from '../src';
 // import http from 'http';
 // import https from 'https';
 import { CONFIG } from './config';
@@ -39,20 +39,25 @@ const wsMqttServer = new MqttServerWebSocket(clientManager);
 // process.on('unhandledRejection', (reason, promise) => {
 // 	console.error('unhandledRejection:', reason, promise);
 // });
-
-server.onConnection(async (client) => {
+let count = 0;
+let count2 = 0;
+server.onConnection(async (socket) => {
   let identifier = '';
-  client.on('connect', (data: IConnectData, _client: TClient, _clientManager: Manager) => {
+  socket.on('connect', (data: IConnectData, _client: MqttClient, _clientManager: Manager) => {
+    count++;
+    console.log('connect: ', count);
     identifier = data.payload.clientIdentifier;
   });
 
-  client.on('publish', (data: IPublishData, _client: TClient, _clientManager: Manager) => {
+  socket.on('publish', (data: IPublishData, _client: MqttClient, _clientManager: Manager) => {
     console.log('publish: ', identifier);
     console.log('publish: ', data);
   });
 
-  client.on('disconnect', (_data: IDisconnectData, _client: TClient, _clientManager: Manager) => {
+  socket.on('close', (_data: IDisconnectData, _client: MqttClient, _clientManager: Manager) => {
     console.log('disconnect: ', identifier);
+    count2++;
+    console.log('disconnect: ', count2);
   });
 });
 

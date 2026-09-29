@@ -424,7 +424,7 @@ describe('parseSubscribe (§3.8)', () => {
     const buf = Buffer.from([(PacketType.SUBSCRIBE << 4) | 0x02, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptySubData();
     parseSubscribe(buf, data, ProtocolVersion.V5);
-    expect(data.properties.subscriptionIdentifier).toBe(42);
+    expect(data.properties.subscriptionIdentifier?.[0]).toBe(42);
   });
 
   test('throws when QoS > 2 (§3.8.3.1)', () => {

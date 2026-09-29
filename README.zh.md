@@ -151,6 +151,15 @@ const clientManager = new Redis2Manager({
 
 ## 📋 API 文档
 
+### 核心类型
+
+| 类型 | 作用 |
+| --- | --- |
+| `TSocket` | 传输层 socket（TCP / WebSocket 适配），带类型化 MQTT `on` / `once` |
+| `MqttClient` | 单连接 MQTT 会话与报文处理（由原 `MqttManager` 重命名） |
+| `Manager` | 会话/订阅后端抽象（`MemoryManager`、`RedisManager`、`Redis2Manager`） |
+| `ClientIdentifierManager` | client id → 在线 `MqttClient` 映射；`getClient(id)`、`geTSocket(id)` |
+
 ### MqttServer
 
 #### 构造函数
@@ -162,46 +171,45 @@ new MqttServer(clientManager: Manager, options?: IMqttOptions)
 #### 事件监听器
 
 ```typescript
-// 连接事件 - 客户端连接时触发
-server.onConnect(listener: (data: IConnectData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// 传输层接入 — 可在此挂载按连接的 socket 监听
+server.onConnection(listener: (socket: TSocket) => Promise<void>)
 
-// 断开连接事件 - 客户端断开连接时触发
-server.onDisconnect(listener: (data: IDisconnectData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// CONNECT — client 为 MqttClient（会话 / 协议处理对象）
+server.onConnect(listener: (data: IConnectData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
 
-// 发布事件 - 客户端发布消息时触发
-server.onPublish(listener: (data: IPublishData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// DISCONNECT
+server.onDisconnect(listener: (data: IDisconnectData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
 
-// 发布确认事件 - QoS 1 消息发布确认时触发
-server.onPubAck(listener: (data: IPubAckData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// PUBLISH
+server.onPublish(listener: (data: IPublishData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
 
-// 发布接收事件 - QoS 2 消息发布接收时触发
-server.onPubRec(listener: (data: IPubRecData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// PUBACK（QoS 1）
+server.onPubAck(listener: (data: IPubAckData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
 
-// 发布释放事件 - QoS 2 消息发布释放时触发
-server.onPubRel(listener: (data: IPubRelData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// PUBREC / PUBREL / PUBCOMP（QoS 2）
+server.onPubRec(listener: (data: IPubRecData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
+server.onPubRel(listener: (data: IPubRelData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
+server.onPubComp(listener: (data: IPubCompData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
 
-// 发布完成事件 - QoS 2 消息发布完成时触发
-server.onPubComp(listener: (data: IPubCompData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// SUBSCRIBE / UNSUBSCRIBE
+server.onSubscribe(listener: (data: ISubscribeData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
+server.onUnsubscribe(listener: (data: IUnsubscribeData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
 
-// 订阅事件 - 客户端订阅主题时触发
-server.onSubscribe(listener: (data: ISubscribeData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// PINGREQ — 参数为传输层 socket（无报文载荷）
+server.onPing(listener: (socket: TSocket, clientManager: Manager) => Promise<boolean | void>)
 
-// 取消订阅事件 - 客户端取消订阅时触发
-server.onUnsubscribe(listener: (data: IUnsubscribeData, client: TClient, clientManager: Manager) => Promise<boolean>)
-
-// Ping 事件 - 客户端发送心跳包时触发
-server.onPing(listener: (client: TClient, clientManager: Manager) => Promise<boolean>)
-
-// 认证事件 - 客户端进行认证时触发
-server.onAuth(listener: (data: IAuthData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// AUTH（MQTT v5）
+server.onAuth(listener: (data: IAuthData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
 ```
 
 **事件监听器说明**：
 
-- 所有事件监听器都返回 `Promise<boolean | void>`
-- 返回 `true` 或 `void`（不返回值）表示允许操作继续
-- 返回 `false` 或抛出异常表示拒绝操作
-- 可以通过抛出相应的异常来返回错误码和错误信息
+- `TSocket` 为 TCP/WebSocket 传输层；`MqttClient` 为单连接 MQTT 会话对象（由原 `MqttManager` 重命名）
+- 报文类钩子（`onConnect`、`onPublish` 等）收到的是 `MqttClient`，客户端 ID 使用 `client.clientIdentifier`
+- `onConnection` / `onPing` 收到的是 `TSocket`
+- 也可在 `onConnection` 内通过 `socket.on('connect' | 'publish' | …)` 挂载同类 MQTT 事件
+- 返回 `true` 或 `void` 表示允许继续；返回 `false` 或抛异常表示拒绝
+- 抛出类型化异常可返回对应 MQTT 原因码
 
 #### 服务器方法
 
@@ -238,9 +246,11 @@ interface IMqttOptions {
   subscriptionIdentifierAvailable?: boolean; // 订阅标识符可用，默认 true（仅 MQTT v5.0）
   sharedSubscriptionAvailable?: boolean; // 共享订阅可用，默认 false（仅 MQTT v5.0）
   sessionExpiryInterval?: number; // 会话过期时间（秒），默认 0（仅 MQTT v5.0）
-  sendReasonMessage?: boolean; // 是否发送原因消息（仅 MQTT v5.0）
-  receiveMaximum?: number; // 接收最大值，控制接受 PUBLISH QoS 1 和 QoS 2 报文数量，默认 65535（仅 MQTT v5.0）
+  sendReasonMessage?: boolean; // 是否发送原因字符串/消息，默认 true（仅 MQTT v5.0）
+  receiveMaximum?: number; // QoS 1/2 PUBLISH 接收最大值，默认 65535（仅 MQTT v5.0）
   serverKeepAlive?: number; // 服务端保持连接时间（秒），默认 0（仅 MQTT v5.0）
+  qosRetryCount?: number; // 服务端→客户端 QoS 1/2 最大重试轮数，默认 3
+  packetIdentifierTTL?: number; // 报文标识符 TTL（秒），默认 1800
 }
 ```
 
@@ -345,8 +355,7 @@ server.onConnect(async (data, client, clientManager) => {
 ```typescript
 // QoS 1 消息发布确认处理
 server.onPubAck(async (data, client, clientManager) => {
-  const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
-  console.log(`客户端 ${clientId} 确认收到 QoS 1 消息，包ID: ${data.header.packetIdentifier}`);
+  console.log(`客户端 ${client.clientIdentifier} 确认收到 QoS 1 消息，包ID: ${data.header.packetIdentifier}`);
   return true;
 });
 
@@ -413,12 +422,12 @@ server.onAuth(async (data, client, clientManager) => {
 
 ```typescript
 server.onSubscribe(async (data, client, clientManager) => {
-  const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
+  const clientId = client.clientIdentifier;
 
   // 检查订阅权限
-  for (const subscription of data.subscriptions) {
+  for (const subscription of data.payloads ?? []) {
     const topic = subscription.topicFilter;
-    const qos = subscription.qos;
+    const qos = subscription.options.qos;
 
     // 验证主题权限
     if (!hasSubscribePermission(clientId, topic)) {
@@ -437,10 +446,10 @@ server.onSubscribe(async (data, client, clientManager) => {
 });
 
 server.onUnsubscribe(async (data, client, clientManager) => {
-  const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
+  const clientId = client.clientIdentifier;
 
   // 记录取消订阅
-  for (const topicFilter of data.topicFilters) {
+  for (const topicFilter of data.payloads ?? []) {
     console.log(`客户端 ${clientId} 取消订阅主题 ${topicFilter}`);
   }
 
@@ -453,8 +462,9 @@ server.onUnsubscribe(async (data, client, clientManager) => {
 ```typescript
 server.onPublish(async (data, client, clientManager) => {
   // 检查主题权限
-  const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
-  if (!hasTopicPermission(clientId, data.topic)) {
+  const clientId = client.clientIdentifier;
+  const topic = data.header.topicName;
+  if (!hasTopicPermission(clientId, topic)) {
     throw new PubAckException(PubAckReasonCode.NOT_AUTHORIZED);
   }
 
@@ -464,7 +474,7 @@ server.onPublish(async (data, client, clientManager) => {
   }
 
   // 记录消息日志
-  console.log(`客户端 ${clientId} 发布消息到主题 ${data.topic}`);
+  console.log(`客户端 ${clientId} 发布消息到主题 ${topic}`);
 
   return true;
 });
@@ -508,7 +518,7 @@ server.onPublish(async (data, client, clientManager) => {
 
 // 订阅异常处理
 server.onSubscribe(async (data, client, clientManager) => {
-  for (const subscription of data.subscriptions) {
+  for (const subscription of data.payloads ?? []) {
     if (!isValidTopic(subscription.topicFilter)) {
       throw new SubscribeAckException(SubscribeAckReasonCode.TOPIC_FILTER_INVALID);
     }
@@ -524,9 +534,15 @@ server.onSubscribe(async (data, client, clientManager) => {
 await clientManager.addRetainMessage(
   'sensor/temperature',
   {
-    header: {/* ... */},
-    topic: 'sensor/temperature',
-    payload: Buffer.from('25.5'),
+    header: {
+      packetType: PacketType.PUBLISH,
+      dupFlag: false,
+      qosLevel: QoSType.QoS0,
+      retain: true,
+      topicName: 'sensor/temperature',
+    },
+    properties: {},
+    payload: '25.5',
   },
   3600,
 ); // TTL: 1小时

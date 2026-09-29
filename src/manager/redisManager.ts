@@ -1,8 +1,9 @@
 import Redis, { RedisOptions } from 'ioredis';
-import { ClientIdentifierManager, Manager, TClient, TClientSubscription, TIdentifier, TSubscribeData, TTopic } from './manager';
+import { ClientIdentifierManager, Manager, TSocketSubscription, TIdentifier, TSubscribeData, TTopic } from './manager';
 import { IConnectData, IPublishData, QoSType } from '../interface';
 import { topicToRegEx } from '../topicFilters';
 import { encodePublishPacket } from '../parse';
+import { MqttClient } from '../mqttClient';
 
 /**
  * In-memory index of MQTT topic subscriptions: which clients are subscribed to which topics,
@@ -10,7 +11,7 @@ import { encodePublishPacket } from '../parse';
  */
 class SubscribeManager {
   private topicsMap = new Map<string, Set<string>>();
-  private clientIdentifierMap = new Map<string, TClientSubscription>();
+  private clientIdentifierMap = new Map<string, TSocketSubscription>();
 
   /**
    * Registers a client's subscription to a topic and stores subscription options.
@@ -20,16 +21,16 @@ class SubscribeManager {
    * @param data - Subscription flags (QoS, shared group, etc.).
    */
   subscribe(clientIdentifier: string, topic: string, data: TSubscribeData) {
-    const getClientIdentifierSet = this.topicsMap.get(topic);
-    if (getClientIdentifierSet) {
-      getClientIdentifierSet.add(clientIdentifier);
+    const geTSocketIdentifierSet = this.topicsMap.get(topic);
+    if (geTSocketIdentifierSet) {
+      geTSocketIdentifierSet.add(clientIdentifier);
     } else {
       this.topicsMap.set(topic, new Set([clientIdentifier]));
     }
 
-    const getClientTopicMap = this.clientIdentifierMap.get(clientIdentifier);
-    if (getClientTopicMap) {
-      getClientTopicMap.set(topic, data);
+    const geTSocketTopicMap = this.clientIdentifierMap.get(clientIdentifier);
+    if (geTSocketTopicMap) {
+      geTSocketTopicMap.set(topic, data);
     } else {
       this.clientIdentifierMap.set(clientIdentifier, new Map([[topic, data]]));
     }
@@ -72,9 +73,9 @@ class SubscribeManager {
    * @param clientIdentifier - Client id whose subscriptions should be cleared.
    */
   clearSubscribe(clientIdentifier: string) {
-    const getClientTopicMap = this.clientIdentifierMap.get(clientIdentifier);
-    if (getClientTopicMap) {
-      for (const key of getClientTopicMap.keys()) {
+    const geTSocketTopicMap = this.clientIdentifierMap.get(clientIdentifier);
+    if (geTSocketTopicMap) {
+      for (const key of geTSocketTopicMap.keys()) {
         this.unsubscribe(clientIdentifier, key);
       }
     }
@@ -143,9 +144,9 @@ export class RedisManager extends Manager {
         case '__keyevent@0__:expired': {
           if (message.startsWith('connect:')) {
             const clientIdentifier = message.substring('connect:'.length);
-            const client = this.clientIdentifierManager.getIdentifier(clientIdentifier);
+            const client = this.clientIdentifierManager.getClient(clientIdentifier);
             if (client) {
-              client.end();
+              client.socket.end();
             }
           }
           break;
@@ -161,7 +162,7 @@ export class RedisManager extends Manager {
           });
           for (const [publishIdentifier, subscriptions] of matchedByClient.entries()) {
             try {
-              const client = this.clientIdentifierManager.getIdentifier(publishIdentifier);
+              const client = this.clientIdentifierManager.getClient(publishIdentifier);
               if (!client) continue;
               const candidates = subscriptions.filter((sub) => !(sub.noLocal && publishIdentifier === clientIdentifier));
               if (!candidates.length) continue;
@@ -186,7 +187,7 @@ export class RedisManager extends Manager {
               }
               const minQoS = Math.min(...selected.map((sub) => sub.qos || 0), pubData.header.qosLevel);
               if (minQoS > QoSType.QoS0) {
-                distributeData.header.packetIdentifier = this.newPacketIdentifier(client);
+                distributeData.header.packetIdentifier = client.packetIdentifierManager.newPacketIdentifier();
                 distributeData.header.dupFlag = false;
               }
               distributeData.header.qosLevel = minQoS;
@@ -206,7 +207,7 @@ export class RedisManager extends Manager {
                 delete distributeData.properties.subscriptionIdentifier;
               }
               const pubPacket = encodePublishPacket(distributeData, selected[0].protocolVersion);
-              client.write(pubPacket);
+              client.socket.write(pubPacket);
               if (minQoS > QoSType.QoS0 && distributeData.header.packetIdentifier !== undefined) {
                 this.registerPendingPacket(client, distributeData.header.packetIdentifier, pubPacket, 'publish');
               }
@@ -236,29 +237,29 @@ export class RedisManager extends Manager {
   }
 
   /**
-   * @param key - Client id string, or live client object to resolve via {@link ClientIdentifierManager}.
+   * @param key - Client id string, or live {@link MqttClient}.
    * @returns Whether a `connect:*` key exists in Redis for that client.
    */
-  public async isConnected(key: TClient | TIdentifier): Promise<boolean> {
+  public async isConnected(key: MqttClient | TIdentifier): Promise<boolean> {
     if (typeof key === 'string') {
       return !!(await this.redis.exists(this.connectKey(key)));
     } else {
-      const clientID = this.clientIdentifierManager.getClient(key);
+      const clientID = key.clientIdentifier;
       if (clientID) {
-        return !!(await this.redis.exists(this.connectKey(clientID.identifier)));
+        return !!(await this.redis.exists(this.connectKey(clientID)));
       }
       return false;
     }
   }
 
   /**
-   * Persists CONNECT data, registers the live socket, refreshes session and connect TTLs.
+   * Persists CONNECT data, registers the live {@link MqttClient}, refreshes session and connect TTLs.
    *
    * @param clientIdentifier - Logical client id.
    * @param connData - Serialized CONNECT properties for Redis.
-   * @param client - Active TCP/WebSocket client.
+   * @param client - Active {@link MqttClient}.
    */
-  async connect(clientIdentifier: string, connData: IConnectData, client: TClient): Promise<void> {
+  async connect(clientIdentifier: string, connData: IConnectData, client: MqttClient): Promise<void> {
     this.clientIdentifierManager.set(clientIdentifier, client);
     await this.redis.set(this.connectKey(clientIdentifier), JSON.stringify(connData));
     await this.redis.set(this.sessionKey(clientIdentifier), '1');
@@ -328,11 +329,11 @@ export class RedisManager extends Manager {
    * Tears down local pending state and Redis keys for a disconnect; may retain `session:*` with TTL
    * when {@link IConnectData.properties.sessionExpiryInterval} is positive.
    *
-   * @param clientIdentifier - Client id string or live client / identifier handle.
+   * @param clientIdentifier - Client id string or live {@link MqttClient}.
    */
-  public async clearConnect(clientIdentifier: TClient | TIdentifier): Promise<void> {
-    const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : this.clientIdentifierManager.getClient(clientIdentifier)?.identifier;
-    const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getIdentifier(clientIdentifier) : clientIdentifier;
+  public async clearConnect(clientIdentifier: MqttClient | TIdentifier): Promise<void> {
+    const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : clientIdentifier.clientIdentifier;
+    const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getClient(clientIdentifier) : clientIdentifier;
     if (client && identifier) {
       this.clearPendingClient(client);
       const connDataRaw = await this.redis.get(this.connectKey(identifier));
@@ -343,7 +344,7 @@ export class RedisManager extends Manager {
       } else {
         await this.redis.expire(this.sessionKey(identifier), sessionExpiryInterval);
       }
-      this.clientIdentifierManager.delete(client);
+      this.clientIdentifierManager.delete(identifier);
 
       await this.redis.del(this.connectKey(identifier));
     }
