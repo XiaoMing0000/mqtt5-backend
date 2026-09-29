@@ -126,7 +126,7 @@ export type ClientIdentifierMap = Map<MqttClient, string>;
 /** Per-topic subscription options for a client (QoS, MQTT 5 options, protocol version). */
 export type TSubscribeData = {
   qos: QoSType;
-  date: Date;
+  date: number;
   subscriptionIdentifier?: number | Array<number>;
   noLocal: boolean;
   retainAsPublished: boolean;
@@ -245,6 +245,18 @@ export abstract class Manager {
     MqttClient,
     Map<number, { packet: Buffer; type: 'publish' | 'pubrel'; attempts: number; timer?: NodeJS.Timeout }>
   >();
+  private readonly packetIdentifierCleanupTimer: NodeJS.Timeout;
+
+  constructor() {
+    this.packetIdentifierCleanupTimer = setInterval(
+      () => {
+        this.clientIdentifierManager.clientForEach((value) => {
+          value.packetIdentifierManager.clearExpiredIdentifiers();
+        });
+      },
+      1000 * 60 * 30,
+    ); // 30 minutes
+  }
 
   /**
    * Whether the client is connected (e.g. anywhere in the cluster vs. only this process — implementation-defined).
@@ -488,7 +500,7 @@ export abstract class Manager {
    * Releases backend resources (default: no-op; override in concrete managers).
    */
   public async dispose(): Promise<void> {
-    // default no-op
+    clearInterval(this.packetIdentifierCleanupTimer);
   }
 }
 
@@ -502,12 +514,12 @@ export class ClientPacketIdentifierManager extends Map<number, number> {
 
   public newPacketIdentifier() {
     this.dynamicId = ++this.dynamicId & 0xffff || (this.dynamicId = 1);
-    this.set(this.dynamicId, new Date().getTime() + this.ttl);
+    this.set(this.dynamicId, Date.now() + this.ttl);
     return this.dynamicId;
   }
 
   public clearExpiredIdentifiers() {
-    const now = new Date().getTime();
+    const now = Date.now();
     for (const [id, ttl] of this.entries()) {
       if (ttl < now) {
         this.delete(id);

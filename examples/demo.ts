@@ -1,7 +1,7 @@
 // import tls from 'tls';
 // import fs from 'fs';
 // import path from 'path';
-import { IConnectData, IDisconnectData, IPublishData, Manager, MqttClient, MqttServer, MqttServerWebSocket } from '../src';
+import { IConnectData, IDisconnectData, IPublishData, ISubscribeData, Manager, MqttClient, MqttServer, MqttServerWebSocket } from '../src';
 // import http from 'http';
 // import https from 'https';
 import { CONFIG } from './config';
@@ -41,6 +41,7 @@ const wsMqttServer = new MqttServerWebSocket(clientManager);
 // });
 let count = 0;
 let count2 = 0;
+let count3 = 0;
 server.onConnection(async (socket) => {
   let identifier = '';
   socket.on('connect', (data: IConnectData, _client: MqttClient, _clientManager: Manager) => {
@@ -52,6 +53,12 @@ server.onConnection(async (socket) => {
   socket.on('publish', (data: IPublishData, _client: MqttClient, _clientManager: Manager) => {
     console.log('publish: ', identifier);
     console.log('publish: ', data);
+  });
+
+  socket.on('subscribe', (data: ISubscribeData, _client: MqttClient, _clientManager: Manager) => {
+    console.log('subscribe: ', data.payload);
+    count3++;
+    console.log('subscribe: ', count3);
   });
 
   socket.on('close', (_data: IDisconnectData, _client: MqttClient, _clientManager: Manager) => {

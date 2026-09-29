@@ -85,6 +85,7 @@ export class MemoryManager extends Manager {
    * @returns Resolves when cleanup is complete.
    */
   public override async dispose(): Promise<void> {
+    super.dispose();
     clearInterval(this.retainCleanupTimer);
     clearInterval(this.keepAliveTimer);
     clearInterval(this.sessionCleanupTimer);

@@ -744,7 +744,7 @@ export class MqttClient {
       }
       await this.clientManager.subscribe(this.clientIdentifier, topicFilter, {
         qos: options.qos,
-        date: new Date(),
+        date: Date.now(),
         subscriptionIdentifier: subData.properties.subscriptionIdentifier,
         noLocal: options.noLocal,
         retainAsPublished: options.retainAsPublished,
