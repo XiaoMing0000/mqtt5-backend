@@ -1,6 +1,6 @@
 import { IConnectData, IPublishData, QoSType } from '../interface';
 import { MqttClient } from '../mqttClient';
-import { encodePublishPacket } from '../parse';
+import { isWildcardTopic } from '../topicFilters';
 import { ClientIdentifierManager, Manager, TSocketSubscription, TIdentifier, TSubscribeData, TTopic } from './manager';
 
 interface IRoute {
@@ -41,6 +41,7 @@ export class MemoryManager extends Manager {
     }
   >();
   private route: IRoute = {};
+  private readonly topicMap = new Map<string, Map<MqttClient, TSubscribeData>>();
   private readonly sharedCursor = new Map<string, number>();
 
   /**
@@ -100,25 +101,18 @@ export class MemoryManager extends Manager {
   geTSocket(identifier: TIdentifier) {
     return this.clientIdentifierManager.getClient(identifier);
   }
-
-  isConnected(key: MqttClient): Promise<boolean>;
-  isConnected(key: TIdentifier): Promise<boolean>;
   /**
    * Returns whether the given {@link MqttClient} or client id currently has an active in-memory session.
    *
    * @param key - Connected {@link MqttClient} or client identifier string.
    * @returns `true` if the client is tracked in the in-memory client map.
    */
-  async isConnected(key: MqttClient | TIdentifier): Promise<boolean> {
-    if (typeof key === 'string') {
-      const client = this.clientIdentifierManager.getClient(key);
-      if (client) {
-        return this.clientDataMap.has(client);
-      }
-      return false;
-    } else {
-      return this.clientDataMap.has(key);
+  async isConnected(identifier: TIdentifier): Promise<boolean> {
+    const client = this.clientIdentifierManager.getClient(identifier);
+    if (client) {
+      return this.clientDataMap.has(client);
     }
+    return false;
   }
 
   /**
@@ -174,12 +168,13 @@ export class MemoryManager extends Manager {
   public clearConnect(clientIdentifier: MqttClient | TIdentifier): void {
     const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : clientIdentifier.clientIdentifier;
     const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getClient(clientIdentifier) : clientIdentifier;
+
     if (client && identifier) {
       const idClient = this.clientIdentifierManager.getClient(identifier);
       if (typeof clientIdentifier !== 'string' && clientIdentifier !== idClient) {
         return;
       }
-      this.clearPendingClient(client);
+      client.qosRetry.clearPendingClient(client);
 
       const session = this.sessionStore.get(identifier);
       if (session && session.sessionExpiryInterval > 0) {
@@ -274,8 +269,8 @@ export class MemoryManager extends Manager {
   public async clearSubscribe(clientIdentifier: string): Promise<void> {
     const client = this.clientIdentifierManager.getClient(clientIdentifier);
     if (client) {
-      this.clientDataMap.get(client)?.subscription.forEach((_value, key) => {
-        this.unsubscribe(clientIdentifier, key);
+      client.topicManager.forEach((topic) => {
+        this.unsubscribe(clientIdentifier, topic);
       });
 
       this.clientDataMap.delete(client);
@@ -292,31 +287,43 @@ export class MemoryManager extends Manager {
   public async subscribe(clientIdentifier: string, topic: string, data: TSubscribeData): Promise<void> {
     const client = this.clientIdentifierManager.getClient(clientIdentifier);
     if (client) {
-      if (this.clientDataMap.has(client)) {
-        this.clientDataMap.get(client)?.subscription.set(topic, data);
-      }
-
-      function push(nodes: Array<string>, index: number, route: IRoute) {
-        if (!route[nodes[index]]) {
-          route[nodes[index]] = {
-            clients: new Map(),
-          };
-        }
-        const currentRouter = route[nodes[index]];
-        if (nodes.length === index + 1) {
-          if (client) {
-            route[nodes[index]].clients.set(client, topic);
-          }
+      if (!isWildcardTopic(topic)) {
+        // 非通配符主题
+        if (!this.topicMap.has(topic)) {
+          const map = new Map<MqttClient, TSubscribeData>();
+          map.set(client, data);
+          this.topicMap.set(topic, map);
         } else {
-          if (!currentRouter.child) {
-            currentRouter.child = {};
-          }
-          push(nodes, index + 1, currentRouter.child);
+          this.topicMap.get(topic)?.set(client, data);
         }
-      }
+      } else {
+        // 通配符主题
+        if (this.clientDataMap.has(client)) {
+          this.clientDataMap.get(client)?.subscription.set(topic, data);
+        }
 
-      const nodes = topic.split('/');
-      push(nodes, 0, this.route);
+        function push(nodes: Array<string>, index: number, route: IRoute) {
+          if (!route[nodes[index]]) {
+            route[nodes[index]] = {
+              clients: new Map(),
+            };
+          }
+          const currentRouter = route[nodes[index]];
+          if (nodes.length === index + 1) {
+            if (client) {
+              route[nodes[index]].clients.set(client, topic);
+            }
+          } else {
+            if (!currentRouter.child) {
+              currentRouter.child = {};
+            }
+            push(nodes, index + 1, currentRouter.child);
+          }
+        }
+
+        const nodes = topic.split('/');
+        push(nodes, 0, this.route);
+      }
     }
   }
 
@@ -329,34 +336,42 @@ export class MemoryManager extends Manager {
   public async unsubscribe(clientIdentifier: string, topic: string): Promise<void> {
     const client = this.clientIdentifierManager.getClient(clientIdentifier);
     if (client) {
-      if (this.clientDataMap.has(client)) {
-        this.clientDataMap.get(client)?.subscription.delete(topic);
-      }
-      function pop(nodes: Array<string>, index: number, route: IRoute) {
-        const currentRouter = route[nodes[index]];
-        if (currentRouter) {
-          if (nodes.length === index + 1 && route[nodes[index]]) {
-            if (client) {
-              route[nodes[index]].clients.delete(client);
+      if (!isWildcardTopic(topic)) {
+        // 非通配符主题
+        this.topicMap.get(topic)?.delete(client);
+        if (!this.topicMap.get(topic)?.size) {
+          this.topicMap.delete(topic);
+        }
+      } else {
+        // 通配符主题
+        if (this.clientDataMap.has(client)) {
+          this.clientDataMap.get(client)?.subscription.delete(topic);
+        }
+        function pop(nodes: Array<string>, index: number, route: IRoute) {
+          const currentRouter = route[nodes[index]];
+          if (currentRouter) {
+            if (nodes.length === index + 1 && route[nodes[index]]) {
+              if (client) {
+                route[nodes[index]].clients.delete(client);
+              }
+            } else if (currentRouter.child) {
+              pop(nodes, index + 1, currentRouter.child);
             }
-          } else if (currentRouter.child) {
-            pop(nodes, index + 1, currentRouter.child);
-          }
-
-          if (!Object.keys(currentRouter.child ?? {}).length && !currentRouter.clients.size) {
-            delete route[nodes[index]];
+            if (!Object.keys(currentRouter.child ?? {}).length && !currentRouter.clients.size) {
+              delete route[nodes[index]];
+            }
           }
         }
+        const nodes = topic.split('/');
+        pop(nodes, 0, this.route);
       }
-      const nodes = topic.split('/');
-      pop(nodes, 0, this.route);
     }
   }
 
   /**
    * Fan-out: matches `topic` against the trie (`+` / `#`), applies no-local and shared-subscription rules, encodes PUBLISH packets, and writes to subscribers.
    *
-   * Shared groups pick one subscriber per group via round-robin; QoS is the minimum of subscription and publish QoS.
+   * A `#` match does not stop the walk, so a broader filter and a deeper filter both match. Each selected subscription is delivered as its own PUBLISH. Shared groups pick one subscriber per group via round-robin; QoS is the minimum of that subscription and the publish QoS.
    *
    * @param clientIdentifier - Publisher's client id (used for no-local checks).
    * @param topic - Publish topic name.
@@ -364,50 +379,69 @@ export class MemoryManager extends Manager {
    */
   public publish(clientIdentifier: string, topic: string, pubData: IPublishData) {
     const pubClient = this.geTSocket(clientIdentifier);
+    this.topicMap.get(topic)?.forEach((data: TSubscribeData, client: MqttClient) => {
+      if (data.noLocal && client === pubClient) {
+        return;
+      }
+      const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
+      const qos = Math.min(data.qos || 0, pubData.header.qosLevel);
+      if (qos > QoSType.QoS0) {
+        distributeData.header.packetIdentifier = client.packetIdentifierManager.newPacketIdentifier();
+      } else {
+        delete distributeData.header.packetIdentifier;
+      }
+
+      // [MQTT-3.3.1-3] The value of the DUP flag from an incoming PUBLISH packet is not propagated when the PUBLISH packet is sent to subscribers by the Server. The DUP flag in the outgoing PUBLISH packet is set independently to the incoming PUBLISH packet, its value MUST be determined solely by whether the outgoing PUBLISH packet is a retransmission.
+      distributeData.header.dupFlag = false;
+
+      distributeData.header.qosLevel = qos;
+      distributeData.header.retain = data.retainAsPublished ? distributeData.header.retain : false;
+      if (data.subscriptionIdentifier !== undefined) {
+        distributeData.properties.subscriptionIdentifier = Array.isArray(data.subscriptionIdentifier)
+          ? data.subscriptionIdentifier
+          : [data.subscriptionIdentifier];
+      } else {
+        delete distributeData.properties.subscriptionIdentifier;
+      }
+      client.handlePublish(distributeData);
+    });
+
     const matchedByClient = new Map<MqttClient, TSubscribeData[]>();
     const putMatch = (client: MqttClient, subFlags: TSubscribeData) => {
       const list = matchedByClient.get(client) ?? [];
+      if (list.includes(subFlags)) return;
       list.push(subFlags);
       matchedByClient.set(client, list);
     };
 
-    const match = (nodes: Array<string>, index: number, route: IRoute) => {
-      for (const node of [nodes[index], '+']) {
-        const currentRoute = route[node];
-        if (currentRoute) {
-          if (nodes.length === index + 1) {
-            currentRoute.clients.forEach((topic, client) => {
-              const data = this.clientDataMap.get(client)?.subscription.get(topic);
-              if (data) {
-                putMatch(client, data);
-              }
-            });
-
-            if (nodes.length == index + 1 && route[nodes[index]]) {
-              const childRoute = route[nodes[index]].child;
-              if (childRoute && childRoute['#']) {
-                childRoute['#'].clients.forEach((topic, client) => {
-                  const data = this.clientDataMap.get(client)?.subscription.get(topic);
-                  if (data) {
-                    putMatch(client, data);
-                  }
-                });
-              }
-            }
-          } else if (currentRoute.child) {
-            match(nodes, index + 1, currentRoute.child);
-          }
+    const collect = (node: IRoute[string] | undefined) => {
+      node?.clients.forEach((topic, client) => {
+        const data = this.clientDataMap.get(client)?.subscription.get(topic);
+        if (data) {
+          putMatch(client, data);
         }
-      }
-      // `#` at this level matches the rest of the topic in one step
-      if (route['#']) {
-        route['#'].clients.forEach((topic, client) => {
-          const data = this.clientDataMap.get(client)?.subscription.get(topic);
-          if (data) {
-            putMatch(client, data);
-          }
-        });
-      }
+      });
+    };
+
+    const match = (nodes: Array<string>, index: number, route: IRoute) => {
+      const level = nodes[index];
+      const isLast = nodes.length === index + 1;
+      const descend = (key: string) => {
+        const currentRoute = route[key];
+        if (!currentRoute) return;
+        if (isLast) {
+          collect(currentRoute);
+          // `filter/#` matches the parent topic itself, so a terminal `#` is one level down.
+          collect(currentRoute.child?.['#']);
+        } else if (currentRoute.child) {
+          match(nodes, index + 1, currentRoute.child);
+        }
+      };
+
+      descend(level);
+      if (level !== '+') descend('+');
+      // `#` matches the rest of this topic, and must not block sibling or deeper filters.
+      collect(route['#']);
     };
     const nodes = topic.split('/');
     match(nodes, 0, this.route);
@@ -432,38 +466,27 @@ export class MemoryManager extends Manager {
         selected.push(list[cursor % list.length]);
         this.sharedCursor.set(group, (cursor + 1) % list.length);
       }
-      const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
-      if (distributeData.properties.messageExpiryTimestamp && Date.now() > distributeData.properties.messageExpiryTimestamp) {
+      if (pubData.properties.messageExpiryTimestamp && Date.now() > pubData.properties.messageExpiryTimestamp) {
         continue;
       }
-      const minQoS = Math.min(...selected.map((sub) => sub.qos || 0), pubData.header.qosLevel);
-      if (minQoS > QoSType.QoS0) {
-        distributeData.header.packetIdentifier = client.packetIdentifierManager.newPacketIdentifier();
-        distributeData.header.dupFlag = false;
-      } else {
-        delete distributeData.header.packetIdentifier;
-      }
-      distributeData.header.qosLevel = minQoS;
-      distributeData.header.retain = selected.some((sub) => sub.retainAsPublished) ? distributeData.header.retain : false;
-      const identifiers = selected
-        .flatMap((sub) =>
-          Array.isArray(sub.subscriptionIdentifier)
+      for (const sub of selected) {
+        const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
+        const qos = Math.min(sub.qos || 0, pubData.header.qosLevel);
+        if (qos > QoSType.QoS0) {
+          distributeData.header.dupFlag = false;
+        } else {
+          delete distributeData.header.packetIdentifier;
+        }
+        distributeData.header.qosLevel = qos;
+        distributeData.header.retain = sub.retainAsPublished ? distributeData.header.retain : false;
+        if (sub.subscriptionIdentifier !== undefined) {
+          distributeData.properties.subscriptionIdentifier = Array.isArray(sub.subscriptionIdentifier)
             ? sub.subscriptionIdentifier
-            : sub.subscriptionIdentifier !== undefined
-              ? [sub.subscriptionIdentifier]
-              : [],
-        )
-        .filter((value, index, arr) => arr.indexOf(value) === index);
-      if (identifiers.length) {
-        distributeData.properties.subscriptionIdentifier = identifiers;
-      } else {
-        delete distributeData.properties.subscriptionIdentifier;
-      }
-      const protocolVersion = selected[0].protocolVersion;
-      const pubPacket = encodePublishPacket(distributeData, protocolVersion);
-      client.socket.write(pubPacket);
-      if (minQoS > QoSType.QoS0 && distributeData.header.packetIdentifier !== undefined) {
-        this.registerPendingPacket(client, distributeData.header.packetIdentifier, pubPacket, 'publish');
+            : [sub.subscriptionIdentifier];
+        } else {
+          delete distributeData.properties.subscriptionIdentifier;
+        }
+        client.handlePublish(distributeData);
       }
     }
   }
@@ -531,9 +554,9 @@ export class MemoryManager extends Manager {
    * @returns Retained {@link IPublishData}, or `undefined` if missing or expired.
    */
   public async getRetainMessage(topic: string) {
-    const ratainData: any = this.retainMessage.get(topic);
-    if (ratainData && ratainData.TTL > Math.floor(Date.now() / 1000)) {
-      if (ratainData.data?.properties?.messageExpiryTimestamp && Date.now() > ratainData.data.properties.messageExpiryTimestamp) {
+    const retainData: any = this.retainMessage.get(topic);
+    if (retainData && retainData.TTL > Math.floor(Date.now() / 1000)) {
+      if (retainData.data?.properties?.messageExpiryTimestamp && Date.now() > retainData.data.properties.messageExpiryTimestamp) {
         this.retainMessage.delete(topic);
         return undefined;
       }

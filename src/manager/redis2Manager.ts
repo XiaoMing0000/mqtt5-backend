@@ -2,7 +2,6 @@ import { IConnectData, IPublishData, QoSType } from '../interface';
 import { ClientIdentifierManager, Manager, TSocketSubscription, TIdentifier, TSubscribeData } from './manager';
 import Redis, { RedisOptions } from 'ioredis';
 import { isWildcardTopic, topicToRegEx } from '../topicFilters';
-import { encodePublishPacket } from '../parse';
 import { MqttClient } from '../mqttClient';
 
 /**
@@ -298,7 +297,6 @@ export class Redis2Manager extends Manager {
           }
           const minQoS = Math.min(...selected.map((sub) => sub.qos), staticSourceData.qos);
           if (minQoS > QoSType.QoS0) {
-            distributeData.header.packetIdentifier = client.packetIdentifierManager.newPacketIdentifier();
             distributeData.header.dupFlag = false;
           } else {
             delete distributeData.header.packetIdentifier;
@@ -319,11 +317,7 @@ export class Redis2Manager extends Manager {
           } else {
             delete distributeData.properties.subscriptionIdentifier;
           }
-          const pubPacket = encodePublishPacket(distributeData, selected[0].protocolVersion);
-          client.socket.write(pubPacket);
-          if (minQoS > QoSType.QoS0 && distributeData.header.packetIdentifier !== undefined) {
-            this.registerPendingPacket(client, distributeData.header.packetIdentifier, pubPacket, 'publish');
-          }
+          client.handlePublish(distributeData);
         }
       });
     } catch (error) {
@@ -386,7 +380,7 @@ export class Redis2Manager extends Manager {
       if (typeof clientIdentifier !== 'string' && clientIdentifier !== idClient) {
         return;
       }
-      this.clearPendingClient(client);
+      client.qosRetry.clearPendingClient(client);
       const connDataRaw = await this.redisPub.get(this.connectKey(identifier));
       const sessionExpiryInterval = connDataRaw ? ((JSON.parse(connDataRaw) as IConnectData).properties?.sessionExpiryInterval ?? 0) : 0;
       if (sessionExpiryInterval <= 0) {

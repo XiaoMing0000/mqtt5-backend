@@ -46,6 +46,104 @@ import { verifyTopic, isWildcardTopic, topicToRegEx } from './topicFilters';
 import { generateClientIdentifier } from './utils';
 
 /**
+ * Resends unacknowledged outbound QoS 1/2 frames for a single connection.
+ *
+ * @remarks
+ * Call {@link ClientQosRetry.registerPendingPacket} only after `id` is allocated on
+ * {@link MqttClient.packetIdentifierManager}. Each entry keeps the encoded frame and a timer
+ * that writes those same bytes every 5000 ms. After 3 resends the entry is dropped and the
+ * packet identifier is released. If the identifier is already gone when a retry is armed,
+ * the stored frame is discarded and nothing is written.
+ */
+class ClientQosRetry {
+  /** Delay between resends, in milliseconds. */
+  private readonly qosRetryIntervalMs = 5000;
+  /** Number of resends before the pending frame is abandoned. The original send is not counted. */
+  private readonly qosRetryCount = 3;
+  /** Packet identifier → encoded frame, resend count, and the timer for the next resend. */
+  private readonly qosRetryMap = new Map<number, { packet: Buffer; attempts: number; timer?: NodeJS.Timeout }>();
+
+  constructor() {}
+
+  /**
+   * Cancels every pending resend and releases each packet identifier.
+   *
+   * @param client - Connection whose outbound identifiers should be freed.
+   */
+  public clearPendingClient(client: MqttClient) {
+    this.qosRetryMap.forEach((_entry, id) => {
+      this.clearPendingPacket(client, id);
+    });
+  }
+
+  /**
+   * Cancels the resend for `id`, drops the stored frame, and releases the packet identifier.
+   * The identifier is still released when no retry entry exists.
+   *
+   * @param client - Connection that owns the packet identifier.
+   * @param id - Outbound packet identifier to forget.
+   */
+  public clearPendingPacket(client: MqttClient, id: number) {
+    const entry = this.qosRetryMap.get(id);
+    if (entry) {
+      clearTimeout(entry.timer);
+      this.qosRetryMap.delete(id);
+    }
+    client.packetIdentifierManager.delete(id);
+  }
+
+  /**
+   * Arms the next resend of the frame stored for `id`.
+   *
+   * Does nothing when no frame is stored. If the packet identifier is no longer allocated,
+   * the stored frame and its timer are dropped without a write.
+   *
+   * @param client - Connection to write the frame to.
+   * @param id - Outbound packet identifier previously passed to {@link ClientQosRetry.registerPendingPacket}.
+   */
+  public scheduleRetry(client: MqttClient, id: number) {
+    // Ack, expiry, or an earlier clear already released this id.
+    if (!client.packetIdentifierManager.has(id)) {
+      const timers = this.qosRetryMap.get(id)?.timer;
+      clearTimeout(timers);
+      this.qosRetryMap.delete(id);
+      return;
+    }
+
+    const entry = this.qosRetryMap.get(id);
+    if (!entry) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      // [MQTT-3.3.1-1]  If the DUP flag is set to 1, it indicates that this might be re-delivery of an earlier attempt to send the packet.
+      entry.packet[0] = entry.packet[0] | 0x80;
+      entry.attempts++;
+      client.socket.write(entry.packet);
+      if (entry.attempts >= this.qosRetryCount) {
+        this.clearPendingPacket(client, id);
+        return;
+      }
+      this.scheduleRetry(client, id);
+      clearTimeout(timer);
+    }, this.qosRetryIntervalMs);
+
+    entry.timer = timer;
+  }
+
+  /**
+   * Stores `packet` under `id` and arms the first resend.
+   *
+   * @param client - Connection that will receive the resend. `id` must already be in its packet-identifier map.
+   * @param id - Outbound packet identifier for this frame.
+   * @param packet - Encoded frame written again on each resend.
+   */
+  public registerPendingPacket(client: MqttClient, id: number, packet: Buffer) {
+    this.qosRetryMap.set(id, { packet, attempts: 0, timer: undefined });
+    this.scheduleRetry(client, id);
+  }
+}
+
+/**
  * Per-connection MQTT control-plane logic: validates inbound packets, emits application events,
  * and encodes outbound packets for one client.
  *
@@ -92,8 +190,12 @@ export class MqttClient {
   };
   /** Allocator for outbound server→client packet identifiers (PUBLISH / PUBREL), with TTL. */
   packetIdentifierManager: ClientPacketIdentifierManager;
+  /** Resends unacknowledged outbound QoS 1/2 frames until ack, release, or the retry limit. */
+  readonly qosRetry: ClientQosRetry = new ClientQosRetry();
   /** Keep-alive deadline as Unix seconds; refreshed on client activity (see Manager.ping). */
   expire: number = 0;
+
+  readonly topicManager = new Set<string>();
   /**
    * Whether the Will Message should be published on close.
    * Cleared to `false` on a normal DISCONNECT (reason code 0); stays `true` for abnormal disconnects.
@@ -296,7 +398,15 @@ export class MqttClient {
     // [MQTT-3.1.4-3] If the ClientID represents a Client already connected to the Server, the Server sends a DISCONNECT packet to the existing Client with Reason Code of 0x8E (Session taken over) as described in section 4.13 and MUST close the Network Connection of the existing Client [MQTT-3.1.4-3].
     const existingClient = this.clientManager.clientIdentifierManager.getClient(targetId);
     if (existingClient && existingClient.clientIdentifier !== this.clientIdentifier) {
-      this.clientManager.disconnect(existingClient.clientIdentifier);
+      this.clientManager.disconnect(existingClient.clientIdentifier, {
+        header: {
+          packetType: PacketType.DISCONNECT,
+          received: 0,
+          reasonCode: DisconnectReasonCode.SessionTakenOver,
+        },
+        properties: {},
+      });
+      // 清除连接信息
       this.clientManager.clearConnect(existingClient.clientIdentifier);
     }
 
@@ -327,7 +437,7 @@ export class MqttClient {
    * @param reasonCode - DISCONNECT reason code.
    * @param properties - MQTT 5 disconnect properties.
    */
-  public async handleDisconnect(reasonCode: DisconnectReasonCode, properties: IDisconnectProperties) {
+  public async handleDisconnect(reasonCode: DisconnectReasonCode, properties: IDisconnectProperties = {}) {
     const disconnectPacket = encodeDisconnect(
       {
         header: {
@@ -373,7 +483,7 @@ export class MqttClient {
           remainingLength: 0,
           topicName: this.connData.payload.willTopic || '',
         },
-        properties: this.connData.payload.willProperties || {},
+        properties: this.connData.payload.willProperties ?? {},
         payload: willPayload ? willPayload.toString() : '',
       };
       const delayInterval = this.connData.payload.willProperties?.willDelayInterval ?? 0;
@@ -486,6 +596,8 @@ export class MqttClient {
       if (pubData.properties.messageExpiryInterval && pubData.properties.messageExpiryInterval > 0) {
         pubData.properties.messageExpiryTimestamp = Date.now() + pubData.properties.messageExpiryInterval * 1000;
       }
+
+      // [MQTT-3.3.1-5] If the RETAIN flag is set to 1 in a PUBLISH packet sent by a Client to a Server, the Server MUST replace any existing retained message for this topic and store the Application Message.
       if (pubData.header.retain) {
         if (this.options.retainAvailable === false) {
           throw new DisconnectException(
@@ -496,6 +608,7 @@ export class MqttClient {
         if (pubData.payload) {
           this.clientManager.addRetainMessage(pubData.header.topicName, pubData, this.options.retainTTL);
         } else {
+          // [MQTT-3.3.1-6]  If the Payload contains zero bytes it is processed normally by the Server but any retained message with the same topic name MUST be removed and any future subscribers for the topic will not receive a retained message.
           this.clientManager.deleteRetainMessage(pubData.header.topicName);
         }
       }
@@ -544,14 +657,14 @@ export class MqttClient {
    * @param client - Target {@link MqttClient} connection.
    * @param pubData - Publish to deliver (packet id assigned when QoS is QoS1 or QoS2).
    */
-  public async handlePublish(client: MqttClient, pubData: IPublishData) {
+  public async handlePublish(pubData: IPublishData) {
     let targetPacketIdentifier: number | undefined;
     if (pubData.header.qosLevel > QoSType.QoS0) {
       pubData.header.packetIdentifier = this.packetIdentifierManager.newPacketIdentifier();
       targetPacketIdentifier = pubData.header.packetIdentifier;
       pubData.header.dupFlag = false;
-      if (client.clientIdentifier && pubData.header.packetIdentifier !== undefined) {
-        const queue = this.getOutboundQueue(client.clientIdentifier);
+      if (this.clientIdentifier && pubData.header.packetIdentifier !== undefined) {
+        const queue = this.getOutboundQueue(this.clientIdentifier);
         queue.set(pubData.header.packetIdentifier, {
           type: 'publish',
           publish: JSON.parse(JSON.stringify(pubData)),
@@ -560,9 +673,9 @@ export class MqttClient {
     }
     pubData.header.retain = false;
     const pubPacket = encodePublishPacket(pubData, this.connData.header.protocolVersion);
-    client.socket.write(pubPacket);
+    this.socket.write(pubPacket);
     if (targetPacketIdentifier !== undefined) {
-      this.clientManager.registerPendingPacket(client, targetPacketIdentifier, pubPacket, 'publish');
+      this.qosRetry.registerPendingPacket(this, targetPacketIdentifier, pubPacket);
     }
   }
   /**
@@ -657,7 +770,7 @@ export class MqttClient {
       ...properties.buffer,
     ]);
     this.socket.write(pubRelPacket);
-    this.clientManager.promotePendingToPubRel(this, pubRecData.header.packetIdentifier, pubRelPacket);
+    // this.clientManager.promotePendingToPubRel(this, pubRecData.header.packetIdentifier, pubRelPacket);
   }
   /**
    * Handles inbound PUBCOMP: frees packet identifier and removes outbound queue entry.
@@ -669,9 +782,8 @@ export class MqttClient {
     if (!this.packetIdentifierManager.has(pubCompData.header.packetIdentifier)) {
       throw new DisconnectException('PUBCOMP contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
     }
-    this.packetIdentifierManager.delete(pubCompData.header.packetIdentifier);
     if (this.clientIdentifier) {
-      this.getOutboundQueue(this.clientIdentifier).delete(pubCompData.header.packetIdentifier);
+      this.qosRetry.clearPendingPacket(this, pubCompData.header.packetIdentifier);
     }
   }
   /**
@@ -727,7 +839,7 @@ export class MqttClient {
           const retainData = await this.clientManager.getRetainMessage(topicFilter);
           if (retainData) {
             retainData.header.qosLevel = Math.min(retainData.header.qosLevel, options.qos);
-            await this.handlePublish(this, retainData);
+            this.handlePublish(retainData);
           }
         } else {
           const reg = topicToRegEx(topicFilter);
@@ -736,12 +848,13 @@ export class MqttClient {
             await this.clientManager.forEachRetainMessage(async (topicName, data) => {
               if (topicRegEx.test(topicName)) {
                 data.header.qosLevel = Math.min(data.header.qosLevel, options.qos);
-                await this.handlePublish(this, data);
+                this.handlePublish(data);
               }
             }, topicFilter);
           }
         }
       }
+      this.topicManager.add(topicFilter);
       await this.clientManager.subscribe(this.clientIdentifier, topicFilter, {
         qos: options.qos,
         date: Date.now(),
@@ -788,6 +901,7 @@ export class MqttClient {
         reasonCodes.push(SubscribeAckReasonCode.TopicFilterInvalid);
         continue;
       }
+      this.topicManager.delete(topicFilter);
       await this.clientManager.unsubscribe(this.clientIdentifier, topicFilter);
       reasonCodes.push(UnsubscribeAckReasonCode.Success);
     }

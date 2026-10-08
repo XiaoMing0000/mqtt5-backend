@@ -10,7 +10,6 @@ import {
   IPubRelData,
   ISubscribeData,
   IUnsubscribeData,
-  PacketType,
   ProtocolVersion,
   QoSType,
 } from '../interface';
@@ -239,12 +238,6 @@ export class ClientIdentifierManager {
  */
 export abstract class Manager {
   abstract readonly clientIdentifierManager: ClientIdentifierManager;
-  private qosRetryCount = 3;
-  private readonly qosRetryIntervalMs = 5000;
-  private readonly pendingRetryMap = new Map<
-    MqttClient,
-    Map<number, { packet: Buffer; type: 'publish' | 'pubrel'; attempts: number; timer?: NodeJS.Timeout }>
-  >();
   private readonly packetIdentifierCleanupTimer: NodeJS.Timeout;
 
   constructor() {
@@ -259,17 +252,10 @@ export abstract class Manager {
   }
 
   /**
-   * Whether the client is connected (e.g. anywhere in the cluster vs. only this process — implementation-defined).
-   *
-   * @param key - Connected {@link MqttClient} **or** client identifier string, depending on overload.
-   * @returns True if considered connected.
-   */
-  abstract isConnected(key: MqttClient): Promise<boolean>;
-  /**
    * @param key - Client identifier string.
    * @returns True if considered connected.
    */
-  abstract isConnected(key: TIdentifier): Promise<boolean>;
+  abstract isConnected(identifier: TIdentifier): Promise<boolean>;
 
   /**
    * Establishes or restores a session for an incoming connection.
@@ -289,7 +275,9 @@ export abstract class Manager {
     // TODO: [MQTT-3.1.2.5] If the existing Client has a Will Message, that Will Message is published as described in section 3.1.2.5.
     const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getClient(clientIdentifier) : clientIdentifier;
     if (client) {
-      client.socket.end(Buffer.from(disconnectData ? encodeDisconnect(disconnectData, protocolVersion) : []));
+      client.socket.end(
+        Buffer.from(disconnectData ? encodeDisconnect(disconnectData, client.connData.header.protocolVersion ?? protocolVersion) : []),
+      );
     }
   }
 
@@ -359,125 +347,6 @@ export abstract class Manager {
    * @param clientIdentifier - Client id.
    */
   abstract ping(clientIdentifier: string): Promise<void>;
-
-  /**
-   * Sets how many QoS retry rounds to attempt before failing the client.
-   *
-   * @param count - Non-negative integer; invalid values are ignored.
-   */
-  public setQoSRetryCount(count?: number) {
-    if (typeof count === 'number' && Number.isFinite(count) && count >= 0) {
-      this.qosRetryCount = Math.floor(count);
-    }
-  }
-
-  /**
-   * Lazily creates the per-client map of pending QoS retry entries.
-   *
-   * @param client - Connected {@link MqttClient}.
-   * @returns Pending id → retry state map for that client.
-   */
-  private getPendingMap(client: MqttClient) {
-    let map = this.pendingRetryMap.get(client);
-    if (!map) {
-      map = new Map();
-      this.pendingRetryMap.set(client, map);
-    }
-    return map;
-  }
-
-  /**
-   * Registers a copied packet for QoS retry until acked; schedules the first retry.
-   *
-   * @param client - Connected {@link MqttClient}.
-   * @param id - Packet identifier.
-   * @param packet - Raw PUBLISH or PUBREL bytes.
-   * @param type - Whether this is a publish or pubrel retry.
-   */
-  public registerPendingPacket(client: MqttClient, id: number, packet: Buffer, type: 'publish' | 'pubrel' = 'publish') {
-    const map = this.getPendingMap(client);
-    const old = map.get(id);
-    if (old?.timer) {
-      clearTimeout(old.timer);
-    }
-    const entry = { packet: Buffer.from(packet), type, attempts: 0, timer: undefined as NodeJS.Timeout | undefined };
-    map.set(id, entry);
-    this.scheduleRetry(client, id);
-  }
-
-  /**
-   * Replaces a pending PUBLISH entry with a PUBREL retry for the same packet id.
-   *
-   * @param client - Connected {@link MqttClient}.
-   * @param id - Packet identifier.
-   * @param packet - PUBREL buffer.
-   */
-  public promotePendingToPubRel(client: MqttClient, id: number, packet: Buffer) {
-    this.registerPendingPacket(client, id, packet, 'pubrel');
-  }
-
-  /**
-   * Cancels retry for one packet id and clears the client entry if empty.
-   *
-   * @param client - Connected {@link MqttClient}.
-   * @param id - Packet identifier.
-   */
-  public clearPendingPacket(client: MqttClient, id: number) {
-    const map = this.pendingRetryMap.get(client);
-    const pending = map?.get(id);
-    if (pending?.timer) {
-      clearTimeout(pending.timer);
-    }
-    map?.delete(id);
-    if (map && map.size === 0) {
-      this.pendingRetryMap.delete(client);
-    }
-  }
-
-  /**
-   * Clears all pending QoS retries and timers for a client.
-   *
-   * @param client - Connected {@link MqttClient}.
-   */
-  public clearPendingClient(client: MqttClient) {
-    const map = this.pendingRetryMap.get(client);
-    if (!map) return;
-    for (const pending of map.values()) {
-      if (pending.timer) {
-        clearTimeout(pending.timer);
-      }
-    }
-    this.pendingRetryMap.delete(client);
-  }
-
-  /**
-   * Schedules or reschedules a timed retry: resends with DUP on PUBLISH when applicable, or ends the client after max attempts.
-   *
-   * @param client - Connected {@link MqttClient}.
-   * @param id - Packet identifier.
-   */
-  private scheduleRetry(client: MqttClient, id: number) {
-    const map = this.pendingRetryMap.get(client);
-    const pending = map?.get(id);
-    if (!pending) return;
-    pending.timer = setTimeout(() => {
-      const current = this.pendingRetryMap.get(client)?.get(id);
-      if (!current) return;
-      if (current.attempts >= this.qosRetryCount) {
-        this.clearPendingPacket(client, id);
-        client.packetIdentifierManager.delete(id);
-        client.socket.end();
-        return;
-      }
-      current.attempts += 1;
-      const retryPacket = Buffer.from(current.packet);
-      if (current.type === 'publish' && retryPacket[0] >> 4 === PacketType.PUBLISH) {
-        retryPacket[0] = retryPacket[0] | 0x08;
-      }
-      client.socket.write(retryPacket);
-      this.scheduleRetry(client, id);
-    }, this.qosRetryIntervalMs);
-  }
 
   /** Retained message store: add or replace retained message for a topic (optional TTL). */
   abstract addRetainMessage(topic: string, pubData: IPublishData, retainTTL?: number): Promise<void>;

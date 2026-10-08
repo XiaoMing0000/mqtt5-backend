@@ -85,7 +85,6 @@ class MqttEvent {
     options: IMqttOptions = {},
   ) {
     this.options = Object.assign({}, mqttDefaultOptions, options);
-    this.clientManager.setQoSRetryCount(this.options.qosRetryCount);
     this.mqttConnection = this.mqttConnection.bind(this);
   }
 

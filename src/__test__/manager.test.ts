@@ -1,8 +1,9 @@
 import { vi } from 'vitest';
 import { DisconnectReasonCode } from '../exception';
-import { IDisconnectData, IPublishData, PacketType, ProtocolVersion, QoSType } from '../interface';
+import { IDisconnectData, IMqttOptions, IPublishData, PacketType, ProtocolVersion, QoSType } from '../interface';
 import { MqttClient } from '../mqttClient';
 import { ClientIdentifierManager, ClientPacketIdentifierManager, Manager, TSocket, TSubscribeData } from '../manager/manager';
+import { MemoryManager } from '../manager/memoryManager';
 
 /** Minimal concrete Manager for exercising shared base-class behavior. */
 class TestManager extends Manager {
@@ -36,22 +37,48 @@ class TestManager extends Manager {
 }
 
 function createMockClient(clientIdentifier = 'client-1'): MqttClient {
+  const mqttDefaultOptions: Required<IMqttOptions> = {
+    protocolName: 'MQTT',
+    protocolVersions: [3, 4, 5],
+    automaticallyAssignedClientIdentifier: true,
+    maximumQoS: QoSType.QoS2,
+    retainAvailable: true,
+    retainTTL: 30 * 60,
+    maximumPacketSize: 1 << 20,
+    topicAliasMaximum: 0xffff,
+    wildcardSubscriptionAvailable: true,
+    subscriptionIdentifierAvailable: true,
+    sharedSubscriptionAvailable: false,
+    sessionExpiryInterval: 0,
+    receiveMaximum: 0xffff,
+    serverKeepAlive: 0,
+    qosRetryCount: 3,
+    packetIdentifierTTL: 30 * 60,
+    sendReasonMessage: true,
+  };
   const socket = {
     end: vi.fn(),
     write: vi.fn(),
   } as unknown as TSocket;
-
-  return {
-    socket,
-    clientIdentifier,
-    packetIdentifierManager: new ClientPacketIdentifierManager(60),
-  } as unknown as MqttClient;
-}
-
-/** Fixed header for PUBLISH QoS1 without DUP: type=3, qos=1 → 0x32 */
-function makePublishPacket(withDup = false): Buffer {
-  const flags = (PacketType.PUBLISH << 4) | (withDup ? 0x08 : 0) | (QoSType.QoS1 << 1);
-  return Buffer.from([flags, 0x00]);
+  const memoryManager = new MemoryManager();
+  const client = new MqttClient(socket, memoryManager, mqttDefaultOptions);
+  client.clientIdentifier = clientIdentifier;
+  client.connData = {
+    header: {
+      packetType: PacketType.RESERVED,
+      packetFlags: 0,
+      remainingLength: 0,
+      protocolName: '',
+      protocolVersion: ProtocolVersion.V5,
+      keepAlive: 60,
+    },
+    connectFlags: {} as any,
+    properties: {},
+    payload: {
+      clientIdentifier: '',
+    },
+  };
+  return client;
 }
 
 describe('ClientIdentifierManager', () => {
@@ -196,14 +223,12 @@ describe('Manager', () => {
   let client: MqttClient;
 
   beforeEach(() => {
-    vi.useFakeTimers();
     manager = new TestManager();
     client = createMockClient('client-1');
   });
 
-  afterEach(() => {
-    manager.clearPendingClient(client);
-    vi.useRealTimers();
+  afterEach(async () => {
+    await manager.dispose();
   });
 
   describe('disconnect', () => {
@@ -236,120 +261,6 @@ describe('Manager', () => {
       const buf = (client.socket.end as ReturnType<typeof vi.fn>).mock.calls[0][0] as Buffer;
       expect(buf[0] >> 4).toBe(PacketType.DISCONNECT);
       expect(buf.length).toBeGreaterThan(1);
-    });
-  });
-
-  describe('setQoSRetryCount', () => {
-    test('accepts non-negative finite numbers and floors them', async () => {
-      manager.setQoSRetryCount(2.9);
-      manager.registerPendingPacket(client, 1, makePublishPacket(), 'publish');
-
-      // attempts 1, 2 then end on the 3rd fire (attempts >= 2)
-      await vi.advanceTimersByTimeAsync(5000);
-      expect(client.socket.write).toHaveBeenCalledTimes(1);
-      await vi.advanceTimersByTimeAsync(5000);
-      expect(client.socket.write).toHaveBeenCalledTimes(2);
-      await vi.advanceTimersByTimeAsync(5000);
-      expect(client.socket.end).toHaveBeenCalled();
-    });
-
-    test('ignores invalid values', async () => {
-      manager.setQoSRetryCount(1);
-      manager.setQoSRetryCount(-1);
-      manager.setQoSRetryCount(Number.NaN);
-      manager.setQoSRetryCount(undefined);
-
-      manager.registerPendingPacket(client, 1, makePublishPacket(), 'publish');
-      await vi.advanceTimersByTimeAsync(5000);
-      expect(client.socket.write).toHaveBeenCalledTimes(1);
-      await vi.advanceTimersByTimeAsync(5000);
-      expect(client.socket.end).toHaveBeenCalled();
-    });
-  });
-
-  describe('pending QoS retry', () => {
-    test('registerPendingPacket schedules retry and sets DUP on PUBLISH resend', async () => {
-      const packet = makePublishPacket(false);
-      manager.setQoSRetryCount(3);
-      manager.registerPendingPacket(client, 7, packet, 'publish');
-
-      await vi.advanceTimersByTimeAsync(5000);
-
-      expect(client.socket.write).toHaveBeenCalledTimes(1);
-      const resent = (client.socket.write as ReturnType<typeof vi.fn>).mock.calls[0][0] as Buffer;
-      expect(resent[0] & 0x08).toBe(0x08);
-      expect(resent[0] >> 4).toBe(PacketType.PUBLISH);
-    });
-
-    test('does not set DUP when retrying pubrel', async () => {
-      const pubrel = Buffer.from([(PacketType.PUBREL << 4) | 0x02, 0x00]);
-      manager.setQoSRetryCount(3);
-      manager.registerPendingPacket(client, 3, pubrel, 'pubrel');
-
-      await vi.advanceTimersByTimeAsync(5000);
-
-      const resent = (client.socket.write as ReturnType<typeof vi.fn>).mock.calls[0][0] as Buffer;
-      expect(resent[0] & 0x08).toBe(0);
-      expect(resent[0] >> 4).toBe(PacketType.PUBREL);
-    });
-
-    test('promotePendingToPubRel replaces pending publish with pubrel', async () => {
-      manager.setQoSRetryCount(3);
-      manager.registerPendingPacket(client, 5, makePublishPacket(), 'publish');
-      const pubrel = Buffer.from([(PacketType.PUBREL << 4) | 0x02, 0x00]);
-      manager.promotePendingToPubRel(client, 5, pubrel);
-
-      await vi.advanceTimersByTimeAsync(5000);
-      const resent = (client.socket.write as ReturnType<typeof vi.fn>).mock.calls[0][0] as Buffer;
-      expect(resent[0] >> 4).toBe(PacketType.PUBREL);
-    });
-
-    test('clearPendingPacket cancels timer and removes entry', async () => {
-      manager.registerPendingPacket(client, 9, makePublishPacket(), 'publish');
-      manager.clearPendingPacket(client, 9);
-
-      await vi.advanceTimersByTimeAsync(15_000);
-      expect(client.socket.write).not.toHaveBeenCalled();
-      expect(client.socket.end).not.toHaveBeenCalled();
-    });
-
-    test('clearPendingClient cancels all timers for the client', async () => {
-      manager.registerPendingPacket(client, 1, makePublishPacket(), 'publish');
-      manager.registerPendingPacket(client, 2, makePublishPacket(), 'publish');
-      manager.clearPendingClient(client);
-
-      await vi.advanceTimersByTimeAsync(15_000);
-      expect(client.socket.write).not.toHaveBeenCalled();
-    });
-
-    test('clearPendingClient is a no-op when nothing is pending', () => {
-      expect(() => manager.clearPendingClient(client)).not.toThrow();
-    });
-
-    test('re-registering the same packet id replaces the previous timer', async () => {
-      manager.setQoSRetryCount(3);
-      manager.registerPendingPacket(client, 1, makePublishPacket(), 'publish');
-      await vi.advanceTimersByTimeAsync(2000);
-
-      const newer = Buffer.from([(PacketType.PUBLISH << 4) | (QoSType.QoS1 << 1), 0x99]);
-      manager.registerPendingPacket(client, 1, newer, 'publish');
-
-      await vi.advanceTimersByTimeAsync(5000);
-      expect(client.socket.write).toHaveBeenCalledTimes(1);
-      const resent = (client.socket.write as ReturnType<typeof vi.fn>).mock.calls[0][0] as Buffer;
-      expect(resent[1]).toBe(0x99);
-    });
-
-    test('exhausting retries ends the socket and frees the packet identifier', async () => {
-      manager.setQoSRetryCount(0);
-      client.packetIdentifierManager.set(11, Date.now() + 60_000);
-      manager.registerPendingPacket(client, 11, makePublishPacket(), 'publish');
-
-      await vi.advanceTimersByTimeAsync(5000);
-
-      expect(client.socket.write).not.toHaveBeenCalled();
-      expect(client.socket.end).toHaveBeenCalled();
-      expect(client.packetIdentifierManager.has(11)).toBe(false);
     });
   });
 

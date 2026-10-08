@@ -2,7 +2,6 @@ import Redis, { RedisOptions } from 'ioredis';
 import { ClientIdentifierManager, Manager, TSocketSubscription, TIdentifier, TSubscribeData, TTopic } from './manager';
 import { IConnectData, IPublishData, QoSType } from '../interface';
 import { topicToRegEx } from '../topicFilters';
-import { encodePublishPacket } from '../parse';
 import { MqttClient } from '../mqttClient';
 
 /**
@@ -187,7 +186,6 @@ export class RedisManager extends Manager {
               }
               const minQoS = Math.min(...selected.map((sub) => sub.qos || 0), pubData.header.qosLevel);
               if (minQoS > QoSType.QoS0) {
-                distributeData.header.packetIdentifier = client.packetIdentifierManager.newPacketIdentifier();
                 distributeData.header.dupFlag = false;
               }
               distributeData.header.qosLevel = minQoS;
@@ -206,11 +204,7 @@ export class RedisManager extends Manager {
               } else {
                 delete distributeData.properties.subscriptionIdentifier;
               }
-              const pubPacket = encodePublishPacket(distributeData, selected[0].protocolVersion);
-              client.socket.write(pubPacket);
-              if (minQoS > QoSType.QoS0 && distributeData.header.packetIdentifier !== undefined) {
-                this.registerPendingPacket(client, distributeData.header.packetIdentifier, pubPacket, 'publish');
-              }
+              client.handlePublish(distributeData);
             } catch (error) {
               console.log('publish error:', error);
             }
@@ -240,16 +234,8 @@ export class RedisManager extends Manager {
    * @param key - Client id string, or live {@link MqttClient}.
    * @returns Whether a `connect:*` key exists in Redis for that client.
    */
-  public async isConnected(key: MqttClient | TIdentifier): Promise<boolean> {
-    if (typeof key === 'string') {
-      return !!(await this.redis.exists(this.connectKey(key)));
-    } else {
-      const clientID = key.clientIdentifier;
-      if (clientID) {
-        return !!(await this.redis.exists(this.connectKey(clientID)));
-      }
-      return false;
-    }
+  public async isConnected(identifier: TIdentifier): Promise<boolean> {
+    return !!(await this.redis.exists(this.connectKey(identifier)));
   }
 
   /**
@@ -335,7 +321,7 @@ export class RedisManager extends Manager {
     const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : clientIdentifier.clientIdentifier;
     const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getClient(clientIdentifier) : clientIdentifier;
     if (client && identifier) {
-      this.clearPendingClient(client);
+      client.qosRetry.clearPendingClient(client);
       const connDataRaw = await this.redis.get(this.connectKey(identifier));
       const sessionExpiryInterval = connDataRaw ? ((JSON.parse(connDataRaw) as IConnectData).properties?.sessionExpiryInterval ?? 0) : 0;
       if (sessionExpiryInterval <= 0) {
@@ -390,7 +376,7 @@ export class RedisManager extends Manager {
    *
    * @returns Result tuple from `SCAN` (cursor and key batch).
    */
-  async getRatain() {
+  async getRetain() {
     return await this.redis.scan(0, 'MATCH', 'retain:*', (err, _matchData) => {
       if (err) {
         // intentionally ignored
@@ -425,8 +411,8 @@ export class RedisManager extends Manager {
    * @returns Parsed retained payload, or undefined if missing or expired (expired keys are deleted).
    */
   async getRetainMessage(topic: string): Promise<IPublishData | undefined> {
-    const ratainData = await this.redis.get(this.retainKey(topic));
-    const data = ratainData ? (JSON.parse(ratainData) as IPublishData) : undefined;
+    const retainData = await this.redis.get(this.retainKey(topic));
+    const data = retainData ? (JSON.parse(retainData) as IPublishData) : undefined;
     if (data?.properties?.messageExpiryTimestamp && Date.now() > data.properties.messageExpiryTimestamp) {
       await this.redis.del(this.retainKey(topic));
       return undefined;
@@ -440,9 +426,9 @@ export class RedisManager extends Manager {
    * @param callbackfn - Called with topic name (without `retain:` prefix) and payload.
    */
   async forEachRetainMessage(callbackfn: (topic: string, data: IPublishData) => Promise<void>): Promise<void> {
-    const allRatainData = await this.getRatain();
+    const allRetainData = await this.getRetain();
 
-    for (const key of allRatainData[1]) {
+    for (const key of allRetainData[1]) {
       const topic = key.substring('retain:'.length);
       const data = await this.redis.get(key);
       const pubData = data ? JSON.parse(data) : undefined;

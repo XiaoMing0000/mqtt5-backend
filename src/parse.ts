@@ -576,6 +576,7 @@ export function parsePublish(buffer: Buffer, pubData: IPublishData, protocolVers
   pubData.header.remainingLength = variableByteInteger(data);
 
   pubData.header.topicName = utf8DecodedString(data);
+  // [MQTT-3.3.2-2] The Topic Name in the PUBLISH packet MUST NOT contain wildcard characters.
   if (/[#+]/.test(pubData.header.topicName)) {
     throw new PubAckException('The Will Topic Name is not malformed, but is not accepted by this Server.', PubAckReasonCode.TopicNameInvalid);
   }
