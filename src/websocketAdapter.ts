@@ -19,15 +19,12 @@ export class WebSocketAdapter extends net.Socket {
     super();
     this.ws = ws;
 
-    try {
-      // @typescript-eslint/ban-ts-comment
-      const addr = (ws as any)?._socket?.remoteAddress;
-      if (addr) {
-        (this as any).remoteAddress = addr;
-      }
-    } catch (_e) {
-      this.emit('error', _e as Error);
-    }
+    // net.Socket.remoteAddress is getter-only; define an instance getter instead of assigning.
+    Object.defineProperty(this, 'remoteAddress', {
+      configurable: true,
+      enumerable: true,
+      get: (): string | undefined => (this.ws as any)?._socket?.remoteAddress,
+    });
 
     this.ws.on('message', (data: Data) => {
       if (typeof data === 'string') {
