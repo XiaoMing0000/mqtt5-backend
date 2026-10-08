@@ -153,12 +153,12 @@ const clientManager = new Redis2Manager({
 
 ### Core Types
 
-| Type | Role |
-| --- | --- |
-| `TSocket` | Transport socket (TCP / WebSocket adapter) with typed MQTT `on` / `once` |
-| `MqttClient` | Per-connection MQTT session and packet handlers (renamed from `MqttManager`) |
-| `Manager` | Abstract session/subscription backend (`MemoryManager`, `RedisManager`, `Redis2Manager`) |
-| `ClientIdentifierManager` | Maps MQTT client id → live `MqttClient`; `getClient(id)`, `geTSocket(id)` |
+| Type                      | Role                                                                                     |
+| ------------------------- | ---------------------------------------------------------------------------------------- |
+| `TSocket`                 | Transport socket (TCP / WebSocket adapter) with typed MQTT `on` / `once`                 |
+| `MqttClient`              | Per-connection MQTT session and packet handlers (renamed from `MqttManager`)             |
+| `Manager`                 | Abstract session/subscription backend (`MemoryManager`, `RedisManager`, `Redis2Manager`) |
+| `ClientIdentifierManager` | Maps MQTT client id → live `MqttClient`; `getClient(id)`, `geTSocket(id)`                |
 
 ### MqttServer
 
@@ -253,7 +253,6 @@ interface IMqttOptions {
   packetIdentifierTTL?: number; // Packet identifier TTL (seconds), default 1800
 }
 ```
-
 
 ## 📡 Protocol Version Compatibility
 

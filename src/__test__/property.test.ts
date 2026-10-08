@@ -18,14 +18,7 @@ import {
 } from '../property';
 import { PropertyIdentifier } from '../interface';
 import { DisconnectException, DisconnectReasonCode } from '../exception';
-import {
-  encodeBinaryData,
-  encodeUTF8String,
-  encodeVariableByteInteger,
-  integerToFourUint8,
-  integerToOneUint8,
-  integerToTwoUint8,
-} from '../parse';
+import { encodeBinaryData, encodeUTF8String, encodeVariableByteInteger, integerToFourUint8, integerToOneUint8, integerToTwoUint8 } from '../parse';
 
 /** Concatenate property byte sequences into one Buffer. */
 function propBuffer(...chunks: Array<number | number[]>): Buffer {
@@ -112,10 +105,7 @@ describe('property', () => {
       test('throws on duplicate', () => {
         expectProtocolError(() =>
           parseProperties(
-            propBuffer(
-              fourByteProperty(PropertyIdentifier.messageExpiryInterval, 1),
-              fourByteProperty(PropertyIdentifier.messageExpiryInterval, 2),
-            ),
+            propBuffer(fourByteProperty(PropertyIdentifier.messageExpiryInterval, 1), fourByteProperty(PropertyIdentifier.messageExpiryInterval, 2)),
           ),
         );
       });
@@ -129,9 +119,7 @@ describe('property', () => {
 
       test('throws on duplicate', () => {
         expectProtocolError(() =>
-          parseProperties(
-            propBuffer(utf8Property(PropertyIdentifier.contentType, 'a'), utf8Property(PropertyIdentifier.contentType, 'b')),
-          ),
+          parseProperties(propBuffer(utf8Property(PropertyIdentifier.contentType, 'a'), utf8Property(PropertyIdentifier.contentType, 'b'))),
         );
       });
     });
@@ -144,9 +132,7 @@ describe('property', () => {
 
       test('throws on duplicate', () => {
         expectProtocolError(() =>
-          parseProperties(
-            propBuffer(utf8Property(PropertyIdentifier.responseTopic, 'a'), utf8Property(PropertyIdentifier.responseTopic, 'b')),
-          ),
+          parseProperties(propBuffer(utf8Property(PropertyIdentifier.responseTopic, 'a'), utf8Property(PropertyIdentifier.responseTopic, 'b'))),
         );
       });
     });
@@ -198,10 +184,7 @@ describe('property', () => {
       test('throws on duplicate', () => {
         expectProtocolError(() =>
           parseProperties(
-            propBuffer(
-              fourByteProperty(PropertyIdentifier.sessionExpiryInterval, 1),
-              fourByteProperty(PropertyIdentifier.sessionExpiryInterval, 2),
-            ),
+            propBuffer(fourByteProperty(PropertyIdentifier.sessionExpiryInterval, 1), fourByteProperty(PropertyIdentifier.sessionExpiryInterval, 2)),
           ),
         );
       });
@@ -233,9 +216,7 @@ describe('property', () => {
 
       test('throws on duplicate', () => {
         expectProtocolError(() =>
-          parseProperties(
-            propBuffer(twoByteProperty(PropertyIdentifier.serverKeepAlive, 1), twoByteProperty(PropertyIdentifier.serverKeepAlive, 2)),
-          ),
+          parseProperties(propBuffer(twoByteProperty(PropertyIdentifier.serverKeepAlive, 1), twoByteProperty(PropertyIdentifier.serverKeepAlive, 2))),
         );
       });
     });
@@ -249,10 +230,7 @@ describe('property', () => {
       test('throws on duplicate', () => {
         expectProtocolError(() =>
           parseProperties(
-            propBuffer(
-              utf8Property(PropertyIdentifier.authenticationMethod, 'a'),
-              utf8Property(PropertyIdentifier.authenticationMethod, 'b'),
-            ),
+            propBuffer(utf8Property(PropertyIdentifier.authenticationMethod, 'a'), utf8Property(PropertyIdentifier.authenticationMethod, 'b')),
           ),
         );
       });
@@ -365,9 +343,7 @@ describe('property', () => {
 
       test('throws on duplicate', () => {
         expectProtocolError(() =>
-          parseProperties(
-            propBuffer(utf8Property(PropertyIdentifier.serverReference, 'a'), utf8Property(PropertyIdentifier.serverReference, 'b')),
-          ),
+          parseProperties(propBuffer(utf8Property(PropertyIdentifier.serverReference, 'a'), utf8Property(PropertyIdentifier.serverReference, 'b'))),
         );
       });
     });
@@ -393,9 +369,7 @@ describe('property', () => {
 
       test('throws on duplicate', () => {
         expectProtocolError(() =>
-          parseProperties(
-            propBuffer(twoByteProperty(PropertyIdentifier.receiveMaximum, 1), twoByteProperty(PropertyIdentifier.receiveMaximum, 2)),
-          ),
+          parseProperties(propBuffer(twoByteProperty(PropertyIdentifier.receiveMaximum, 1), twoByteProperty(PropertyIdentifier.receiveMaximum, 2))),
         );
       });
     });
@@ -463,9 +437,7 @@ describe('property', () => {
 
       test('throws on duplicate', () => {
         expectProtocolError(() =>
-          parseProperties(
-            propBuffer(oneByteProperty(PropertyIdentifier.retainAvailable, 0), oneByteProperty(PropertyIdentifier.retainAvailable, 1)),
-          ),
+          parseProperties(propBuffer(oneByteProperty(PropertyIdentifier.retainAvailable, 0), oneByteProperty(PropertyIdentifier.retainAvailable, 1))),
         );
       });
 
@@ -476,9 +448,7 @@ describe('property', () => {
 
     describe('userProperty', () => {
       test('parses a single key/value pair', () => {
-        const result = parseProperties(
-          propBuffer([PropertyIdentifier.userProperty, ...encodeUTF8String('key'), ...encodeUTF8String('value')]),
-        );
+        const result = parseProperties(propBuffer([PropertyIdentifier.userProperty, ...encodeUTF8String('key'), ...encodeUTF8String('value')]));
         expect(result.userProperty).toEqual({ key: 'value' });
       });
 
@@ -619,9 +589,7 @@ describe('property', () => {
 
   describe('typed parse*Properties wrappers', () => {
     test('parseConnectProperties', () => {
-      expect(parseConnectProperties(propBuffer(fourByteProperty(PropertyIdentifier.sessionExpiryInterval, 0xff))).sessionExpiryInterval).toBe(
-        0xff,
-      );
+      expect(parseConnectProperties(propBuffer(fourByteProperty(PropertyIdentifier.sessionExpiryInterval, 0xff))).sessionExpiryInterval).toBe(0xff);
     });
 
     test('parseConnAckProperties', () => {
@@ -646,9 +614,7 @@ describe('property', () => {
     });
 
     test('parseAuthProperties', () => {
-      expect(parseAuthProperties(propBuffer(utf8Property(PropertyIdentifier.authenticationMethod, 'PLAIN'))).authenticationMethod).toBe(
-        'PLAIN',
-      );
+      expect(parseAuthProperties(propBuffer(utf8Property(PropertyIdentifier.authenticationMethod, 'PLAIN'))).authenticationMethod).toBe('PLAIN');
     });
 
     test('parseConnectWillProperties', () => {
@@ -673,10 +639,7 @@ describe('property', () => {
 
   describe('encodeProperties', () => {
     test('should encode payloadFormatIndicator', () => {
-      expect(encodeProperties(PropertyIdentifier.payloadFormatIndicator, 0x01)).toEqual([
-        PropertyIdentifier.payloadFormatIndicator,
-        0x01,
-      ]);
+      expect(encodeProperties(PropertyIdentifier.payloadFormatIndicator, 0x01)).toEqual([PropertyIdentifier.payloadFormatIndicator, 0x01]);
     });
 
     test('should encode messageExpiryInterval', () => {
@@ -693,26 +656,17 @@ describe('property', () => {
 
     test('should encode responseTopic', () => {
       const topic = 'response/topic';
-      expect(encodeProperties(PropertyIdentifier.responseTopic, topic)).toEqual([
-        PropertyIdentifier.responseTopic,
-        ...encodeUTF8String(topic),
-      ]);
+      expect(encodeProperties(PropertyIdentifier.responseTopic, topic)).toEqual([PropertyIdentifier.responseTopic, ...encodeUTF8String(topic)]);
     });
 
     test('should encode correlationData from Buffer', () => {
       const data = Buffer.from([0x01, 0x02]);
-      expect(encodeProperties(PropertyIdentifier.correlationData, data)).toEqual([
-        PropertyIdentifier.correlationData,
-        ...encodeBinaryData(data),
-      ]);
+      expect(encodeProperties(PropertyIdentifier.correlationData, data)).toEqual([PropertyIdentifier.correlationData, ...encodeBinaryData(data)]);
     });
 
     test('should encode correlationData from string', () => {
       const data = 'corr';
-      expect(encodeProperties(PropertyIdentifier.correlationData, data)).toEqual([
-        PropertyIdentifier.correlationData,
-        ...encodeUTF8String(data),
-      ]);
+      expect(encodeProperties(PropertyIdentifier.correlationData, data)).toEqual([PropertyIdentifier.correlationData, ...encodeUTF8String(data)]);
     });
 
     test('should encode subscriptionIdentifier as array', () => {
@@ -806,17 +760,11 @@ describe('property', () => {
     });
 
     test('should encode reasonString', () => {
-      expect(encodeProperties(PropertyIdentifier.reasonString, 'reason')).toEqual([
-        PropertyIdentifier.reasonString,
-        ...encodeUTF8String('reason'),
-      ]);
+      expect(encodeProperties(PropertyIdentifier.reasonString, 'reason')).toEqual([PropertyIdentifier.reasonString, ...encodeUTF8String('reason')]);
     });
 
     test('should encode receiveMaximum', () => {
-      expect(encodeProperties(PropertyIdentifier.receiveMaximum, 0x1234)).toEqual([
-        PropertyIdentifier.receiveMaximum,
-        ...integerToTwoUint8(0x1234),
-      ]);
+      expect(encodeProperties(PropertyIdentifier.receiveMaximum, 0x1234)).toEqual([PropertyIdentifier.receiveMaximum, ...integerToTwoUint8(0x1234)]);
     });
 
     test('should encode topicAliasMaximum', () => {

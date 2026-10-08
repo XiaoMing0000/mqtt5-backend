@@ -153,12 +153,12 @@ const clientManager = new Redis2Manager({
 
 ### 核心类型
 
-| 类型 | 作用 |
-| --- | --- |
-| `TSocket` | 传输层 socket（TCP / WebSocket 适配），带类型化 MQTT `on` / `once` |
-| `MqttClient` | 单连接 MQTT 会话与报文处理（由原 `MqttManager` 重命名） |
-| `Manager` | 会话/订阅后端抽象（`MemoryManager`、`RedisManager`、`Redis2Manager`） |
-| `ClientIdentifierManager` | client id → 在线 `MqttClient` 映射；`getClient(id)`、`geTSocket(id)` |
+| 类型                      | 作用                                                                  |
+| ------------------------- | --------------------------------------------------------------------- |
+| `TSocket`                 | 传输层 socket（TCP / WebSocket 适配），带类型化 MQTT `on` / `once`    |
+| `MqttClient`              | 单连接 MQTT 会话与报文处理（由原 `MqttManager` 重命名）               |
+| `Manager`                 | 会话/订阅后端抽象（`MemoryManager`、`RedisManager`、`Redis2Manager`） |
+| `ClientIdentifierManager` | client id → 在线 `MqttClient` 映射；`getClient(id)`、`geTSocket(id)`  |
 
 ### MqttServer
 
