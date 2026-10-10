@@ -1,12 +1,4 @@
-import {
-  PubAckReasonCode,
-  PubAckException,
-  PubRecReasonCode,
-  PubRelReasonCode,
-  SubscribeAckException,
-  DisconnectException,
-  DisconnectReasonCode,
-} from './exception';
+import { PubAckReasonCode, PubAckException, PubRecReasonCode, PubRelReasonCode, DisconnectException, DisconnectReasonCode } from './exception';
 import {
   BufferData,
   IAuthData,
@@ -93,7 +85,7 @@ export function variableByteInteger(data: BufferData, length = 3): number {
     value += (encodeByte & 0x7f) << leftShift;
     leftShift += 7;
     if (leftShift > length * 7) {
-      throw new DisconnectException('Malformed Remaining Length.', DisconnectReasonCode.ProtocolError);
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'Malformed Remaining Length.');
     }
   } while (encodeByte & 0x80);
   return value;
@@ -191,7 +183,7 @@ export function variableByteIntegerLength(data: number): number {
  */
 export function encodeVariableByteInteger(value: number) {
   if (value < 0 || value > 268435455) {
-    throw new DisconnectException('Variable byte integer Value out of range.', DisconnectReasonCode.ProtocolError);
+    throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'Variable byte integer Value out of range.');
   }
 
   const bytes = [];
@@ -312,7 +304,7 @@ export function parseAllPacket(allBuffer: Buffer, protocolVersion: ProtocolVersi
     const offset = variableByteIntegerLength(remainingLength);
     const packetLength = remainingLength + 1 + offset;
     if (i + packetLength > allBuffer.length) {
-      throw new DisconnectException('Malformed Remaining Length.', DisconnectReasonCode.ProtocolError);
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'Malformed Remaining Length.');
     }
     const buffer = allBuffer.slice(i, i + packetLength);
     allPacket.push(parsePacket(buffer, protocolVersion));
@@ -475,7 +467,7 @@ export function parsePacket(buffer: Buffer, protocolVersion: ProtocolVersion): P
       return authData;
     }
     default:
-      throw new DisconnectException('未能解析的报文类型', DisconnectReasonCode.ProtocolError);
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, '未能解析的报文类型');
   }
 }
 
@@ -524,7 +516,7 @@ export function parseConnect(buffer: Buffer): IConnectData {
     connData.connectFlags.willQoS >= 0x03 ||
     (!connData.connectFlags.willFlag && connData.connectFlags.willRetain)
   ) {
-    throw new DisconnectException('If the reserved flag is not 0 it is a Malformed Packet.', DisconnectReasonCode.ProtocolError);
+    throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'If the reserved flag is not 0 it is a Malformed Packet.');
   }
   connData.header.keepAlive = twoByteInteger(data);
 
@@ -578,7 +570,7 @@ export function parsePublish(buffer: Buffer, pubData: IPublishData, protocolVers
   pubData.header.topicName = utf8DecodedString(data);
   // [MQTT-3.3.2-2] The Topic Name in the PUBLISH packet MUST NOT contain wildcard characters.
   if (/[#+]/.test(pubData.header.topicName)) {
-    throw new PubAckException('The Will Topic Name is not malformed, but is not accepted by this Server.', PubAckReasonCode.TopicNameInvalid);
+    throw new PubAckException(PubAckReasonCode.TopicNameInvalid, 'The Will Topic Name is not malformed, but is not accepted by this Server.');
   }
 
   if (pubData.header.qosLevel > 0) {
@@ -744,8 +736,8 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData, protocol
 
   if (subData.header.received !== 0x02) {
     throw new DisconnectException(
-      'Bits 3,2,1 and 0 of the Fixed Header of the SUBSCRIBE packet are reserved and MUST be set to 0,0,1 and 0 respectively.',
       DisconnectReasonCode.ProtocolError,
+      'Bits 3,2,1 and 0 of the Fixed Header of the SUBSCRIBE packet are reserved and MUST be set to 0,0,1 and 0 respectively.',
     );
   }
 
@@ -770,18 +762,18 @@ export function parseSubscribe(buffer: Buffer, subData: ISubscribeData, protocol
       retain: (subscriptionOptions >> 6) & 0x03,
     };
     if (options.qos > QoSType.QoS2) {
-      throw new DisconnectException('It is a Protocol Error if the Maximum QoS field has the value 3.', DisconnectReasonCode.ProtocolError);
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'It is a Protocol Error if the Maximum QoS field has the value 3.');
     }
     if (options.retainHandling > 0x02) {
-      throw new DisconnectException('It is a Protocol Error to send a Retain Handling value of 3.', DisconnectReasonCode.ProtocolError);
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'It is a Protocol Error to send a Retain Handling value of 3.');
     }
     if (options.retain !== 0) {
-      throw new DisconnectException('Sending a Retain value that is not equal to 0 is a protocol error.', DisconnectReasonCode.ProtocolError);
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'Sending a Retain value that is not equal to 0 is a protocol error.');
     }
     subData.payloads.push({ topicFilter, options });
   }
   if (!subData.payloads.length) {
-    throw new DisconnectException('The SUBSCRIBE packet payload must contain at least one Topic Filter.', DisconnectReasonCode.ProtocolError);
+    throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'The SUBSCRIBE packet payload must contain at least one Topic Filter.');
   }
   subData.payload = subData.payloads[0].topicFilter;
   subData.options = subData.payloads[0].options;
@@ -800,7 +792,8 @@ export function parseUnsubscribe(buffer: Buffer, unsubscribeData: IUnsubscribeDa
   unsubscribeData.header.received = buffer[0] & 0xf;
 
   if (unsubscribeData.header.received !== 0x02) {
-    throw new SubscribeAckException(
+    throw new DisconnectException(
+      DisconnectReasonCode.MalformedPacket,
       'Bits 3,2,1 and 0 of the Fixed Header of the UNSUBSCRIBE packet are reserved and MUST be set to 0,0,1 and 0 respectively.',
     );
   }
@@ -819,7 +812,7 @@ export function parseUnsubscribe(buffer: Buffer, unsubscribeData: IUnsubscribeDa
     unsubscribeData.payloads.push(utf8DecodedString(data));
   }
   if (!unsubscribeData.payloads.length) {
-    throw new DisconnectException('The UNSUBSCRIBE packet payload must contain at least one Topic Filter.', DisconnectReasonCode.ProtocolError);
+    throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'The UNSUBSCRIBE packet payload must contain at least one Topic Filter.');
   }
   unsubscribeData.payload = unsubscribeData.payloads[0];
 }
@@ -1015,7 +1008,7 @@ export function probeFrameLength(buf: Buffer): number | null {
     multiplier *= 128;
   }
 
-  throw new DisconnectException('Malformed Remaining Length.', DisconnectReasonCode.ProtocolError);
+  throw new DisconnectException(DisconnectReasonCode.MalformedPacket, 'Malformed Remaining Length.');
 }
 
 /**

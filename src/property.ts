@@ -55,8 +55,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.payloadFormatIndicator !== undefined) {
           throw new DisconnectException(
-            'It is a Protocol Error to include the Payload Format Indicator more than once.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include the Payload Format Indicator more than once.',
           );
         }
         properties.payloadFormatIndicator = oneByteInteger(data);
@@ -65,8 +65,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.messageExpiryInterval != undefined) {
           throw new DisconnectException(
-            'It is a Protocol Error to include the Payload Format Indicator more than once.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include the Payload Format Indicator more than once.',
           );
         }
         properties.messageExpiryInterval = fourByteInteger(data);
@@ -74,21 +74,21 @@ export function parseProperties(buffer: Buffer, index?: number) {
       case PropertyIdentifier.contentType:
         data.index++;
         if (properties.contentType) {
-          throw new DisconnectException('It is a Protocol Error to include the Content Type more than once.', DisconnectReasonCode.ProtocolError);
+          throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'It is a Protocol Error to include the Content Type more than once.');
         }
         properties.contentType = utf8DecodedString(data);
         break;
       case PropertyIdentifier.responseTopic:
         data.index++;
         if (properties.responseTopic) {
-          throw new DisconnectException('It is a Protocol Error to include the Content Type more than once.', DisconnectReasonCode.ProtocolError);
+          throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'It is a Protocol Error to include the Content Type more than once.');
         }
         properties.responseTopic = utf8DecodedString(data);
         break;
       case PropertyIdentifier.correlationData:
         data.index++;
         if (properties.correlationData) {
-          throw new DisconnectException('It is a Protocol Error to include Correlation Data more than once.', DisconnectReasonCode.ProtocolError);
+          throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'It is a Protocol Error to include Correlation Data more than once.');
         }
         properties.correlationData = binaryData(data);
         break;
@@ -98,8 +98,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
 
         if (subscriptionIdentifier == 0) {
           throw new DisconnectException(
-            'It is a Protocol Error if the Subscription Identifier has a value of 0. ',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error if the Subscription Identifier has a value of 0. ',
           );
         }
         (properties.subscriptionIdentifier ??= []).push(subscriptionIdentifier);
@@ -108,8 +108,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.sessionExpiryInterval != undefined) {
           throw new DisconnectException(
-            'It is a Protocol Error to include the Session Expiry Interval more than once.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include the Session Expiry Interval more than once.',
           );
         }
         properties.sessionExpiryInterval = fourByteInteger(data);
@@ -118,8 +118,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.assignedClientIdentifier != undefined) {
           throw new DisconnectException(
-            'It is a Protocol Error to include the Assigned Client Identifier more than once.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include the Assigned Client Identifier more than once.',
           );
         }
         properties.assignedClientIdentifier = utf8DecodedString(data);
@@ -128,8 +128,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.serverKeepAlive != undefined) {
           throw new DisconnectException(
-            'It is a Protocol Error to include the Server Keep Alive more than once.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include the Server Keep Alive more than once.',
           );
         }
         properties.serverKeepAlive = twoByteInteger(data);
@@ -138,8 +138,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.authenticationMethod) {
           throw new DisconnectException(
-            'It is a Protocol Error to include Authentication Method more than once.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include Authentication Method more than once.',
           );
         }
         properties.authenticationMethod = utf8DecodedString(data);
@@ -148,8 +148,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.authenticationData) {
           throw new DisconnectException(
-            'It is a Protocol Error to include Authentication Method more than once.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include Authentication Method more than once.',
           );
         }
         properties.authenticationData = utf8DecodedString(data);
@@ -158,8 +158,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.requestProblemInformation !== undefined || data.buffer[data.index] > 1) {
           throw new DisconnectException(
-            'It is a Protocol Error to include Request Problem Information more than once, or to have a value other than 0 or 1.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include Request Problem Information more than once, or to have a value other than 0 or 1.',
           );
         }
         properties.requestProblemInformation = !!oneByteInteger(data);
@@ -168,8 +168,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.willDelayInterval !== undefined) {
           throw new DisconnectException(
-            'It is a Protocol Error to include the Will Delay Interval more than once. ',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include the Will Delay Interval more than once. ',
           );
         }
         properties.willDelayInterval = fourByteInteger(data);
@@ -178,8 +178,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.requestResponseInformation !== undefined || data.buffer[data.index] > 1) {
           throw new DisconnectException(
-            'It is Protocol Error to include the Request Response Information more than once, or to have a value other than 0 or 1.',
             DisconnectReasonCode.ProtocolError,
+            'It is Protocol Error to include the Request Response Information more than once, or to have a value other than 0 or 1.',
           );
         }
         properties.requestResponseInformation = !!oneByteInteger(data);
@@ -188,8 +188,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.responseInformation) {
           throw new DisconnectException(
-            'It is a Protocol Error to include the Response Information more than once.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include the Response Information more than once.',
           );
         }
         properties.responseInformation = utf8DecodedString(data);
@@ -198,8 +198,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.serverReference) {
           throw new DisconnectException(
-            'It is a Protocol Error to include the Response Information more than once.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include the Response Information more than once.',
           );
         }
         properties.serverReference = utf8DecodedString(data);
@@ -208,8 +208,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.reasonString) {
           throw new DisconnectException(
-            'It is a Protocol Error to include Authentication Method more than once.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include Authentication Method more than once.',
           );
         }
         properties.reasonString = utf8DecodedString(data);
@@ -218,8 +218,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.receiveMaximum != undefined) {
           throw new DisconnectException(
-            'It is a Protocol Error to include the Receive Maximum value more than once or for it to have the value 0.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include the Receive Maximum value more than once or for it to have the value 0.',
           );
         }
         properties.receiveMaximum = twoByteInteger(data);
@@ -228,8 +228,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.topicAliasMaximum != undefined) {
           throw new DisconnectException(
-            't is a Protocol Error to include the Topic Alias Maximum value more than once.',
             DisconnectReasonCode.ProtocolError,
+            't is a Protocol Error to include the Topic Alias Maximum value more than once.',
           );
         }
         properties.topicAliasMaximum = twoByteInteger(data);
@@ -238,8 +238,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.topicAlias != undefined) {
           throw new DisconnectException(
-            'It is a Protocol Error to include the Topic Alias value more than once.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include the Topic Alias value more than once.',
           );
         }
         properties.topicAlias = twoByteInteger(data);
@@ -248,8 +248,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.maximumQoS !== undefined || data.buffer[data.index] > 1) {
           throw new DisconnectException(
-            'It is a Protocol Error to include Maximum QoS more than once, or to have a value other than 0 or 1.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include Maximum QoS more than once, or to have a value other than 0 or 1.',
           );
         }
         properties.maximumQoS = !!oneByteInteger(data);
@@ -258,8 +258,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.retainAvailable !== undefined || data.buffer[data.index] > 1) {
           throw new DisconnectException(
-            'It is a Protocol Error to include Retain Available more than once or to use a value other than 0 or 1.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include Retain Available more than once or to use a value other than 0 or 1.',
           );
         }
         properties.retainAvailable = !!oneByteInteger(data);
@@ -280,8 +280,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.maximumPacketSize != undefined) {
           throw new DisconnectException(
-            'It is a Protocol Error to include the Maximum Packet Size more than once, or for the value to be set to zero.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include the Maximum Packet Size more than once, or for the value to be set to zero.',
           );
         }
         properties.maximumPacketSize = fourByteInteger(data);
@@ -290,8 +290,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.wildcardSubscriptionAvailable !== undefined || data.buffer[data.index] > 1) {
           throw new DisconnectException(
-            'It is a Protocol Error to include the Wildcard Subscription Available more than once or to send a value other than 0 or 1.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include the Wildcard Subscription Available more than once or to send a value other than 0 or 1.',
           );
         }
         properties.wildcardSubscriptionAvailable = !!oneByteInteger(data);
@@ -300,8 +300,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.subscriptionIdentifierAvailable !== undefined || data.buffer[data.index] > 1) {
           throw new DisconnectException(
-            'It is a Protocol Error to include the Subscription Identifier Available more than once, or to send a value other than 0 or 1.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include the Subscription Identifier Available more than once, or to send a value other than 0 or 1.',
           );
         }
         properties.subscriptionIdentifierAvailable = !!oneByteInteger(data);
@@ -310,8 +310,8 @@ export function parseProperties(buffer: Buffer, index?: number) {
         data.index++;
         if (properties.sharedSubscriptionAvailable !== undefined || data.buffer[data.index] > 1) {
           throw new DisconnectException(
-            'It is a Protocol Error to include the Shared Subscription Available more than once or to send a value other than 0 or 1.',
             DisconnectReasonCode.ProtocolError,
+            'It is a Protocol Error to include the Shared Subscription Available more than once or to send a value other than 0 or 1.',
           );
         }
         properties.sharedSubscriptionAvailable = !!oneByteInteger(data);

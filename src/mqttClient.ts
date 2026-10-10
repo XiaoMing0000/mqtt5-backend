@@ -275,7 +275,7 @@ export class MqttClient {
    */
   public async commonHandle(data: PacketTypeData) {
     if (!this.authDone && data.header.packetType !== PacketType.AUTH) {
-      throw new DisconnectException('AUTH exchange in progress.', DisconnectReasonCode.ProtocolError);
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'AUTH exchange in progress.');
     }
   }
   /**
@@ -363,12 +363,12 @@ export class MqttClient {
       if (this.options.automaticallyAssignedClientIdentifier !== false) {
         connData.payload.clientIdentifier = generateClientIdentifier();
       } else {
-        throw new ConnectAckException('Client Identifier not valid', ConnectAckReasonCode.ClientIdentifierNotValid);
+        throw new ConnectAckException(ConnectAckReasonCode.ClientIdentifierNotValid, 'Client Identifier not valid');
       }
     }
     // check if protocol version is supported
     if (!this.options.protocolVersions?.includes(connData.header.protocolVersion)) {
-      throw new DisconnectException('Unsupported Protocol Version.', DisconnectReasonCode.ProtocolError);
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'Unsupported Protocol Version.');
     }
 
     // [MQTT-3.1.2.4] clear subscribe data if clean start is true
@@ -390,7 +390,7 @@ export class MqttClient {
     }
     this.connData.properties.receiveMaximum ??= this.options.receiveMaximum ?? 0xffff;
     if (emitAsync && !(await emitAsync(this.socket, 'connect', this.connData, this, this.clientManager))) {
-      throw new DisconnectException('Client connection failed.', DisconnectReasonCode.UnspecifiedError);
+      throw new DisconnectException(DisconnectReasonCode.UnspecifiedError, 'Client connection failed.');
     }
 
     const targetId = this.clientIdentifier || connData.payload.clientIdentifier;
@@ -531,22 +531,22 @@ export class MqttClient {
     try {
       if (pubData.properties.topicAlias && pubData.properties.topicAlias > (this.options.topicAliasMaximum ?? 0xffff)) {
         throw new DisconnectException(
-          'A Client MUST accept all Topic Alias values greater than 0 and less than or equal to the Topic Alias Maximum value that it sent in the CONNECT packet.',
           DisconnectReasonCode.TopicAliasInvalid,
+          'A Client MUST accept all Topic Alias values greater than 0 and less than or equal to the Topic Alias Maximum value that it sent in the CONNECT packet.',
         );
       }
       if (pubData.header.qosLevel > (this.options.maximumQoS ?? QoSType.QoS0)) {
         throw new DisconnectException(
-          'The Client specified a QoS greater than the QoS specified in a Maximum QoS in the CONNACK.',
           DisconnectReasonCode.QoSNotSupported,
+          'The Client specified a QoS greater than the QoS specified in a Maximum QoS in the CONNACK.',
         );
       }
       if (pubData.header.qosLevel > QoSType.QoS0) {
         this.receiveCounter++;
         if (this.receiveCounter > (this.connData.properties.receiveMaximum ?? 0xffff)) {
           throw new DisconnectException(
-            'The Client MUST NOT send more than Receive Maximum QoS 1 and QoS 2 PUBLISH packets for which it has not received PUBACK, PUBCOMP, or PUBREC with a Reason Code of 128 or greater from the Server.',
             DisconnectReasonCode.ReceiveMaximumExceeded,
+            'The Client MUST NOT send more than Receive Maximum QoS 1 and QoS 2 PUBLISH packets for which it has not received PUBACK, PUBCOMP, or PUBREC with a Reason Code of 128 or greater from the Server.',
           );
         }
       }
@@ -556,15 +556,15 @@ export class MqttClient {
         (pubData.header.remainingLength ?? 0) > (this.connData.properties.maximumPacketSize ?? 1 << 20)
       ) {
         throw new DisconnectException(
-          'The Server has received a Control Packet during the current Connection that contains more data than it was willing to process.',
           DisconnectReasonCode.PacketTooLarge,
+          'The Server has received a Control Packet during the current Connection that contains more data than it was willing to process.',
         );
       }
       if (pubData.properties.topicAlias) {
         if (this.options.topicAliasMaximum && pubData.properties.topicAlias > (this.options.topicAliasMaximum ?? 0xffff)) {
           throw new DisconnectException(
-            'The Client or Server has received a PUBLISH packet containing a Topic Alias which is greater than the Maximum Topic Alias it sent in the CONNECT or CONNACK packet.',
             DisconnectReasonCode.TopicAliasInvalid,
+            'The Client or Server has received a PUBLISH packet containing a Topic Alias which is greater than the Maximum Topic Alias it sent in the CONNECT or CONNACK packet.',
           );
         }
         if (pubData.header.topicName) {
@@ -601,8 +601,8 @@ export class MqttClient {
       if (pubData.header.retain) {
         if (this.options.retainAvailable === false) {
           throw new DisconnectException(
-            'The Server does not support retained messages, and Will Retain was set to 1.',
             DisconnectReasonCode.RetainNotSupported,
+            'The Server does not support retained messages, and Will Retain was set to 1.',
           );
         }
         if (pubData.payload) {
@@ -704,7 +704,7 @@ export class MqttClient {
    */
   public async pubAckHandle(pubAckData: IPubAckData) {
     if (!this.packetIdentifierManager.has(pubAckData.header.packetIdentifier)) {
-      throw new DisconnectException('PUBACK contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'PUBACK contained unknown packet identifier!');
     }
     this.packetIdentifierManager.delete(pubAckData.header.packetIdentifier);
     if (this.clientIdentifier) {
@@ -745,7 +745,7 @@ export class MqttClient {
    */
   public async pubRecHandle(pubRecData: IPubRecData) {
     if (!this.packetIdentifierManager.has(pubRecData.header.packetIdentifier)) {
-      throw new DisconnectException('PUBREC contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'PUBREC contained unknown packet identifier!');
     }
     if (this.clientIdentifier) {
       const queue = this.getOutboundQueue(this.clientIdentifier);
@@ -780,7 +780,7 @@ export class MqttClient {
    */
   public async pubCompHandle(pubCompData: IPubCompData) {
     if (!this.packetIdentifierManager.has(pubCompData.header.packetIdentifier)) {
-      throw new DisconnectException('PUBCOMP contained unknown packet identifier!', DisconnectReasonCode.ProtocolError);
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'PUBCOMP contained unknown packet identifier!');
     }
     if (this.clientIdentifier) {
       this.qosRetry.clearPendingPacket(this, pubCompData.header.packetIdentifier);
@@ -794,7 +794,7 @@ export class MqttClient {
    */
   public async subscribeHandle(subData: ISubscribeData) {
     if (this.options.subscriptionIdentifierAvailable === false) {
-      throw new DisconnectException('Subscription Identifiers not supported.', DisconnectReasonCode.SubscriptionIdentifiersNotSupported);
+      throw new DisconnectException(DisconnectReasonCode.SubscriptionIdentifiersNotSupported, 'Subscription Identifiers not supported.');
     }
     const payloads = subData.payloads?.length
       ? subData.payloads
@@ -957,10 +957,10 @@ export class MqttClient {
    */
   public async authHandle(authData: IAuthData) {
     if (!this.isAuth) {
-      throw new AuthenticateException('AUTH is not enabled for this connection.', AuthenticateReasonCode.Reauthenticate);
+      throw new AuthenticateException(AuthenticateReasonCode.Reauthenticate, 'AUTH is not enabled for this connection.');
     }
     if (authData.properties.authenticationMethod && this.authMethod && authData.properties.authenticationMethod !== this.authMethod) {
-      throw new AuthenticateException('Authentication method mismatch.', AuthenticateReasonCode.Reauthenticate);
+      throw new AuthenticateException(AuthenticateReasonCode.Reauthenticate, 'Authentication method mismatch.');
     }
     this.authDone = authData.header.reasonCode === AuthenticateReasonCode.Success;
     if (!this.authDone) {

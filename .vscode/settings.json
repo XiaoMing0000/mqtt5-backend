@@ -21,6 +21,7 @@
     "PUBREC",
     "PUBREL",
     "PUNSUBSCRIBE",
+    "Resends",
     "SUBACK",
     "UNSUBACK",
     "UNSUBSCRIBE",
