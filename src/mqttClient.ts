@@ -1,3 +1,4 @@
+import { encodeTwoByteInteger, encodeVariableByteInteger } from './dataRepresentations';
 import {
   AuthenticateException,
   AuthenticateReasonCode,
@@ -32,16 +33,8 @@ import {
   ProtocolVersion,
 } from './interface';
 import { TSocket, Manager, TMqttClientEmitAsync, ClientPacketIdentifierManager } from './manager/manager';
-import {
-  encodeConnAck,
-  encodeDisconnect,
-  encodePublishPacket,
-  encodePubControlPacket,
-  EncoderProperties,
-  encodeVariableByteInteger,
-  integerToTwoUint8,
-  encodeSubAckPacket,
-} from './parse';
+import { encodePacket } from './packet';
+import { EncoderProperties } from './property';
 import { verifyTopic, isWildcardTopic, topicToRegEx } from './topicFilters';
 import { generateClientIdentifier } from './utils';
 
@@ -251,7 +244,7 @@ export class MqttClient {
         const replayData: IPublishData = JSON.parse(JSON.stringify(item.publish));
         replayData.header.packetIdentifier = packetIdentifier;
         replayData.header.dupFlag = true;
-        const packet = encodePublishPacket(replayData, this.connData.header.protocolVersion);
+        const packet = encodePacket(replayData, this.connData.header.protocolVersion);
         this.socket.write(packet);
       } else if (item.type === 'pubrel') {
         await this.handlePubRel({
@@ -342,7 +335,7 @@ export class MqttClient {
       connAckData.properties.assignedClientIdentifier = connData.payload.clientIdentifier;
       this.clientIdentifier = connData.payload.clientIdentifier;
     }
-    const connPacket = encodeConnAck(connAckData, this.connData.header.protocolVersion);
+    const connPacket = encodePacket(connAckData, this.connData.header.protocolVersion);
     this.socket.write(connPacket);
     if (reasonCode === ConnectAckReasonCode.UnsupportedProtocolVersion) {
       this.socket.end();
@@ -438,7 +431,7 @@ export class MqttClient {
    * @param properties - MQTT 5 disconnect properties.
    */
   public async handleDisconnect(reasonCode: DisconnectReasonCode, properties: IDisconnectProperties = {}) {
-    const disconnectPacket = encodeDisconnect(
+    const disconnectPacket = encodePacket(
       {
         header: {
           packetType: PacketType.DISCONNECT,
@@ -672,7 +665,7 @@ export class MqttClient {
       }
     }
     pubData.header.retain = false;
-    const pubPacket = encodePublishPacket(pubData, this.connData.header.protocolVersion);
+    const pubPacket = encodePacket(pubData, this.connData.header.protocolVersion);
     this.socket.write(pubPacket);
     if (targetPacketIdentifier !== undefined) {
       this.qosRetry.registerPendingPacket(this, targetPacketIdentifier, pubPacket);
@@ -684,7 +677,7 @@ export class MqttClient {
    * @param pubAckData - PUBACK payload and reason.
    */
   async handlePubAck(pubAckData: IPubAckData) {
-    const pubAckPacket = encodePubControlPacket(pubAckData, this.connData.header.protocolVersion);
+    const pubAckPacket = encodePacket(pubAckData, this.connData.header.protocolVersion);
     this.socket.write(pubAckPacket);
   }
   /**
@@ -693,7 +686,7 @@ export class MqttClient {
    * @param pubRecData - PUBREC payload and reason.
    */
   async handlePubRec(pubRecData: IPubRecData) {
-    const pubRecPacket = encodePubControlPacket(pubRecData, this.connData.header.protocolVersion);
+    const pubRecPacket = encodePacket(pubRecData, this.connData.header.protocolVersion);
     this.socket.write(pubRecPacket);
   }
   /**
@@ -731,7 +724,7 @@ export class MqttClient {
     const compPacket = Buffer.from([
       PacketType.PUBCOMP << 4,
       ...encodeVariableByteInteger(3 + (this.connData.header.protocolVersion === ProtocolVersion.V5 ? properties.length : 0)),
-      ...integerToTwoUint8(pubCompData.header.packetIdentifier),
+      ...encodeTwoByteInteger(pubCompData.header.packetIdentifier),
       PubCompReasonCode.Success,
       ...(this.connData.header.protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
     ]);
@@ -765,7 +758,7 @@ export class MqttClient {
     const pubRelPacket = Buffer.from([
       (PacketType.PUBREL << 4) | 0x02,
       ...encodeVariableByteInteger(3 + properties.length),
-      ...integerToTwoUint8(pubRecData.header.packetIdentifier),
+      ...encodeTwoByteInteger(pubRecData.header.packetIdentifier),
       PubCompReasonCode.Success,
       ...properties.buffer,
     ]);
@@ -884,7 +877,7 @@ export class MqttClient {
    * @param subAckData - Per-subscription reason codes and packet id.
    */
   public async handleSubAck(subAckData: ISubAckData) {
-    const subAckPacket = encodeSubAckPacket(subAckData, this.connData.header.protocolVersion);
+    const subAckPacket = encodePacket(subAckData, this.connData.header.protocolVersion);
     this.socket.write(subAckPacket);
   }
   /**
@@ -925,7 +918,7 @@ export class MqttClient {
     const unsubscribePacket = Buffer.from([
       PacketType.UNSUBACK << 4,
       ...encodeVariableByteInteger(remainingLength),
-      ...integerToTwoUint8(unsubscribeData.header.packetIdentifier),
+      ...encodeTwoByteInteger(unsubscribeData.header.packetIdentifier),
       ...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
       ...reasonCodes,
     ]);

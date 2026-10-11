@@ -18,6 +18,7 @@
     "pmessage",
     "PSUBSCRIBE",
     "PUBACK",
+    "PUBCOMP",
     "PUBREC",
     "PUBREL",
     "PUNSUBSCRIBE",

@@ -1,5 +1,6 @@
-import { StreamFramer, probeFrameLength, encodeVariableByteInteger, encodePublishPacket } from '../parse';
+import { StreamFramer, encodePacket, probeFrameLength } from '../packet';
 import { IPublishData, PacketType, ProtocolVersion, QoSType } from '../interface';
+import { encodeVariableByteInteger } from '../dataRepresentations';
 
 function makePingReqPacket(): Buffer {
   return Buffer.from([PacketType.PINGREQ << 4, 0x00]);
@@ -18,7 +19,7 @@ function makePublishPacket(topic: string, payload: string, qos: QoSType = QoSTyp
     properties: {},
     payload,
   };
-  return encodePublishPacket(pubData, ProtocolVersion.V5);
+  return encodePacket(pubData, ProtocolVersion.V5);
 }
 
 function makeDisconnectPacket(): Buffer {

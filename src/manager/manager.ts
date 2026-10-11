@@ -13,8 +13,8 @@ import {
   ProtocolVersion,
   QoSType,
 } from '../interface';
-import { encodeDisconnect } from '../parse';
 import { MqttClient } from '../mqttClient';
+import { encodePacket } from '../packet';
 
 /** MQTT topic filter or name (string). */
 export type TTopic = string;
@@ -275,9 +275,7 @@ export abstract class Manager {
     // TODO: [MQTT-3.1.2.5] If the existing Client has a Will Message, that Will Message is published as described in section 3.1.2.5.
     const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getClient(clientIdentifier) : clientIdentifier;
     if (client) {
-      client.socket.end(
-        Buffer.from(disconnectData ? encodeDisconnect(disconnectData, client.connData.header.protocolVersion ?? protocolVersion) : []),
-      );
+      client.socket.end(Buffer.from(disconnectData ? encodePacket(disconnectData, client.connData.header.protocolVersion ?? protocolVersion) : []));
     }
   }
 

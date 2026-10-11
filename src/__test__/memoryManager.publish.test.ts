@@ -2,7 +2,7 @@ import { IMqttOptions, PacketType, ProtocolVersion, QoSType, type IConnectData, 
 import { type TSocket, type TSubscribeData } from '../manager/manager';
 import { MemoryManager } from '../manager/memoryManager';
 import { MqttClient } from '../mqttClient';
-import { parsePublish } from '../parse';
+import { decodePacket } from '../packet';
 
 const mqttDefaultOptions: Required<IMqttOptions> = {
   protocolName: 'MQTT',
@@ -50,11 +50,6 @@ function mockClient(id: string, writes: Buffer[], manager: MemoryManager): MqttC
     },
   };
   return client;
-  // return {
-  //   socket,
-  //   clientIdentifier: id,
-  //   packetIdentifierManager: new ClientPacketIdentifierManager(60),
-  // } as unknown as MqttClient;
 }
 
 function connectData(id: string): IConnectData {
@@ -100,21 +95,7 @@ function publishData(topic: string): IPublishData {
 
 function subscriptionIds(packets: Buffer[]): number[] {
   return packets.flatMap((packet) => {
-    const parsed = parsePublish(
-      packet,
-      {
-        header: {
-          packetType: PacketType.PUBLISH,
-          dupFlag: false,
-          qosLevel: QoSType.QoS0,
-          retain: false,
-          topicName: '',
-        },
-        properties: {},
-        payload: '',
-      },
-      ProtocolVersion.V5,
-    );
+    const parsed = decodePacket(packet, ProtocolVersion.V5) as IPublishData;
     return parsed.properties.subscriptionIdentifier ?? [];
   });
 }

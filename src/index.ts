@@ -40,7 +40,7 @@ import {
   ProtocolVersion,
   QoSType,
 } from './interface';
-import { StreamFramer } from './parse';
+import { StreamFramer } from './packet';
 import { Manager, TMqttSocketEventMap, TMqttSocketListener, TSocket } from './manager/manager';
 import { MqttClient } from './mqttClient';
 
@@ -747,7 +747,8 @@ export * from './manager/manager';
 export * from './manager/memoryManager';
 export * from './manager/redisManager';
 export * from './manager/redis2Manager';
-export * from './parse';
+export * from './packet';
+export * from './dataRepresentations';
 export * from './property';
 export * from './mqttClient';
 export * from './utils';

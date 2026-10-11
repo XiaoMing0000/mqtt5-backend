@@ -1,3 +1,19 @@
+import {
+  decodeBinaryData,
+  decodeFourByteInteger,
+  decodeOneByteInteger,
+  decodeTwoByteInteger,
+  decodeUtf8String,
+  decodeUtf8StringPair,
+  decodeVariableByteInteger,
+  encodeBinaryData,
+  encodeFourByteInteger,
+  encodeOneByteInteger,
+  encodeTwoByteInteger,
+  encodeUTF8String,
+  encodeVariableByteInteger,
+  variableByteIntegerLength,
+} from './dataRepresentations';
 import { DisconnectException, DisconnectReasonCode } from './exception';
 import {
   BufferData,
@@ -18,23 +34,8 @@ import {
   PropertyDataMap,
   PropertyIdentifier,
   IConnectWillProperties,
+  TPropertyIdentifier,
 } from './interface';
-import {
-  binaryData,
-  fourByteInteger,
-  integerToFourUint8,
-  integerToOneUint8,
-  integerToTwoUint8,
-  oneByteInteger,
-  stringToVariableByteInteger,
-  twoByteInteger,
-  encodeBinaryData,
-  encodeUTF8String,
-  utf8DecodedString,
-  utf8StringPair,
-  variableByteInteger,
-  encodeVariableByteInteger,
-} from './parse';
 
 /**
  * Parses MQTT 5.0 properties from a buffer of consecutive identifier/value pairs (the property list only).
@@ -46,7 +47,7 @@ import {
  * @param index - Optional start offset in `buffer` (defaults to 0)
  * @returns Parsed property bag (`IProperties`)
  */
-export function parseProperties(buffer: Buffer, index?: number) {
+function parseProperties(buffer: Buffer, index?: number): IProperties {
   const properties: IProperties = {};
   const data: BufferData = { buffer, index: index ? index : 0 };
   for (data.index; data.index < buffer.length; data.index) {
@@ -59,42 +60,42 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include the Payload Format Indicator more than once.',
           );
         }
-        properties.payloadFormatIndicator = oneByteInteger(data);
+        properties.payloadFormatIndicator = decodeOneByteInteger(data);
         break;
       case PropertyIdentifier.messageExpiryInterval:
         data.index++;
         if (properties.messageExpiryInterval != undefined) {
           throw new DisconnectException(
             DisconnectReasonCode.ProtocolError,
-            'It is a Protocol Error to include the Payload Format Indicator more than once.',
+            'It is a Protocol Error to include the Message Expiry Interval more than once.',
           );
         }
-        properties.messageExpiryInterval = fourByteInteger(data);
+        properties.messageExpiryInterval = decodeFourByteInteger(data);
         break;
       case PropertyIdentifier.contentType:
         data.index++;
         if (properties.contentType) {
           throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'It is a Protocol Error to include the Content Type more than once.');
         }
-        properties.contentType = utf8DecodedString(data);
+        properties.contentType = decodeUtf8String(data);
         break;
       case PropertyIdentifier.responseTopic:
         data.index++;
         if (properties.responseTopic) {
           throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'It is a Protocol Error to include the Content Type more than once.');
         }
-        properties.responseTopic = utf8DecodedString(data);
+        properties.responseTopic = decodeUtf8String(data);
         break;
       case PropertyIdentifier.correlationData:
         data.index++;
         if (properties.correlationData) {
           throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'It is a Protocol Error to include Correlation Data more than once.');
         }
-        properties.correlationData = binaryData(data);
+        properties.correlationData = decodeBinaryData(data);
         break;
       case PropertyIdentifier.subscriptionIdentifier:
         data.index++;
-        const subscriptionIdentifier = variableByteInteger(data, 4);
+        const subscriptionIdentifier = decodeVariableByteInteger(data, 4);
 
         if (subscriptionIdentifier == 0) {
           throw new DisconnectException(
@@ -112,7 +113,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include the Session Expiry Interval more than once.',
           );
         }
-        properties.sessionExpiryInterval = fourByteInteger(data);
+        properties.sessionExpiryInterval = decodeFourByteInteger(data);
         break;
       case PropertyIdentifier.assignedClientIdentifier:
         data.index++;
@@ -122,7 +123,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include the Assigned Client Identifier more than once.',
           );
         }
-        properties.assignedClientIdentifier = utf8DecodedString(data);
+        properties.assignedClientIdentifier = decodeUtf8String(data);
         break;
       case PropertyIdentifier.serverKeepAlive:
         data.index++;
@@ -132,7 +133,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include the Server Keep Alive more than once.',
           );
         }
-        properties.serverKeepAlive = twoByteInteger(data);
+        properties.serverKeepAlive = decodeTwoByteInteger(data);
         break;
       case PropertyIdentifier.authenticationMethod:
         data.index++;
@@ -142,7 +143,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include Authentication Method more than once.',
           );
         }
-        properties.authenticationMethod = utf8DecodedString(data);
+        properties.authenticationMethod = decodeUtf8String(data);
         break;
       case PropertyIdentifier.authenticationData:
         data.index++;
@@ -152,7 +153,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include Authentication Method more than once.',
           );
         }
-        properties.authenticationData = utf8DecodedString(data);
+        properties.authenticationData = decodeUtf8String(data);
         break;
       case PropertyIdentifier.requestProblemInformation:
         data.index++;
@@ -162,7 +163,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include Request Problem Information more than once, or to have a value other than 0 or 1.',
           );
         }
-        properties.requestProblemInformation = !!oneByteInteger(data);
+        properties.requestProblemInformation = !!decodeOneByteInteger(data);
         break;
       case PropertyIdentifier.willDelayInterval:
         data.index++;
@@ -172,7 +173,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include the Will Delay Interval more than once. ',
           );
         }
-        properties.willDelayInterval = fourByteInteger(data);
+        properties.willDelayInterval = decodeFourByteInteger(data);
         break;
       case PropertyIdentifier.requestResponseInformation:
         data.index++;
@@ -182,7 +183,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is Protocol Error to include the Request Response Information more than once, or to have a value other than 0 or 1.',
           );
         }
-        properties.requestResponseInformation = !!oneByteInteger(data);
+        properties.requestResponseInformation = !!decodeOneByteInteger(data);
         break;
       case PropertyIdentifier.responseInformation:
         data.index++;
@@ -192,7 +193,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include the Response Information more than once.',
           );
         }
-        properties.responseInformation = utf8DecodedString(data);
+        properties.responseInformation = decodeUtf8String(data);
         break;
       case PropertyIdentifier.serverReference:
         data.index++;
@@ -202,7 +203,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include the Response Information more than once.',
           );
         }
-        properties.serverReference = utf8DecodedString(data);
+        properties.serverReference = decodeUtf8String(data);
         break;
       case PropertyIdentifier.reasonString:
         data.index++;
@@ -212,7 +213,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include Authentication Method more than once.',
           );
         }
-        properties.reasonString = utf8DecodedString(data);
+        properties.reasonString = decodeUtf8String(data);
         break;
       case PropertyIdentifier.receiveMaximum:
         data.index++;
@@ -222,17 +223,17 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include the Receive Maximum value more than once or for it to have the value 0.',
           );
         }
-        properties.receiveMaximum = twoByteInteger(data);
+        properties.receiveMaximum = decodeTwoByteInteger(data);
         break;
       case PropertyIdentifier.topicAliasMaximum:
         data.index++;
         if (properties.topicAliasMaximum != undefined) {
           throw new DisconnectException(
             DisconnectReasonCode.ProtocolError,
-            't is a Protocol Error to include the Topic Alias Maximum value more than once.',
+            'It is a Protocol Error to include the Topic Alias Maximum value more than once.',
           );
         }
-        properties.topicAliasMaximum = twoByteInteger(data);
+        properties.topicAliasMaximum = decodeTwoByteInteger(data);
         break;
       case PropertyIdentifier.topicAlias:
         data.index++;
@@ -242,7 +243,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include the Topic Alias value more than once.',
           );
         }
-        properties.topicAlias = twoByteInteger(data);
+        properties.topicAlias = decodeTwoByteInteger(data);
         break;
       case PropertyIdentifier.maximumQoS:
         data.index++;
@@ -252,7 +253,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include Maximum QoS more than once, or to have a value other than 0 or 1.',
           );
         }
-        properties.maximumQoS = !!oneByteInteger(data);
+        properties.maximumQoS = !!decodeOneByteInteger(data);
         break;
       case PropertyIdentifier.retainAvailable:
         data.index++;
@@ -262,11 +263,11 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include Retain Available more than once or to use a value other than 0 or 1.',
           );
         }
-        properties.retainAvailable = !!oneByteInteger(data);
+        properties.retainAvailable = !!decodeOneByteInteger(data);
         break;
       case PropertyIdentifier.userProperty: {
         data.index++;
-        const { key, value } = utf8StringPair(data);
+        const { key, value } = decodeUtf8StringPair(data);
         if (!properties.userProperty) {
           properties.userProperty = {
             [key]: value,
@@ -284,7 +285,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include the Maximum Packet Size more than once, or for the value to be set to zero.',
           );
         }
-        properties.maximumPacketSize = fourByteInteger(data);
+        properties.maximumPacketSize = decodeFourByteInteger(data);
         break;
       case PropertyIdentifier.wildcardSubscriptionAvailable:
         data.index++;
@@ -294,7 +295,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include the Wildcard Subscription Available more than once or to send a value other than 0 or 1.',
           );
         }
-        properties.wildcardSubscriptionAvailable = !!oneByteInteger(data);
+        properties.wildcardSubscriptionAvailable = !!decodeOneByteInteger(data);
         break;
       case PropertyIdentifier.subscriptionIdentifierAvailable:
         data.index++;
@@ -304,7 +305,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include the Subscription Identifier Available more than once, or to send a value other than 0 or 1.',
           );
         }
-        properties.subscriptionIdentifierAvailable = !!oneByteInteger(data);
+        properties.subscriptionIdentifierAvailable = !!decodeOneByteInteger(data);
         break;
       case PropertyIdentifier.sharedSubscriptionAvailable:
         data.index++;
@@ -314,7 +315,7 @@ export function parseProperties(buffer: Buffer, index?: number) {
             'It is a Protocol Error to include the Shared Subscription Available more than once or to send a value other than 0 or 1.',
           );
         }
-        properties.sharedSubscriptionAvailable = !!oneByteInteger(data);
+        properties.sharedSubscriptionAvailable = !!decodeOneByteInteger(data);
         break;
       default:
         // Unknown id: skip the rest of this property slice (callers pass bounded buffers)
@@ -489,12 +490,12 @@ export function parseAuthProperties(buffer: Buffer, index?: number) {
  * @param data - Value whose shape matches `PropertyDataMap[id]`
  * @returns Byte sequence: property id followed by encoded value(s); empty array if `id` is not handled
  */
-export function encodeProperties<K extends keyof PropertyDataMap>(id: K, data: PropertyDataMap[K]): Array<number> {
+function encodeProperties<K extends keyof PropertyDataMap>(id: K, data: PropertyDataMap[K]): Array<number> {
   switch (id) {
     case PropertyIdentifier.payloadFormatIndicator:
-      return [PropertyIdentifier.payloadFormatIndicator, integerToOneUint8(data as number)];
+      return [PropertyIdentifier.payloadFormatIndicator, encodeOneByteInteger(data as number)];
     case PropertyIdentifier.messageExpiryInterval:
-      return [PropertyIdentifier.messageExpiryInterval, ...integerToFourUint8(data as number)];
+      return [PropertyIdentifier.messageExpiryInterval, ...encodeFourByteInteger(data as number)];
     case PropertyIdentifier.contentType:
       return [PropertyIdentifier.contentType, ...encodeUTF8String(data as string)];
     case PropertyIdentifier.responseTopic:
@@ -510,23 +511,23 @@ export function encodeProperties<K extends keyof PropertyDataMap>(id: K, data: P
         data.map((item) => buffer.push(PropertyIdentifier.subscriptionIdentifier, ...encodeVariableByteInteger(item)));
         return buffer;
       }
-      return [PropertyIdentifier.subscriptionIdentifier, ...stringToVariableByteInteger(data as string)];
+      return [PropertyIdentifier.subscriptionIdentifier, ...encodeUTF8String(data as string)];
     case PropertyIdentifier.sessionExpiryInterval:
-      return [PropertyIdentifier.sessionExpiryInterval, ...integerToFourUint8(data as number)];
+      return [PropertyIdentifier.sessionExpiryInterval, ...encodeFourByteInteger(data as number)];
     case PropertyIdentifier.assignedClientIdentifier:
       return [PropertyIdentifier.assignedClientIdentifier, ...encodeUTF8String(data as string)];
     case PropertyIdentifier.serverKeepAlive:
-      return [PropertyIdentifier.serverKeepAlive, ...integerToTwoUint8(data as number)];
+      return [PropertyIdentifier.serverKeepAlive, ...encodeTwoByteInteger(data as number)];
     case PropertyIdentifier.authenticationMethod:
       return [PropertyIdentifier.authenticationMethod, ...encodeUTF8String(data as string)];
     case PropertyIdentifier.authenticationData:
       return [PropertyIdentifier.authenticationData, ...encodeUTF8String(data as string)];
     case PropertyIdentifier.requestProblemInformation:
-      return [PropertyIdentifier.requestProblemInformation, integerToOneUint8(data as number)];
+      return [PropertyIdentifier.requestProblemInformation, encodeOneByteInteger(data as number)];
     case PropertyIdentifier.willDelayInterval:
-      return [PropertyIdentifier.willDelayInterval, ...integerToFourUint8(data as number)];
+      return [PropertyIdentifier.willDelayInterval, ...encodeFourByteInteger(data as number)];
     case PropertyIdentifier.requestResponseInformation:
-      return [PropertyIdentifier.requestResponseInformation, integerToOneUint8(data as number)];
+      return [PropertyIdentifier.requestResponseInformation, encodeOneByteInteger(data as number)];
     case PropertyIdentifier.responseInformation:
       return [PropertyIdentifier.responseInformation, ...encodeUTF8String(data as string)];
     case PropertyIdentifier.serverReference:
@@ -534,15 +535,15 @@ export function encodeProperties<K extends keyof PropertyDataMap>(id: K, data: P
     case PropertyIdentifier.reasonString:
       return [PropertyIdentifier.reasonString, ...encodeUTF8String(data as string)];
     case PropertyIdentifier.receiveMaximum:
-      return [PropertyIdentifier.receiveMaximum, ...integerToTwoUint8(data as number)];
+      return [PropertyIdentifier.receiveMaximum, ...encodeTwoByteInteger(data as number)];
     case PropertyIdentifier.topicAliasMaximum:
-      return [PropertyIdentifier.topicAliasMaximum, ...integerToTwoUint8(data as number)];
+      return [PropertyIdentifier.topicAliasMaximum, ...encodeTwoByteInteger(data as number)];
     case PropertyIdentifier.topicAlias:
-      return [PropertyIdentifier.topicAlias, ...integerToTwoUint8(data as number)];
+      return [PropertyIdentifier.topicAlias, ...encodeTwoByteInteger(data as number)];
     case PropertyIdentifier.maximumQoS:
-      return [PropertyIdentifier.maximumQoS, integerToOneUint8(data as number)];
+      return [PropertyIdentifier.maximumQoS, encodeOneByteInteger(data as number)];
     case PropertyIdentifier.retainAvailable:
-      return [PropertyIdentifier.retainAvailable, integerToOneUint8(data as number)];
+      return [PropertyIdentifier.retainAvailable, encodeOneByteInteger(data as number)];
     case PropertyIdentifier.userProperty: {
       const buffer: Array<number> = [];
       const userPropertyData = data as IProperties['userProperty'];
@@ -552,14 +553,62 @@ export function encodeProperties<K extends keyof PropertyDataMap>(id: K, data: P
       return buffer;
     }
     case PropertyIdentifier.maximumPacketSize:
-      return [PropertyIdentifier.maximumPacketSize, ...integerToFourUint8(data as number)];
+      return [PropertyIdentifier.maximumPacketSize, ...encodeFourByteInteger(data as number)];
     case PropertyIdentifier.wildcardSubscriptionAvailable:
-      return [PropertyIdentifier.wildcardSubscriptionAvailable, integerToOneUint8(data as number)];
+      return [PropertyIdentifier.wildcardSubscriptionAvailable, encodeOneByteInteger(data as number)];
     case PropertyIdentifier.subscriptionIdentifierAvailable:
-      return [PropertyIdentifier.subscriptionIdentifierAvailable, integerToOneUint8(data as number)];
+      return [PropertyIdentifier.subscriptionIdentifierAvailable, encodeOneByteInteger(data as number)];
     case PropertyIdentifier.sharedSubscriptionAvailable:
-      return [PropertyIdentifier.sharedSubscriptionAvailable, integerToOneUint8(data as number)];
+      return [PropertyIdentifier.sharedSubscriptionAvailable, encodeOneByteInteger(data as number)];
     default:
       return [];
+  }
+}
+
+/**
+ * Accumulates MQTT 5 property bytes and builds the prefixed property length + payload for the wire format.
+ */
+export class EncoderProperties {
+  private propertyLength: number = 0;
+  private properties: Array<number> = [];
+
+  /**
+   * Appends one property (identifier + value) using the shared encoder from `property.ts`.
+   * @param identifier - Property identifier enum value.
+   * @param data - Typed value for that property.
+   */
+  add<K extends TPropertyIdentifier>(identifier: K, data: PropertyDataMap[K]) {
+    const list = encodeProperties(identifier, data);
+    this.properties.push(...list);
+    this.propertyLength += list.length;
+  }
+
+  /**
+   * Adds all defined entries from a properties object (skips `undefined` fields).
+   * @param properties - Partial property bag keyed by logical names.
+   */
+  push(properties: IProperties) {
+    for (const key in properties) {
+      if (properties[key as keyof IProperties] === undefined) {
+        continue;
+      }
+      this.add(PropertyIdentifier[key as keyof typeof PropertyIdentifier], properties[key as keyof IProperties] as any);
+    }
+  }
+
+  /**
+   * Serialized property block: Variable Byte Integer (property length) followed by encoded properties.
+   * @returns A `Buffer` ready to append after fixed header / other fields as required by the packet type.
+   */
+  get buffer() {
+    return Buffer.from([...encodeVariableByteInteger(this.propertyLength), ...this.properties]);
+  }
+
+  /**
+   * Total size on the wire for the property section: raw property bytes plus the Variable Byte Integer that prefixes them.
+   * @returns Octet count for length-prefix + properties.
+   */
+  get length() {
+    return this.propertyLength + variableByteIntegerLength(this.propertyLength);
   }
 }

@@ -1,6 +1,6 @@
 import net from 'net';
 import type { WebSocket, Data } from 'ws';
-import { StreamFramer } from './parse';
+import { StreamFramer } from './packet';
 
 /**
  * Adapts a `ws` {@link WebSocket} to a {@link net.Socket}-like interface for MQTT framing.
