@@ -464,7 +464,7 @@ export class MqttClient {
    * @remarks
    * TODO: Full retained-will lifecycle (store when no subscribers, expiry, distinction vs ordinary retain) is not implemented here.
    */
-  public async publishWillMessage() {
+  public async publishWillMessage(emitAsync: TMqttClientEmitAsync) {
     if (this.connData.connectFlags.willFlag && this.errorDisconnect) {
       const willPayload = this.connData.payload.willPayload;
       const willData: IPublishData = {
@@ -489,14 +489,14 @@ export class MqttClient {
             if (messageExpiry > 0 && Date.now() > disconnectedAt + messageExpiry * 1000) {
               return;
             }
-            this.sendWillMessage(willData);
+            this.sendWillMessage(willData, emitAsync);
           }
         }, delayInterval * 1000);
       } else {
         if (messageExpiry > 0 && Date.now() > disconnectedAt + messageExpiry * 1000) {
           return;
         }
-        this.sendWillMessage(willData);
+        this.sendWillMessage(willData, emitAsync);
       }
     }
   }
@@ -505,11 +505,11 @@ export class MqttClient {
    *
    * @param willData - Will as a normal outbound publish.
    */
-  private sendWillMessage(willData: IPublishData) {
+  private sendWillMessage(willData: IPublishData, emitAsync: TMqttClientEmitAsync) {
     if (this.connData.connectFlags.willQoS > QoSType.QoS0) {
       willData.header.packetIdentifier = this.packetIdentifierManager.newPacketIdentifier();
     }
-    this.clientManager.publish(this.clientIdentifier, willData.header.topicName, willData);
+    this.publishHandle(willData, emitAsync);
   }
   /**
    * Validates and forwards an inbound PUBLISH from the client; sends PUBACK/PUBREC as required.

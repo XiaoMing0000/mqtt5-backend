@@ -504,7 +504,7 @@ class MqttEvent {
       this.clientManager.clearConnect(client);
       // Defer will message publish so it does not block the close handler.
       setImmediate(() => {
-        client.publishWillMessage().catch((err) => {
+        client.publishWillMessage(this.clientEmitAsync).catch((err) => {
           console.error('Error publishing will message:', err.message);
         });
       });
