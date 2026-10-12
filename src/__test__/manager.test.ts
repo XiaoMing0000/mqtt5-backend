@@ -148,22 +148,21 @@ describe('ClientPacketIdentifierManager', () => {
     vi.useRealTimers();
   });
 
-  test('newPacketIdentifier allocates increasing ids in 1..0xffff and stores expiry', () => {
+  test('newPacketIdentifier allocates decreasing ids from receiveMaximum and stores expiry', () => {
     const mgr = new ClientPacketIdentifierManager(30, 0xffff);
     const now = Date.now();
     vi.setSystemTime(now);
 
-    // ++dynamicId & 0xffff, falling back to 1 when the mask yields 0
-    expect(mgr.newPacketIdentifier()).toBe(1);
-    expect(mgr.newPacketIdentifier()).toBe(2);
-    expect(mgr.newPacketIdentifier()).toBe(3);
+    expect(mgr.newPacketIdentifier()).toBe(0xffff);
+    expect(mgr.newPacketIdentifier()).toBe(0xffff - 1);
+    expect(mgr.newPacketIdentifier()).toBe(0xffff - 2);
 
-    expect(mgr.get(1)).toBe(now + 30_000);
-    expect(mgr.get(2)).toBe(now + 30_000);
-    expect(mgr.get(3)).toBe(now + 30_000);
+    expect(mgr.get(0xffff)).toBe(now + 30_000);
+    expect(mgr.get(0xffff - 1)).toBe(now + 30_000);
+    expect(mgr.get(0xffff - 2)).toBe(now + 30_000);
   });
 
-  test('newPacketIdentifier stays within 1..0xffff and never returns 0', () => {
+  test('newPacketIdentifier decrements sequentially from receiveMaximum', () => {
     const mgr = new ClientPacketIdentifierManager(30, 0xffff);
     const ids = Array.from({ length: 128 }, () => mgr.newPacketIdentifier());
 
@@ -171,30 +170,37 @@ describe('ClientPacketIdentifierManager', () => {
       expect(id).toBeGreaterThanOrEqual(1);
       expect(id).toBeLessThanOrEqual(0xffff);
     }
-    expect(ids).toEqual(Array.from({ length: 128 }, (_, i) => i + 1));
+    expect(ids).toEqual(Array.from({ length: 128 }, (_, i) => 0xffff - i));
   });
 
-  test('newPacketIdentifier wraps from 0xffff back to 1', () => {
-    const mgr = new ClientPacketIdentifierManager(30, 0xffff);
-    let id = 0;
-    for (let i = 0; i < 0xffff; i++) {
-      id = mgr.newPacketIdentifier();
-    }
-    expect(id).toBe(0xffff);
-    expect(mgr.newPacketIdentifier()).toBe(1);
+  test('newPacketIdentifier stops at 0 when send quota is exhausted', () => {
+    const mgr = new ClientPacketIdentifierManager(30, 3);
+    expect(mgr.newPacketIdentifier()).toBe(3);
     expect(mgr.newPacketIdentifier()).toBe(2);
+    expect(mgr.newPacketIdentifier()).toBe(1);
+    expect(mgr.newPacketIdentifier()).toBe(0);
+    expect(mgr.newPacketIdentifier()).toBe(0);
   });
 
-  test('newPacketIdentifier resumes from 1 after dynamicId is set to 0xfffe', () => {
+  test('newPacketIdentifier returns 0 when send quota (receiveMaximum) is reached', () => {
+    const mgr = new ClientPacketIdentifierManager(30, 2);
+    expect(mgr.newPacketIdentifier()).toBe(2);
+    expect(mgr.newPacketIdentifier()).toBe(1);
+    expect(mgr.newPacketIdentifier()).toBe(0);
+    expect(mgr.newPacketIdentifier()).toBe(0);
+  });
+
+  test('newPacketIdentifier decrements dynamicId until reaching 0', () => {
     const mgr = new ClientPacketIdentifierManager(30, 0xffff);
-    (mgr as unknown as { dynamicId: number }).dynamicId = 0xfffe;
+    (mgr as unknown as { dynamicId: number }).dynamicId = 2;
 
     const id1 = mgr.newPacketIdentifier();
     const id2 = mgr.newPacketIdentifier();
+    const id3 = mgr.newPacketIdentifier();
 
-    // 0xfffe → 0xffff, then mask yields 0 and falls back to 1
-    expect(id1).toBe(0xffff);
-    expect(id2).toBe(1);
+    expect(id1).toBe(1);
+    expect(id2).toBe(0);
+    expect(id3).toBe(0);
   });
 
   test('clearExpiredIdentifiers removes only expired entries', () => {
@@ -202,14 +208,14 @@ describe('ClientPacketIdentifierManager', () => {
     const now = Date.now();
     vi.setSystemTime(now);
 
-    const idExpired = mgr.newPacketIdentifier(); // 1
-    expect(idExpired).toBe(1);
+    const idExpired = mgr.newPacketIdentifier(); // 0xfff
+    expect(idExpired).toBe(0xfff);
 
     vi.setSystemTime(now + 500);
-    const idAlive = mgr.newPacketIdentifier(); // 2
-    expect(idAlive).toBe(2);
+    const idAlive = mgr.newPacketIdentifier(); // 0xffe
+    expect(idAlive).toBe(0xffe);
 
-    // id 1 expired at now+1000; id 2 expires at now+500+1000
+    // idExpired expired at now+1000; idAlive expires at now+500+1000
     vi.setSystemTime(now + 1_100);
     mgr.clearExpiredIdentifiers();
 

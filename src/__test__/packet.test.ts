@@ -1,7 +1,7 @@
 import { decodePacket, encodePacket, probeFrameLength } from '../packet';
-import { PacketType, ProtocolVersion, QoSType } from '../interface';
+import { PacketType, ProtocolVersion, QoSType, PropertyIdentifier } from '../interface';
 import { DisconnectException, DisconnectReasonCode } from '../exception';
-import type { IPublishData, IPubAckData, IDisconnectData, IUnsubscribeData, IConnAckData, ISubAckData } from '../interface';
+import type { IPublishData, IPubAckData, IDisconnectData, IUnsubscribeData, IConnAckData, ISubAckData, IAuthData } from '../interface';
 import { encodeUTF8String, encodeVariableByteInteger } from '../dataRepresentations';
 
 describe('packet', () => {
@@ -113,6 +113,65 @@ describe('packet', () => {
       const result = decodePacket(buffer, ProtocolVersion.V5);
       expect(result.header.packetType).toBe(PacketType.UNSUBSCRIBE);
       expect((result as IUnsubscribeData).payloads).toEqual(['a/b']);
+    });
+
+    test('throws ProtocolError if PUBLISH topic name is empty and no topic alias in MQTT 5', () => {
+      const topic = encodeUTF8String('');
+      const body = [...topic, 0x00];
+      const buffer = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(body.length), ...body]);
+      expect(() => decodePacket(buffer, ProtocolVersion.V5)).toThrow(DisconnectException);
+      try {
+        decodePacket(buffer, ProtocolVersion.V5);
+      } catch (error) {
+        expect((error as DisconnectException).code).toBe(DisconnectReasonCode.ProtocolError);
+      }
+    });
+
+    test('throws ProtocolError if PUBLISH topic name is empty in MQTT 3.1.1', () => {
+      const topic = encodeUTF8String('');
+      const body = [...topic];
+      const buffer = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(body.length), ...body]);
+      expect(() => decodePacket(buffer, ProtocolVersion.V3_1_1)).toThrow(DisconnectException);
+      try {
+        decodePacket(buffer, ProtocolVersion.V3_1_1);
+      } catch (error) {
+        expect((error as DisconnectException).code).toBe(DisconnectReasonCode.ProtocolError);
+      }
+    });
+
+    test('allows empty topic name when topic alias is present in MQTT 5', () => {
+      const topic = encodeUTF8String('');
+      const props = [PropertyIdentifier.topicAlias, 0x00, 0x01];
+      const propsVBI = encodeVariableByteInteger(props.length);
+      const body = [...topic, ...propsVBI, ...props, ...Buffer.from('payload')];
+      const buffer = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(body.length), ...body]);
+      const result = decodePacket(buffer, ProtocolVersion.V5) as IPublishData;
+      expect(result.header.packetType).toBe(PacketType.PUBLISH);
+      expect(result.header.topicName).toBe('');
+      expect(result.properties.topicAlias).toBe(1);
+      expect(result.payload).toBe('payload');
+    });
+
+    test('dispatches DISCONNECT with 0 remaining length', () => {
+      const buffer = Buffer.from([PacketType.DISCONNECT << 4, 0x00]);
+      const result = decodePacket(buffer, ProtocolVersion.V5) as IDisconnectData;
+      expect(result.header.packetType).toBe(PacketType.DISCONNECT);
+      expect(result.header.reasonCode).toBe(0x00);
+    });
+
+    test('dispatches AUTH with 0 remaining length', () => {
+      const buffer = Buffer.from([PacketType.AUTH << 4, 0x00]);
+      const result = decodePacket(buffer, ProtocolVersion.V5) as IAuthData;
+      expect(result.header.packetType).toBe(PacketType.AUTH);
+      expect(result.header.reasonCode).toBe(0x00);
+    });
+
+    test('returns distinct object instances across decodePacket calls', () => {
+      const buffer1 = Buffer.from([PacketType.DISCONNECT << 4, 0x00]);
+      const buffer2 = Buffer.from([PacketType.DISCONNECT << 4, 0x00]);
+      const result1 = decodePacket(buffer1, ProtocolVersion.V5);
+      const result2 = decodePacket(buffer2, ProtocolVersion.V5);
+      expect(result1).not.toBe(result2);
     });
   });
 

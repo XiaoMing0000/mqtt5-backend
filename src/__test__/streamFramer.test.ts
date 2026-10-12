@@ -1,6 +1,6 @@
 import { StreamFramer, encodePacket, probeFrameLength } from '../packet';
 import { IPublishData, PacketType, ProtocolVersion, QoSType } from '../interface';
-import { encodeVariableByteInteger } from '../dataRepresentations';
+import { encodeUTF8String, encodeVariableByteInteger } from '../dataRepresentations';
 
 function makePingReqPacket(): Buffer {
   return Buffer.from([PacketType.PINGREQ << 4, 0x00]);
@@ -129,17 +129,20 @@ describe('StreamFramer', () => {
 
     it('handles incomplete VBI across chunks (variable byte integer 跨 chunk)', () => {
       const framer = new StreamFramer();
-      const remaining = 200;
-      const vbi = encodeVariableByteInteger(remaining);
+      const topic = encodeUTF8String('test/topic');
+      const payload = Buffer.alloc(180);
+      const body = [...topic, 0x00, ...payload];
+      const vbi = encodeVariableByteInteger(body.length);
       expect(vbi.length).toBe(2);
 
-      const fullPacket = Buffer.concat([Buffer.from([0x30, ...vbi]), Buffer.alloc(remaining)]);
+      const fullPacket = Buffer.from([0x30, ...vbi, ...body]);
 
       const chunk1 = fullPacket.subarray(0, 2);
       expect(framer.push(chunk1, ProtocolVersion.V5)).toHaveLength(0);
 
       const packets = framer.push(fullPacket.subarray(2), ProtocolVersion.V5);
       expect(packets).toHaveLength(1);
+      expect((packets[0] as IPublishData).header.topicName).toBe('test/topic');
       expect(framer.bufferedBytes).toBe(0);
     });
 

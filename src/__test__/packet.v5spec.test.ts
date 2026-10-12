@@ -16,8 +16,9 @@ import type {
   IUnsubscribeData,
   IConnAckData,
   ISubAckData,
+  IPubCompData,
 } from '../interface';
-import { DisconnectException, PubAckException } from '../exception';
+import { DisconnectException, DisconnectReasonCode, PubAckException } from '../exception';
 import { decodePacket, encodePacket } from '../packet';
 
 // ─── helpers ────────────────────────────────────────────────────────────
@@ -261,6 +262,42 @@ describe('decodePublish (§3.3 PUBLISH via decodePacket)', () => {
     const buf = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(topic.length), ...topic]);
     expect(() => decodePacket(buf, ProtocolVersion.V5)).toThrow(PubAckException);
   });
+
+  test('throws ProtocolError on zero-length topic name without topic alias in v5 (§3.3.2.1)', () => {
+    const topic = encodeUTF8String('');
+    const body = [...topic, 0x00];
+    const buf = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(body.length), ...body]);
+    expect(() => decodePacket(buf, ProtocolVersion.V5)).toThrow(DisconnectException);
+    try {
+      decodePacket(buf, ProtocolVersion.V5);
+    } catch (err) {
+      expect((err as DisconnectException).code).toBe(DisconnectReasonCode.ProtocolError);
+    }
+  });
+
+  test('parses zero-length topic name with topic alias in v5 (§3.3.2.1)', () => {
+    const topic = encodeUTF8String('');
+    const props = [PropertyIdentifier.topicAlias, 0x00, 0x07];
+    const propsVBI = encodeVariableByteInteger(props.length);
+    const body = [...topic, ...propsVBI, ...props, ...Buffer.from('msg')];
+    const buf = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(body.length), ...body]);
+    const pubData = decodePacket(buf, ProtocolVersion.V5) as IPublishData;
+    expect(pubData.header.topicName).toBe('');
+    expect(pubData.properties.topicAlias).toBe(7);
+    expect(pubData.payload).toBe('msg');
+  });
+
+  test('throws ProtocolError on zero-length topic name in v3.1.1 (§3.3.2.1)', () => {
+    const topic = encodeUTF8String('');
+    const body = [...topic, ...Buffer.from('v311')];
+    const buf = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(body.length), ...body]);
+    expect(() => decodePacket(buf, ProtocolVersion.V3_1_1)).toThrow(DisconnectException);
+    try {
+      decodePacket(buf, ProtocolVersion.V3_1_1);
+    } catch (err) {
+      expect((err as DisconnectException).code).toBe(DisconnectReasonCode.ProtocolError);
+    }
+  });
 });
 
 // ─── §3.4–3.7 PUBACK/PUBREC/PUBREL/PUBCOMP ─────────────────────────────
@@ -285,6 +322,13 @@ describe('decodePubAck (§3.4 via decodePacket)', () => {
     Object.assign(data, decodePacket(buf, ProtocolVersion.V3_1_1));
     expect(data.header.packetIdentifier).toBe(1);
     expect(data.header.reasonCode).toBe(0x10);
+  });
+
+  test('parses minimal PUBACK (remaining=2, success implied, §3.4.2.1)', () => {
+    const buf = Buffer.from([PacketType.PUBACK << 4, 0x02, 0x00, 0x0c]);
+    const data = decodePacket(buf, ProtocolVersion.V5) as IPubAckData;
+    expect(data.header.packetIdentifier).toBe(12);
+    expect(data.header.reasonCode).toBe(0x00);
   });
 });
 
@@ -341,10 +385,16 @@ describe('decodePubComp (§3.7 via decodePacket)', () => {
     const propsVBI = encodeVariableByteInteger(props.length);
     const body = [0x00, 0x0b, 0x00, ...propsVBI, ...props];
     const buf = Buffer.from([PacketType.PUBCOMP << 4, ...encodeVariableByteInteger(body.length), ...body]);
-    const data = emptyPubRecData();
-    Object.assign(data, ProtocolVersion.V5, decodePacket(buf, ProtocolVersion.V5));
+    const data = decodePacket(buf, ProtocolVersion.V5) as IPubCompData;
     expect(data.header.packetIdentifier).toBe(11);
     expect(data.properties.reasonString).toBe('completed');
+  });
+
+  test('parses minimal PUBCOMP (remaining=2, success implied, §3.7.2.1)', () => {
+    const buf = Buffer.from([PacketType.PUBCOMP << 4, 0x02, 0x00, 0x0b]);
+    const data = decodePacket(buf, ProtocolVersion.V5) as IPubCompData;
+    expect(data.header.packetIdentifier).toBe(11);
+    expect(data.header.reasonCode).toBe(0x00);
   });
 });
 
@@ -507,6 +557,13 @@ describe('decodeDisconnect (§3.13 via decodePacket)', () => {
     Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.header.reasonCode).toBe(code);
   });
+
+  test('parses DISCONNECT with 0 remaining length (§3.14.2.1)', () => {
+    const buf = Buffer.from([PacketType.DISCONNECT << 4, 0x00]);
+    const data = decodePacket(buf, ProtocolVersion.V5) as IDisconnectData;
+    expect(data.header.packetType).toBe(PacketType.DISCONNECT);
+    expect(data.header.reasonCode).toBe(0x00);
+  });
 });
 
 // ─── §3.14 AUTH ──────────────────────────────────────────────────────────
@@ -537,6 +594,13 @@ describe('decodeAuth (§3.15 AUTH via decodePacket)', () => {
     Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.properties.authenticationMethod).toBe('SCRAM-SHA-256');
     expect(data.properties.authenticationData).toBe('challenge-data');
+  });
+
+  test('parses AUTH with 0 remaining length (§3.15.2.1)', () => {
+    const buf = Buffer.from([PacketType.AUTH << 4, 0x00]);
+    const data = decodePacket(buf, ProtocolVersion.V5) as IAuthData;
+    expect(data.header.packetType).toBe(PacketType.AUTH);
+    expect(data.header.reasonCode).toBe(0x00);
   });
 });
 

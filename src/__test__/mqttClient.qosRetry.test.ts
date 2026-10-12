@@ -43,7 +43,7 @@ function createClient() {
   const write = vi.fn();
   const socket = { write, end: vi.fn() } as unknown as TSocket;
   const manager = new TestManager();
-  const client = new MqttClient(socket, manager, { packetIdentifierTTL: 60 } as Required<IMqttOptions>);
+  const client = new MqttClient(socket, manager, { packetIdentifierTTL: 60, receiveMaximum: 0xffff } as Required<IMqttOptions>);
   return { client, write, manager };
 }
 
