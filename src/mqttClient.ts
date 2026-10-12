@@ -70,19 +70,22 @@ class ClientQosRetry {
   }
 
   /**
-   * Cancels the resend for `id`, drops the stored frame, and releases the packet identifier.
-   * The identifier is still released when no retry entry exists.
+   * Cancels the resend for `id`, drops the stored frame, and optionally releases the packet identifier.
+   * The identifier is still released when no retry entry exists and `releaseIdentifier` is true.
    *
    * @param client - Connection that owns the packet identifier.
    * @param id - Outbound packet identifier to forget.
+   * @param releaseIdentifier - Whether to release the packet identifier immediately (defaults to true).
    */
-  public clearPendingPacket(client: MqttClient, id: number) {
+  public clearPendingPacket(client: MqttClient, id: number, releaseIdentifier = true) {
     const entry = this.qosRetryMap.get(id);
     if (entry) {
       clearTimeout(entry.timer);
       this.qosRetryMap.delete(id);
     }
-    client.packetIdentifierManager.delete(id);
+    if (releaseIdentifier) {
+      client.packetIdentifierManager.delete(id);
+    }
   }
 
   /**
@@ -109,7 +112,7 @@ class ClientQosRetry {
     }
     const timer = setTimeout(() => {
       // [MQTT-3.3.1-1]  If the DUP flag is set to 1, it indicates that this might be re-delivery of an earlier attempt to send the packet.
-      entry.packet[0] = entry.packet[0] | 0x80;
+      entry.packet[0] = entry.packet[0] | 0x08;
       entry.attempts++;
       client.socket.write(entry.packet);
       if (entry.attempts >= this.qosRetryCount) {
@@ -699,7 +702,7 @@ export class MqttClient {
     if (!this.packetIdentifierManager.has(pubAckData.header.packetIdentifier)) {
       throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'PUBACK contained unknown packet identifier!');
     }
-    this.packetIdentifierManager.delete(pubAckData.header.packetIdentifier);
+    this.qosRetry.clearPendingPacket(this, pubAckData.header.packetIdentifier);
     if (this.clientIdentifier) {
       this.getOutboundQueue(this.clientIdentifier).delete(pubAckData.header.packetIdentifier);
     }
@@ -740,6 +743,8 @@ export class MqttClient {
     if (!this.packetIdentifierManager.has(pubRecData.header.packetIdentifier)) {
       throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'PUBREC contained unknown packet identifier!');
     }
+    // [MQTT-4.3.3-6] MUST NOT re-send the PUBLISH once it has sent the corresponding PUBREL packet.
+    this.qosRetry.clearPendingPacket(this, pubRecData.header.packetIdentifier, false);
     if (this.clientIdentifier) {
       const queue = this.getOutboundQueue(this.clientIdentifier);
       if (queue.has(pubRecData.header.packetIdentifier)) {
@@ -775,8 +780,9 @@ export class MqttClient {
     if (!this.packetIdentifierManager.has(pubCompData.header.packetIdentifier)) {
       throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'PUBCOMP contained unknown packet identifier!');
     }
+    this.qosRetry.clearPendingPacket(this, pubCompData.header.packetIdentifier);
     if (this.clientIdentifier) {
-      this.qosRetry.clearPendingPacket(this, pubCompData.header.packetIdentifier);
+      this.getOutboundQueue(this.clientIdentifier).delete(pubCompData.header.packetIdentifier);
     }
   }
   /**

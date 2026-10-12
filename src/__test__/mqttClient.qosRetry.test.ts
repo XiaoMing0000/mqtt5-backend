@@ -81,6 +81,7 @@ describe('ClientQosRetry', () => {
 
     expect(write).toHaveBeenCalledTimes(1);
     expect(write.mock.calls[0][0]).toBe(packet);
+    expect(write.mock.calls[0][0][0]).toBe(0x3a); // 0x32 | 0x08 (DUP flag bit 3)
     expect(client.packetIdentifierManager.has(id)).toBe(true);
   });
 
@@ -187,5 +188,61 @@ describe('ClientQosRetry', () => {
     expect(write.mock.calls[0][0]).toBe(packet2);
     expect(client.packetIdentifierManager.has(id1)).toBe(false);
     expect(client.packetIdentifierManager.has(id2)).toBe(true);
+  });
+
+  test('pubAckHandle clears pending retry packet', async () => {
+    const packet = Buffer.from([0x32, 0x07, 0x00, 0x01]);
+    const id = client.packetIdentifierManager.newPacketIdentifier();
+    client.qosRetry.registerPendingPacket(client, id, packet);
+
+    await client.pubAckHandle({
+      header: { packetIdentifier: id } as any,
+      properties: {},
+    });
+
+    await vi.advanceTimersByTimeAsync(RETRY_INTERVAL_MS * 2);
+    expect(write).not.toHaveBeenCalled();
+    expect(client.packetIdentifierManager.has(id)).toBe(false);
+  });
+
+  test('pubRecHandle clears pending retry packet', async () => {
+    const packet = Buffer.from([0x32, 0x07, 0x00, 0x01]);
+    const id = client.packetIdentifierManager.newPacketIdentifier();
+    client.qosRetry.registerPendingPacket(client, id, packet);
+
+    await client.pubRecHandle({
+      header: { packetIdentifier: id } as any,
+      properties: {},
+    });
+
+    // handlePubRel writes PUBREL
+    expect(write).toHaveBeenCalledTimes(1);
+    write.mockClear();
+
+    // After retry interval, original PUBLISH retry should not fire
+    await vi.advanceTimersByTimeAsync(RETRY_INTERVAL_MS * 2);
+    expect(write).not.toHaveBeenCalled();
+    // In QoS 2, packet identifier must not be released until PUBCOMP
+    expect(client.packetIdentifierManager.has(id)).toBe(true);
+  });
+
+  test('pubCompHandle releases packet identifier', async () => {
+    const packet = Buffer.from([0x32, 0x07, 0x00, 0x01]);
+    const id = client.packetIdentifierManager.newPacketIdentifier();
+    client.qosRetry.registerPendingPacket(client, id, packet);
+
+    await client.pubRecHandle({
+      header: { packetIdentifier: id } as any,
+      properties: {},
+    });
+
+    expect(client.packetIdentifierManager.has(id)).toBe(true);
+
+    await client.pubCompHandle({
+      header: { packetIdentifier: id } as any,
+      properties: {},
+    });
+
+    expect(client.packetIdentifierManager.has(id)).toBe(false);
   });
 });
