@@ -207,7 +207,7 @@ export class MqttClient {
     private readonly clientManager: Manager,
     private readonly options: Required<IMqttOptions>,
   ) {
-    this.packetIdentifierManager = new ClientPacketIdentifierManager(this.options.packetIdentifierTTL);
+    this.packetIdentifierManager = new ClientPacketIdentifierManager(this.options.packetIdentifierTTL, this.options.receiveMaximum);
   }
 
   /**
@@ -511,6 +511,9 @@ export class MqttClient {
   private sendWillMessage(willData: IPublishData, emitAsync: TMqttClientEmitAsync) {
     if (this.connData.connectFlags.willQoS > QoSType.QoS0) {
       willData.header.packetIdentifier = this.packetIdentifierManager.newPacketIdentifier();
+      if (willData.header.packetIdentifier === 0) {
+        willData.header.qosLevel = QoSType.QoS0;
+      }
     }
     this.publishHandle(willData, emitAsync);
   }
@@ -590,7 +593,7 @@ export class MqttClient {
         return false;
       }
       if (pubData.properties.messageExpiryInterval && pubData.properties.messageExpiryInterval > 0) {
-        pubData.properties.messageExpiryTimestamp = Date.now() + pubData.properties.messageExpiryInterval * 1000;
+        pubData.properties.messageExpiryTimestamp = Date.now() / 1000 + pubData.properties.messageExpiryInterval;
       }
 
       // [MQTT-3.3.1-5] If the RETAIN flag is set to 1 in a PUBLISH packet sent by a Client to a Server, the Server MUST replace any existing retained message for this topic and store the Application Message.
@@ -655,8 +658,16 @@ export class MqttClient {
    */
   public async handlePublish(pubData: IPublishData) {
     let targetPacketIdentifier: number | undefined;
+    if (pubData.properties.messageExpiryInterval && pubData.properties.messageExpiryInterval > 0 && pubData.properties.messageExpiryTimestamp) {
+      pubData.properties.messageExpiryInterval = Math.round(pubData.properties.messageExpiryTimestamp - Date.now() / 1000);
+    }
     if (pubData.header.qosLevel > QoSType.QoS0) {
       pubData.header.packetIdentifier = this.packetIdentifierManager.newPacketIdentifier();
+
+      // [MQTT-4.9.0-2] If the send quota reaches zero, the Client or Server MUST NOT send any more PUBLISH packets with QoS > 0.
+      if (pubData.header.packetIdentifier === 0) {
+        pubData.header.qosLevel = QoSType.QoS0;
+      }
       targetPacketIdentifier = pubData.header.packetIdentifier;
       pubData.header.dupFlag = false;
       if (this.clientIdentifier && pubData.header.packetIdentifier !== undefined) {
@@ -670,7 +681,7 @@ export class MqttClient {
     pubData.header.retain = false;
     const pubPacket = encodePacket(pubData, this.connData.header.protocolVersion);
     this.socket.write(pubPacket);
-    if (targetPacketIdentifier !== undefined) {
+    if (targetPacketIdentifier) {
       this.qosRetry.registerPendingPacket(this, targetPacketIdentifier, pubPacket);
     }
   }

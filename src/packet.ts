@@ -319,6 +319,12 @@ function decodePublish(buffer: Buffer, pubData: IPublishData, protocolVersion: P
     const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
     pubData.properties = parsePublishProperties(propertiesBuffer);
   }
+  if (!pubData.header.topicName.length && (protocolVersion !== ProtocolVersion.V5 || !pubData.properties.topicAlias)) {
+    throw new DisconnectException(
+      DisconnectReasonCode.ProtocolError,
+      'It is a Protocol Error if the Topic Name is zero length and there is no Topic Alias.',
+    );
+  }
   pubData.payload = data.buffer.slice(data.index).toString();
 
   return pubData;

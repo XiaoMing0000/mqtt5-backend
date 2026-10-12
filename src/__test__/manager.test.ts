@@ -149,7 +149,7 @@ describe('ClientPacketIdentifierManager', () => {
   });
 
   test('newPacketIdentifier allocates increasing ids in 1..0xffff and stores expiry', () => {
-    const mgr = new ClientPacketIdentifierManager(30);
+    const mgr = new ClientPacketIdentifierManager(30, 0xffff);
     const now = Date.now();
     vi.setSystemTime(now);
 
@@ -164,7 +164,7 @@ describe('ClientPacketIdentifierManager', () => {
   });
 
   test('newPacketIdentifier stays within 1..0xffff and never returns 0', () => {
-    const mgr = new ClientPacketIdentifierManager(30);
+    const mgr = new ClientPacketIdentifierManager(30, 0xffff);
     const ids = Array.from({ length: 128 }, () => mgr.newPacketIdentifier());
 
     for (const id of ids) {
@@ -175,7 +175,7 @@ describe('ClientPacketIdentifierManager', () => {
   });
 
   test('newPacketIdentifier wraps from 0xffff back to 1', () => {
-    const mgr = new ClientPacketIdentifierManager(30);
+    const mgr = new ClientPacketIdentifierManager(30, 0xffff);
     let id = 0;
     for (let i = 0; i < 0xffff; i++) {
       id = mgr.newPacketIdentifier();
@@ -186,7 +186,7 @@ describe('ClientPacketIdentifierManager', () => {
   });
 
   test('newPacketIdentifier resumes from 1 after dynamicId is set to 0xfffe', () => {
-    const mgr = new ClientPacketIdentifierManager(30);
+    const mgr = new ClientPacketIdentifierManager(30, 0xffff);
     (mgr as unknown as { dynamicId: number }).dynamicId = 0xfffe;
 
     const id1 = mgr.newPacketIdentifier();
@@ -198,7 +198,7 @@ describe('ClientPacketIdentifierManager', () => {
   });
 
   test('clearExpiredIdentifiers removes only expired entries', () => {
-    const mgr = new ClientPacketIdentifierManager(1);
+    const mgr = new ClientPacketIdentifierManager(1, 0xfff);
     const now = Date.now();
     vi.setSystemTime(now);
 

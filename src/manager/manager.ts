@@ -374,13 +374,14 @@ export abstract class Manager {
 export class ClientPacketIdentifierManager extends Map<number, number> {
   private dynamicId = 0;
   private readonly ttl: number;
-  constructor(ttl: number) {
+  constructor(ttl: number, receiveMaximum: number) {
     super();
     this.ttl = ttl * 1000;
+    this.dynamicId = receiveMaximum + 1;
   }
 
   public newPacketIdentifier() {
-    this.dynamicId = ++this.dynamicId & 0xffff || (this.dynamicId = 1);
+    this.dynamicId = this.dynamicId > 0 ? --this.dynamicId : 0;
     this.set(this.dynamicId, Date.now() + this.ttl);
     return this.dynamicId;
   }
