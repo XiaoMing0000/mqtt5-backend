@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import { IPublishData, type IMqttOptions } from '../interface';
+import { IConnectData, IPublishData, PacketType, ProtocolVersion, QoSType, type IMqttOptions } from '../interface';
 import { ClientIdentifierManager, Manager, TSocket, TSubscribeData } from '../manager/manager';
 import { MqttClient } from '../mqttClient';
 
@@ -39,11 +39,18 @@ class TestManager extends Manager {
   async forEachRetainMessage(): Promise<void> {}
 }
 
-function createClient() {
+function createClient(options?: Partial<IMqttOptions>) {
   const write = vi.fn();
   const socket = { write, end: vi.fn() } as unknown as TSocket;
   const manager = new TestManager();
-  const client = new MqttClient(socket, manager, { packetIdentifierTTL: 60, receiveMaximum: 0xffff } as Required<IMqttOptions>);
+  const mergedOptions = {
+    packetIdentifierTTL: 60,
+    receiveMaximum: 0xffff,
+    protocolVersions: [ProtocolVersion.V5],
+    ...options,
+  } as Required<IMqttOptions>;
+  const client = new MqttClient(socket, manager, mergedOptions);
+  client.packetIdentifierManager.receiveMaximum = mergedOptions.receiveMaximum;
   return { client, write, manager };
 }
 
@@ -244,5 +251,119 @@ describe('ClientQosRetry', () => {
     });
 
     expect(client.packetIdentifierManager.has(id)).toBe(false);
+  });
+
+  describe('flow control & handlePublish retry integration', () => {
+    test('handlePublish registers retry when send quota is available and resends on timer', async () => {
+      client.packetIdentifierManager.receiveMaximum = 10;
+      const pubData: IPublishData = {
+        header: {
+          packetType: PacketType.PUBLISH,
+          dupFlag: false,
+          qosLevel: QoSType.QoS1,
+          retain: false,
+          topicName: 'test/topic',
+        },
+        properties: {},
+        payload: 'hello',
+      };
+
+      await client.handlePublish(pubData);
+
+      expect(pubData.header.packetIdentifier).toBe(10);
+      expect(write).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(RETRY_INTERVAL_MS);
+      expect(write).toHaveBeenCalledTimes(2);
+      expect(write.mock.calls[1][0][0]).toBe(0x32 | 0x08); // DUP flag set
+      expect(client.packetIdentifierManager.has(10)).toBe(true);
+    });
+
+    test('handlePublish downgrades to QoS 0 and skips retry registration when send quota is 0', async () => {
+      client.packetIdentifierManager.receiveMaximum = 0;
+      const pubData: IPublishData = {
+        header: {
+          packetType: PacketType.PUBLISH,
+          dupFlag: false,
+          qosLevel: QoSType.QoS1,
+          retain: false,
+          topicName: 'test/topic',
+        },
+        properties: {},
+        payload: 'hello',
+      };
+
+      await client.handlePublish(pubData);
+
+      // [MQTT-4.9.0-2] packetIdentifier reaches 0 -> downgraded to QoS0
+      expect(pubData.header.packetIdentifier).toBe(0);
+      expect(pubData.header.qosLevel).toBe(QoSType.QoS0);
+      expect(write).toHaveBeenCalledTimes(1);
+
+      // Advancing retry interval should NOT trigger any resend
+      await vi.advanceTimersByTimeAsync(RETRY_INTERVAL_MS * 2);
+      expect(write).toHaveBeenCalledTimes(1);
+    });
+
+    test('connectHandle sets packetIdentifierManager receiveMaximum from CONNECT properties', async () => {
+      const connData: IConnectData = {
+        header: {
+          packetType: PacketType.CONNECT,
+          packetFlags: 0,
+          remainingLength: 0,
+          protocolName: 'MQTT',
+          protocolVersion: ProtocolVersion.V5,
+          keepAlive: 60,
+        },
+        connectFlags: {
+          cleanStart: true,
+          willFlag: false,
+          willQoS: QoSType.QoS0,
+          willRetain: false,
+          password: false,
+          username: false,
+          reserved: false,
+        },
+        properties: {
+          receiveMaximum: 5,
+        },
+        payload: {
+          clientIdentifier: 'client-test',
+        },
+      };
+
+      await client.connectHandle(connData);
+      expect(client.packetIdentifierManager.newPacketIdentifier()).toBe(5);
+      expect(client.packetIdentifierManager.newPacketIdentifier()).toBe(4);
+    });
+
+    test('connectHandle falls back to options.receiveMaximum when property is absent', async () => {
+      const connData: IConnectData = {
+        header: {
+          packetType: PacketType.CONNECT,
+          packetFlags: 0,
+          remainingLength: 0,
+          protocolName: 'MQTT',
+          protocolVersion: ProtocolVersion.V5,
+          keepAlive: 60,
+        },
+        connectFlags: {
+          cleanStart: true,
+          willFlag: false,
+          willQoS: QoSType.QoS0,
+          willRetain: false,
+          password: false,
+          username: false,
+          reserved: false,
+        },
+        properties: {},
+        payload: {
+          clientIdentifier: 'client-test',
+        },
+      };
+
+      await client.connectHandle(connData);
+      expect(client.packetIdentifierManager.newPacketIdentifier()).toBe(0xffff);
+    });
   });
 });

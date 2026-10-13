@@ -149,7 +149,8 @@ describe('ClientPacketIdentifierManager', () => {
   });
 
   test('newPacketIdentifier allocates decreasing ids from receiveMaximum and stores expiry', () => {
-    const mgr = new ClientPacketIdentifierManager(30, 0xffff);
+    const mgr = new ClientPacketIdentifierManager(30);
+    mgr.receiveMaximum = 0xffff;
     const now = Date.now();
     vi.setSystemTime(now);
 
@@ -163,7 +164,8 @@ describe('ClientPacketIdentifierManager', () => {
   });
 
   test('newPacketIdentifier decrements sequentially from receiveMaximum', () => {
-    const mgr = new ClientPacketIdentifierManager(30, 0xffff);
+    const mgr = new ClientPacketIdentifierManager(30);
+    mgr.receiveMaximum = 0xffff;
     const ids = Array.from({ length: 128 }, () => mgr.newPacketIdentifier());
 
     for (const id of ids) {
@@ -174,7 +176,8 @@ describe('ClientPacketIdentifierManager', () => {
   });
 
   test('newPacketIdentifier stops at 0 when send quota is exhausted', () => {
-    const mgr = new ClientPacketIdentifierManager(30, 3);
+    const mgr = new ClientPacketIdentifierManager(30);
+    mgr.receiveMaximum = 3;
     expect(mgr.newPacketIdentifier()).toBe(3);
     expect(mgr.newPacketIdentifier()).toBe(2);
     expect(mgr.newPacketIdentifier()).toBe(1);
@@ -183,7 +186,8 @@ describe('ClientPacketIdentifierManager', () => {
   });
 
   test('newPacketIdentifier returns 0 when send quota (receiveMaximum) is reached', () => {
-    const mgr = new ClientPacketIdentifierManager(30, 2);
+    const mgr = new ClientPacketIdentifierManager(30);
+    mgr.receiveMaximum = 2;
     expect(mgr.newPacketIdentifier()).toBe(2);
     expect(mgr.newPacketIdentifier()).toBe(1);
     expect(mgr.newPacketIdentifier()).toBe(0);
@@ -191,7 +195,7 @@ describe('ClientPacketIdentifierManager', () => {
   });
 
   test('newPacketIdentifier decrements dynamicId until reaching 0', () => {
-    const mgr = new ClientPacketIdentifierManager(30, 0xffff);
+    const mgr = new ClientPacketIdentifierManager(30);
     (mgr as unknown as { dynamicId: number }).dynamicId = 2;
 
     const id1 = mgr.newPacketIdentifier();
@@ -204,7 +208,8 @@ describe('ClientPacketIdentifierManager', () => {
   });
 
   test('clearExpiredIdentifiers removes only expired entries', () => {
-    const mgr = new ClientPacketIdentifierManager(1, 0xfff);
+    const mgr = new ClientPacketIdentifierManager(1);
+    mgr.receiveMaximum = 0xfff;
     const now = Date.now();
     vi.setSystemTime(now);
 

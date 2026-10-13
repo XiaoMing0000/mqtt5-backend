@@ -1,4 +1,4 @@
-import { encodeTwoByteInteger, encodeVariableByteInteger } from './dataRepresentations';
+import { decodeVariableByteInteger, encodeTwoByteInteger, encodeVariableByteInteger } from './dataRepresentations';
 import {
   AuthenticateException,
   AuthenticateReasonCode,
@@ -207,7 +207,7 @@ export class MqttClient {
     private readonly clientManager: Manager,
     private readonly options: Required<IMqttOptions>,
   ) {
-    this.packetIdentifierManager = new ClientPacketIdentifierManager(this.options.packetIdentifierTTL, this.options.receiveMaximum);
+    this.packetIdentifierManager = new ClientPacketIdentifierManager(this.options.packetIdentifierTTL);
   }
 
   /**
@@ -310,8 +310,10 @@ export class MqttClient {
     }
     connAckData.properties = {
       receiveMaximum: this.options.receiveMaximum,
-      maximumPacketSize: this.options.maximumPacketSize,
     };
+
+    this.options.maximumPacketSize !== 0xffffffff && (connAckData.properties.maximumPacketSize = this.options.maximumPacketSize);
+
     if (this.options.wildcardSubscriptionAvailable === false) {
       connAckData.properties.wildcardSubscriptionAvailable = false;
     }
@@ -338,6 +340,8 @@ export class MqttClient {
       connAckData.properties.assignedClientIdentifier = connData.payload.clientIdentifier;
       this.clientIdentifier = connData.payload.clientIdentifier;
     }
+
+    //
     const connPacket = encodePacket(connAckData, this.connData.header.protocolVersion);
     this.socket.write(connPacket);
     if (reasonCode === ConnectAckReasonCode.UnsupportedProtocolVersion) {
@@ -384,7 +388,11 @@ export class MqttClient {
       this.authDone = false;
       this.authMethod = this.connData.properties.authenticationMethod;
     }
-    this.connData.properties.receiveMaximum ??= this.options.receiveMaximum ?? 0xffff;
+
+    this.packetIdentifierManager.receiveMaximum = Math.min(
+      this.connData.properties.receiveMaximum ?? this.options.receiveMaximum,
+      this.options.receiveMaximum,
+    );
     if (emitAsync && !(await emitAsync(this.socket, 'connect', this.connData, this, this.clientManager))) {
       throw new DisconnectException(DisconnectReasonCode.UnspecifiedError, 'Client connection failed.');
     }
@@ -528,18 +536,28 @@ export class MqttClient {
    */
   public async publishHandle(pubData: IPublishData, emitAsync: TMqttClientEmitAsync) {
     try {
+      // [MQTT-3.1.2-4] If the Remaining Length is greater than the Maximum Packet Size, the Server MUST disconnect the Client with a Disconnect packet and Reason Code 0x15 (Packet Too Large)
+      if ((pubData.header.remainingLength ?? 0) > this.options.maximumPacketSize) {
+        throw new DisconnectException(
+          DisconnectReasonCode.PacketTooLarge,
+          'The Server has received a Control Packet during the current Connection that contains more data than it was willing to process.',
+        );
+      }
+
       if (pubData.properties.topicAlias && pubData.properties.topicAlias > (this.options.topicAliasMaximum ?? 0xffff)) {
         throw new DisconnectException(
           DisconnectReasonCode.TopicAliasInvalid,
           'A Client MUST accept all Topic Alias values greater than 0 and less than or equal to the Topic Alias Maximum value that it sent in the CONNECT packet.',
         );
       }
+
       if (pubData.header.qosLevel > (this.options.maximumQoS ?? QoSType.QoS0)) {
         throw new DisconnectException(
           DisconnectReasonCode.QoSNotSupported,
           'The Client specified a QoS greater than the QoS specified in a Maximum QoS in the CONNACK.',
         );
       }
+
       if (pubData.header.qosLevel > QoSType.QoS0) {
         this.receiveCounter++;
         if (this.receiveCounter > (this.connData.properties.receiveMaximum ?? 0xffff)) {
@@ -549,16 +567,7 @@ export class MqttClient {
           );
         }
       }
-      // [MQTT-3.1.2-4] If the Remaining Length is greater than the Maximum Packet Size, the Server MUST disconnect the Client with a Disconnect packet and Reason Code 0x15 (Packet Too Large)
-      if (
-        this.connData.properties.maximumPacketSize &&
-        (pubData.header.remainingLength ?? 0) > (this.connData.properties.maximumPacketSize ?? 1 << 20)
-      ) {
-        throw new DisconnectException(
-          DisconnectReasonCode.PacketTooLarge,
-          'The Server has received a Control Packet during the current Connection that contains more data than it was willing to process.',
-        );
-      }
+
       if (pubData.properties.topicAlias) {
         if (this.options.topicAliasMaximum && pubData.properties.topicAlias > (this.options.topicAliasMaximum ?? 0xffff)) {
           throw new DisconnectException(
@@ -670,9 +679,9 @@ export class MqttClient {
       }
       targetPacketIdentifier = pubData.header.packetIdentifier;
       pubData.header.dupFlag = false;
-      if (this.clientIdentifier && pubData.header.packetIdentifier !== undefined) {
+      if (this.clientIdentifier && targetPacketIdentifier) {
         const queue = this.getOutboundQueue(this.clientIdentifier);
-        queue.set(pubData.header.packetIdentifier, {
+        queue.set(targetPacketIdentifier, {
           type: 'publish',
           publish: JSON.parse(JSON.stringify(pubData)),
         });
@@ -680,6 +689,10 @@ export class MqttClient {
     }
     pubData.header.retain = false;
     const pubPacket = encodePacket(pubData, this.connData.header.protocolVersion);
+    const remainingLength = decodeVariableByteInteger({ buffer: pubPacket, index: 1 });
+    if (remainingLength > (this.connData?.header?.remainingLength ?? 0)) {
+      return;
+    }
     this.socket.write(pubPacket);
     if (targetPacketIdentifier) {
       this.qosRetry.registerPendingPacket(this, targetPacketIdentifier, pubPacket);

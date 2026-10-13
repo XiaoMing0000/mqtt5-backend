@@ -374,10 +374,9 @@ export abstract class Manager {
 export class ClientPacketIdentifierManager extends Map<number, number> {
   private dynamicId = 0;
   private readonly ttl: number;
-  constructor(ttl: number, receiveMaximum: number) {
+  constructor(ttl: number) {
     super();
     this.ttl = ttl * 1000;
-    this.dynamicId = receiveMaximum + 1;
   }
 
   public newPacketIdentifier() {
@@ -393,5 +392,9 @@ export class ClientPacketIdentifierManager extends Map<number, number> {
         this.delete(id);
       }
     }
+  }
+
+  public set receiveMaximum(v: number) {
+    this.dynamicId = v + 1;
   }
 }

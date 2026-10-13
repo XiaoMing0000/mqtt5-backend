@@ -54,7 +54,7 @@ const mqttDefaultOptions: Required<IMqttOptions> = {
   maximumQoS: QoSType.QoS2,
   retainAvailable: true,
   retainTTL: 30 * 60,
-  maximumPacketSize: 1 << 20,
+  maximumPacketSize: 0xffffffff,
   topicAliasMaximum: 0xffff,
   wildcardSubscriptionAvailable: true,
   subscriptionIdentifierAvailable: true,
