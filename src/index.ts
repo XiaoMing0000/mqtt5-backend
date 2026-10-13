@@ -47,7 +47,7 @@ import { MqttClient } from './mqttClient';
 /**
  * Default MQTT server feature flags and limits merged with user-supplied {@link IMqttOptions}.
  */
-const mqttDefaultOptions: Required<IMqttOptions> = {
+export const mqttDefaultOptions: Required<IMqttOptions> = {
   protocolName: 'MQTT',
   protocolVersions: [3, 4, 5],
   automaticallyAssignedClientIdentifier: true,
@@ -66,6 +66,9 @@ const mqttDefaultOptions: Required<IMqttOptions> = {
   packetIdentifierTTL: 30 * 60,
   sendReasonMessage: true,
 };
+
+Object.freeze(mqttDefaultOptions);
+
 /**
  * Bridges a low-level transport {@link net.Server} (or compatible) to MQTT sessions via {@link MqttClient}.
  * Exposes Node-style server APIs and registers per-socket MQTT lifecycle hooks.

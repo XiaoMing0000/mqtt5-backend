@@ -1,3 +1,4 @@
+import { mqttDefaultOptions } from '.';
 import { decodeVariableByteInteger, encodeTwoByteInteger, encodeVariableByteInteger } from './dataRepresentations';
 import {
   AuthenticateException,
@@ -293,55 +294,45 @@ export class MqttClient {
       acknowledgeFlags: {
         SessionPresent: false,
       },
-      properties: {
-        reasonString,
-      },
+      properties: {},
     };
-    if (!this.options.retainAvailable) {
-      connAckData.properties.retainAvailable = false;
-    }
+
+    reasonString && (connAckData.properties.reasonString = reasonString);
+
     if (this.connData.connectFlags.cleanStart) {
       connAckData.acknowledgeFlags.SessionPresent = false;
     } else {
+      // TODO [MQTT-3.2.2-2] If the Server accepts a connection with Clean Start set to 1, the Server MUST set Session Present to 0 in the CONNACK packet in addition to setting a 0x00 (Success) Reason Code in the CONNACK packet.
       connAckData.acknowledgeFlags.SessionPresent = await this.clientManager.hasSession(this.connData.payload.clientIdentifier);
     }
+
+    // TODO [MQTT-3.1.2-23] The Client and Server MUST store the Session State after the Network Connection is closed if the Session Expiry Interval is greater than 0.
+    connAckData.properties.sessionExpiryInterval = 0;
+
+    this.options.receiveMaximum !== mqttDefaultOptions.receiveMaximum && (connAckData.properties.receiveMaximum = this.options.receiveMaximum);
+    this.options.maximumQoS !== mqttDefaultOptions.maximumQoS && (connAckData.properties.maximumQoS = !!this.options.maximumQoS);
+    !this.options.retainAvailable && (connAckData.properties.retainAvailable = false);
+    this.options.maximumPacketSize !== mqttDefaultOptions.maximumPacketSize &&
+      (connAckData.properties.maximumPacketSize = this.options.maximumPacketSize);
+
+    // Server-assigned id when the client sent none (or it was generated in connectHandle).
+    !connData.payload.clientIdentifier && (connAckData.properties.assignedClientIdentifier = this.clientIdentifier);
+    this.options.topicAliasMaximum !== mqttDefaultOptions.topicAliasMaximum &&
+      (connAckData.properties.topicAliasMaximum = this.options.topicAliasMaximum);
+
+    !this.options.wildcardSubscriptionAvailable && (connAckData.properties.wildcardSubscriptionAvailable = false);
+    !this.options.subscriptionIdentifierAvailable && (connAckData.properties.subscriptionIdentifierAvailable = false);
+
+    // TODO [MQTT-4.8.2] Shared Subscriptions
+    // !this.options.sharedSubscriptionAvailable && (connAckData.properties.sharedSubscriptionAvailable = false);
+    connAckData.properties.sharedSubscriptionAvailable = false;
+
+    this.options.serverKeepAlive && (connAckData.properties.serverKeepAlive = this.options.serverKeepAlive);
+
     if (!this.connData.properties.requestProblemInformation) {
       // MQTT 5: only when Request Problem Information is 0 may user-facing properties be omitted (§3.1.2.11.7).
     }
-    connAckData.properties = {
-      receiveMaximum: this.options.receiveMaximum,
-    };
 
-    this.options.maximumPacketSize !== 0xffffffff && (connAckData.properties.maximumPacketSize = this.options.maximumPacketSize);
-
-    if (this.options.wildcardSubscriptionAvailable === false) {
-      connAckData.properties.wildcardSubscriptionAvailable = false;
-    }
-    if (this.options.subscriptionIdentifierAvailable === false) {
-      connAckData.properties.subscriptionIdentifierAvailable = false;
-    }
-    if (this.options.topicAliasMaximum) {
-      connAckData.properties.topicAliasMaximum = this.options.topicAliasMaximum;
-    }
-    if (this.options.retainAvailable !== false) {
-      connAckData.properties.retainAvailable = true;
-    }
-    if (this.options.maximumQoS !== QoSType.QoS2) {
-      connAckData.properties.maximumQoS = !!this.options.maximumQoS;
-    }
-    if (this.options.sharedSubscriptionAvailable === false) {
-      connAckData.properties.sharedSubscriptionAvailable = false;
-    }
-    if ((this.options.serverKeepAlive ?? 0) > 0) {
-      connAckData.properties.serverKeepAlive = this.options.serverKeepAlive;
-    }
-    if (!this.clientIdentifier) {
-      // Server-assigned id when the client sent none (or it was generated in connectHandle).
-      connAckData.properties.assignedClientIdentifier = connData.payload.clientIdentifier;
-      this.clientIdentifier = connData.payload.clientIdentifier;
-    }
-
-    //
     const connPacket = encodePacket(connAckData, this.connData.header.protocolVersion);
     this.socket.write(connPacket);
     if (reasonCode === ConnectAckReasonCode.UnsupportedProtocolVersion) {
@@ -361,7 +352,7 @@ export class MqttClient {
     // [MQTT-3.1.3-6] A Server MAY allow a Client to supply a ClientID that has a length of zero bytes, however if it does so the Server MUST treat this as a special case and assign a unique ClientID to that Client.
     if (!connData.payload.clientIdentifier) {
       if (this.options.automaticallyAssignedClientIdentifier !== false) {
-        connData.payload.clientIdentifier = generateClientIdentifier();
+        this.clientIdentifier = generateClientIdentifier();
       } else {
         throw new ConnectAckException(ConnectAckReasonCode.ClientIdentifierNotValid, 'Client Identifier not valid');
       }
@@ -373,10 +364,10 @@ export class MqttClient {
 
     // [MQTT-3.1.2.4] clear subscribe data if clean start is true
     if (this.connData.connectFlags.cleanStart) {
-      await this.clientManager.clearSubscribe(connData.payload.clientIdentifier);
+      await this.clientManager.clearSubscribe(this.clientIdentifier);
       this.receiveCounter = 0;
       this.inboundQoS2.clear();
-      this.clearOutboundQueue(connData.payload.clientIdentifier);
+      this.clearOutboundQueue(this.clientIdentifier);
     }
     if (
       this.connData.properties.authenticationMethod &&
@@ -397,7 +388,7 @@ export class MqttClient {
       throw new DisconnectException(DisconnectReasonCode.UnspecifiedError, 'Client connection failed.');
     }
 
-    const targetId = this.clientIdentifier || connData.payload.clientIdentifier;
+    const targetId = this.clientIdentifier;
 
     // [MQTT-3.1.4-3] If the ClientID represents a Client already connected to the Server, the Server sends a DISCONNECT packet to the existing Client with Reason Code of 0x8E (Session taken over) as described in section 4.13 and MUST close the Network Connection of the existing Client [MQTT-3.1.4-3].
     const existingClient = this.clientManager.clientIdentifierManager.getClient(targetId);
