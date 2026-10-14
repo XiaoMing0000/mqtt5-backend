@@ -1,7 +1,7 @@
-import { IConnectData, IPublishData, QoSType } from '../interface';
+import { IConnectData, IPublishData, QoSType, TIdentifier, TTopic } from '../interface';
 import { MqttClient } from '../mqttClient';
 import { isWildcardTopic } from '../topicFilters';
-import { ClientIdentifierManager, Manager, TSocketSubscription, TIdentifier, TSubscribeData, TTopic } from './manager';
+import { ClientIdentifierManager, Manager, TSocketSubscription, TSubscribeData } from './manager';
 
 interface IRoute {
   [key: string]: {
@@ -29,7 +29,7 @@ interface ISessionData {
 export class MemoryManager extends Manager {
   readonly clientIdentifierManager: ClientIdentifierManager;
   private readonly retainMessage = new Map<string, { data: IPublishData; TTL: number }>();
-  private readonly sessionStore = new Map<string, ISessionData>();
+  private readonly sessionStore = new Map<TIdentifier, ISessionData>();
   private readonly retainCleanupTimer: NodeJS.Timeout;
   private readonly keepAliveTimer: NodeJS.Timeout;
   private readonly sessionCleanupTimer: NodeJS.Timeout;
@@ -274,6 +274,7 @@ export class MemoryManager extends Manager {
       });
 
       this.clientDataMap.delete(client);
+      this.clearSubscribeBySession(clientIdentifier);
     }
   }
 

@@ -1,6 +1,6 @@
 import Redis, { RedisOptions } from 'ioredis';
-import { ClientIdentifierManager, Manager, TSocketSubscription, TIdentifier, TSubscribeData, TTopic } from './manager';
-import { IConnectData, IPublishData, QoSType } from '../interface';
+import { ClientIdentifierManager, Manager, TSocketSubscription, TSubscribeData } from './manager';
+import { IConnectData, IPublishData, QoSType, TIdentifier, TTopic } from '../interface';
 import { topicToRegEx } from '../topicFilters';
 import { MqttClient } from '../mqttClient';
 

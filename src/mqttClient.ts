@@ -327,17 +327,14 @@ export class MqttClient {
       } else {
         throw new ConnectAckException(ConnectAckReasonCode.ClientIdentifierNotValid, 'Client Identifier not valid');
       }
+    } else {
+      this.clientIdentifier = connData.payload.clientIdentifier;
     }
     // check if protocol version is supported
     if (!this.options.protocolVersions?.includes(connData.header.protocolVersion)) {
       throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'Unsupported Protocol Version.');
     }
 
-    // [MQTT-3.1.2.4] clear subscribe data if clean start is true
-    if (this.connData.connectFlags.cleanStart) {
-      await this.clientManager.clearSubscribe(this.clientIdentifier);
-      this.receiveCounter = 0;
-    }
     if (
       this.connData.properties.authenticationMethod &&
       !['none', 'null', 'undefined', '0', 'off', 'disable', 'no', 'n/a', 'anonymous', 'basic', 'empty', 'noauth', 'skip'].includes(
@@ -357,11 +354,15 @@ export class MqttClient {
       throw new DisconnectException(DisconnectReasonCode.UnspecifiedError, 'Client connection failed.');
     }
 
-    const targetId = this.clientIdentifier;
+    // [MQTT-3.1.2.4] clear subscribe data if clean start is true
+    if (this.connData.connectFlags.cleanStart) {
+      await this.clientManager.clearSubscribe(this.clientIdentifier);
+      this.receiveCounter = 0;
+    }
 
     // [MQTT-3.1.4-3] If the ClientID represents a Client already connected to the Server, the Server sends a DISCONNECT packet to the existing Client with Reason Code of 0x8E (Session taken over) as described in section 4.13 and MUST close the Network Connection of the existing Client [MQTT-3.1.4-3].
-    const existingClient = this.clientManager.clientIdentifierManager.getClient(targetId);
-    if (existingClient && existingClient.clientIdentifier !== this.clientIdentifier) {
+    const existingClient = this.clientManager.clientIdentifierManager.getClient(this.clientIdentifier);
+    if (existingClient && existingClient.clientIdentifier === this.clientIdentifier) {
       this.clientManager.disconnect(existingClient.clientIdentifier, {
         header: {
           packetType: PacketType.DISCONNECT,
@@ -374,9 +375,8 @@ export class MqttClient {
       this.clientManager.clearConnect(existingClient.clientIdentifier);
     }
 
-    await this.clientManager.connect(targetId, connData, this);
+    await this.clientManager.connect(this.clientIdentifier, connData, this);
     await this.handleConnAck(this.connData);
-    this.clientIdentifier = targetId;
     // TODO [MQTT-4.1.0] Session resume on Clean Start 0: re-send unacknowledged QoS 1/2 messages
     // and finish any outstanding PUBREL. The replay call was dropped with the session-recovery
     // refactor, so this branch is currently empty.

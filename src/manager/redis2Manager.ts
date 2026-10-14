@@ -1,5 +1,5 @@
-import { IConnectData, IPublishData, QoSType } from '../interface';
-import { ClientIdentifierManager, Manager, TSocketSubscription, TIdentifier, TSubscribeData } from './manager';
+import { IConnectData, IPublishData, QoSType, TIdentifier } from '../interface';
+import { ClientIdentifierManager, Manager, TSocketSubscription, TSubscribeData } from './manager';
 import Redis, { RedisOptions } from 'ioredis';
 import { isWildcardTopic, topicToRegEx } from '../topicFilters';
 import { MqttClient } from '../mqttClient';

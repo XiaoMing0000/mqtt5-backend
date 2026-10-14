@@ -12,12 +12,11 @@ import {
   IUnsubscribeData,
   ProtocolVersion,
   QoSType,
+  TIdentifier,
+  TTopic,
 } from '../interface';
 import { MqttClient } from '../mqttClient';
 import { encodePacket } from '../packet';
-
-/** MQTT topic filter or name (string). */
-export type TTopic = string;
 
 /**
  * Typed args + return for MQTT lifecycle events on a {@link TSocket}.
@@ -114,8 +113,6 @@ export type TSocket = Omit<net.Socket, 'on' | 'once'> & {
   once(event: string | symbol, listener: (...args: any[]) => void): TSocket;
 };
 
-/** Stable client identifier string (MQTT Client ID). */
-export type TIdentifier = string;
 /** Maps each MQTT client id to its live {@link MqttClient}. */
 export type TClientMap = Map<TIdentifier, MqttClient>;
 

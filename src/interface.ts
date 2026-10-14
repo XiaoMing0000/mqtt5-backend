@@ -9,6 +9,11 @@ import {
   SubscribeAckReasonCode,
 } from './exception';
 
+/** MQTT topic filter or name (string). */
+export type TTopic = string;
+/** Stable client identifier string (MQTT Client ID). */
+export type TIdentifier = string;
+
 /**
  * Server-side MQTT options advertised to clients (CONNACK properties and related limits).
  */
