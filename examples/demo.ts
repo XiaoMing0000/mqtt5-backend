@@ -39,32 +39,26 @@ const wsMqttServer = new MqttServerWebSocket(clientManager);
 // process.on('unhandledRejection', (reason, promise) => {
 // 	console.error('unhandledRejection:', reason, promise);
 // });
-let count = 0;
-let count2 = 0;
-let count3 = 0;
 server.onConnection(async (socket) => {
   let identifier = '';
   socket.on('connect', (data: IConnectData, _client: MqttClient, _clientManager: Manager) => {
-    count++;
-    console.log('connect: ', count);
     identifier = data.payload.clientIdentifier;
+    console.log(`connect: ${data.payload.clientIdentifier}`);
   });
 
   socket.on('publish', (data: IPublishData, _client: MqttClient, _clientManager: Manager) => {
-    console.log('publish: ', identifier);
-    console.log('publish: ', data);
+    console.log(`publish: ${data.header.topicName}  qos: ${data.header.qosLevel} packedIdentifier: ${data.header.packetIdentifier}`);
   });
 
   socket.on('subscribe', (data: ISubscribeData, _client: MqttClient, _clientManager: Manager) => {
-    console.log('subscribe: ', data.payload);
-    count3++;
-    console.log('subscribe: ', count3);
+    console.log(`subscribe: ${data.payload}  qos: ${data.options.qos}`);
+  });
+  socket.on('unsubscribe', (data, _client: MqttClient, _clientManager: Manager) => {
+    console.log(`unsubscribe: ${data.payload}`);
   });
 
   socket.on('close', (_data: IDisconnectData, _client: MqttClient, _clientManager: Manager) => {
     console.log('disconnect: ', identifier);
-    count2++;
-    console.log('disconnect: ', count2);
   });
 });
 

@@ -38,7 +38,10 @@ function mockClient(id: string, writes: Buffer[], manager: MemoryManager): MqttC
     header: {
       packetType: PacketType.RESERVED,
       packetFlags: 0,
-      remainingLength: 0,
+      // `handlePublish` skips a frame whose Remaining Length exceeds the Remaining Length recorded
+      // on the CONNECT packet, so the fixture records the limit the broker advertises.
+      // TODO [MQTT-3.1.2-24] that guard should compare against the client's Maximum Packet Size.
+      remainingLength: mqttDefaultOptions.maximumPacketSize,
       protocolName: '',
       protocolVersion: ProtocolVersion.V5,
       keepAlive: 60,

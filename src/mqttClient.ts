@@ -39,30 +39,38 @@ import { EncoderProperties } from './property';
 import { verifyTopic, isWildcardTopic, topicToRegEx } from './topicFilters';
 import { generateClientIdentifier } from './utils';
 
+type TQosRetryEntry = { packet: Buffer; attempts: number; timer?: NodeJS.Timeout };
+
 /**
- * Resends unacknowledged outbound QoS 1/2 frames for a single connection.
+ * Resends unacknowledged QoS 1/2 frames for a single connection.
  *
  * @remarks
- * Call {@link ClientQosRetry.registerPendingPacket} only after `id` is allocated on
- * {@link MqttClient.packetIdentifierManager}. Each entry keeps the encoded frame and a timer
- * that writes those same bytes every 5000 ms. After 3 resends the entry is dropped and the
- * packet identifier is released. If the identifier is already gone when a retry is armed,
- * the stored frame is discarded and nothing is written.
+ * A connection holds two instances: `publishQosRetry` for outbound PUBLISH frames, and
+ * `receiveQos2Retry` for the PUBREC sent during an inbound QoS 2 handshake.
+ *
+ * Each entry keeps the encoded frame and a timer that writes those same bytes every 5000 ms,
+ * as long as the socket has not ended. After {@link QosRetry.qosRetryCount} resends the entry
+ * is dropped one interval later. The packet identifier is released only when the caller passed
+ * `releaseIdentifier: true`, which the ack handlers ({@link MqttClient.pubAckHandle},
+ * {@link MqttClient.pubCompHandle}) do and {@link QosRetry.clearPendingClient} does not.
+ *
+ * Retry state is per connection and is never carried across reconnects.
  */
-class ClientQosRetry {
+class QosRetry {
   /** Delay between resends, in milliseconds. */
   private readonly qosRetryIntervalMs = 5000;
   /** Number of resends before the pending frame is abandoned. The original send is not counted. */
   private readonly qosRetryCount = 3;
   /** Packet identifier → encoded frame, resend count, and the timer for the next resend. */
-  private readonly qosRetryMap = new Map<number, { packet: Buffer; attempts: number; timer?: NodeJS.Timeout }>();
+  private readonly qosRetryMap = new Map<number, TQosRetryEntry>();
 
   constructor() {}
 
   /**
-   * Cancels every pending resend and releases each packet identifier.
+   * Cancels every pending resend.
    *
-   * @param client - Connection whose outbound identifiers should be freed.
+   * @param client - Connection owning the frames to forget. Passed through to
+   * {@link QosRetry.clearPendingPacket}, which means the packet identifiers stay allocated.
    */
   public clearPendingClient(client: MqttClient) {
     this.qosRetryMap.forEach((_entry, id) => {
@@ -76,9 +84,9 @@ class ClientQosRetry {
    *
    * @param client - Connection that owns the packet identifier.
    * @param id - Outbound packet identifier to forget.
-   * @param releaseIdentifier - Whether to release the packet identifier immediately (defaults to true).
+   * @param releaseIdentifier - Whether to release the packet identifier immediately (defaults to false).
    */
-  public clearPendingPacket(client: MqttClient, id: number, releaseIdentifier = true) {
+  public clearPendingPacket(client: MqttClient, id: number, releaseIdentifier = false) {
     const entry = this.qosRetryMap.get(id);
     if (entry) {
       clearTimeout(entry.timer);
@@ -90,53 +98,68 @@ class ClientQosRetry {
   }
 
   /**
-   * Arms the next resend of the frame stored for `id`.
-   *
-   * Does nothing when no frame is stored. If the packet identifier is no longer allocated,
-   * the stored frame and its timer are dropped without a write.
+   * Arms the next resend of the frame stored for `id`, creating an entry from `packet` when the
+   * identifier has no stored frame yet.
    *
    * @param client - Connection to write the frame to.
-   * @param id - Outbound packet identifier previously passed to {@link ClientQosRetry.registerPendingPacket}.
+   * @param id - Packet identifier used as the retry key. The allocator is not consulted, so inbound
+   * identifiers that never went through {@link MqttClient.packetIdentifierManager} work too.
+   * @param packet - Frame used when no entry exists for `id`.
+   * @param releaseIdentifier - Passed back to {@link QosRetry.clearPendingPacket} once the retry
+   * budget is spent, so the identifier is released only if the caller opted in.
    */
-  public scheduleRetry(client: MqttClient, id: number) {
-    // Ack, expiry, or an earlier clear already released this id.
-    if (!client.packetIdentifierManager.has(id)) {
-      const timers = this.qosRetryMap.get(id)?.timer;
-      clearTimeout(timers);
-      this.qosRetryMap.delete(id);
-      return;
-    }
-
-    const entry = this.qosRetryMap.get(id);
-    if (!entry) {
-      return;
-    }
+  public scheduleRetry(client: MqttClient, id: number, packet: Buffer, releaseIdentifier = false): TQosRetryEntry | void {
+    const entry: TQosRetryEntry = this.qosRetryMap.get(id) ?? { packet, attempts: 0, timer: undefined };
     const timer = setTimeout(() => {
-      // [MQTT-3.3.1-1]  If the DUP flag is set to 1, it indicates that this might be re-delivery of an earlier attempt to send the packet.
-      entry.packet[0] = entry.packet[0] | 0x08;
       entry.attempts++;
-      client.socket.write(entry.packet);
-      if (entry.attempts >= this.qosRetryCount) {
-        this.clearPendingPacket(client, id);
-        return;
+
+      if (entry.attempts <= this.qosRetryCount) {
+        if (entry.packet[0] & 0x30) {
+          entry.packet[0] = entry.packet[0] | 0x08;
+        }
+        if (!client.socket.writableEnded) {
+          client.socket.write(entry.packet);
+        }
+        this.scheduleRetry(client, id, entry.packet, releaseIdentifier);
+      } else {
+        this.clearPendingPacket(client, id, releaseIdentifier);
       }
-      this.scheduleRetry(client, id);
+
       clearTimeout(timer);
     }, this.qosRetryIntervalMs);
 
     entry.timer = timer;
+    return entry;
   }
 
   /**
    * Stores `packet` under `id` and arms the first resend.
    *
-   * @param client - Connection that will receive the resend. `id` must already be in its packet-identifier map.
-   * @param id - Outbound packet identifier for this frame.
+   * @param client - Connection that will receive the resend.
+   * @param id - Retry key for this frame: an outbound packet identifier, or the inbound identifier
+   * of a QoS 2 PUBLISH while its PUBREC leg is outstanding.
    * @param packet - Encoded frame written again on each resend.
+   * @param releaseIdentifier - Release the identifier when the retry budget is spent. Required for
+   * outbound identifiers, since nothing else frees an abandoned frame; left `false` for inbound
+   * identifiers, which belong to the client's identifier space.
    */
-  public registerPendingPacket(client: MqttClient, id: number, packet: Buffer) {
-    this.qosRetryMap.set(id, { packet, attempts: 0, timer: undefined });
-    this.scheduleRetry(client, id);
+  public registerPendingPacket(client: MqttClient, id: number, packet: Buffer, releaseIdentifier = false) {
+    const entry = this.scheduleRetry(client, id, packet, releaseIdentifier);
+    entry && this.qosRetryMap.set(id, entry);
+  }
+
+  /**
+   * Replaces the stored frame for `id`, so later resends carry the next leg of the handshake
+   * (PUBLISH → PUBREL) instead of a frame the client has already acknowledged.
+   *
+   * @param id - Packet identifier whose entry should be updated.
+   * @param packet - Replacement frame. Ignored when `id` has no entry.
+   */
+  public updatePacket(id: number, packet: Buffer) {
+    const entry = this.qosRetryMap.get(id);
+    if (entry?.packet) {
+      entry.packet = packet;
+    }
   }
 }
 
@@ -150,11 +173,12 @@ class ClientQosRetry {
  * - Server sends to client: `handle{PacketType}` (e.g. {@link MqttClient.handleConnAck}, {@link MqttClient.handleDisconnect}, {@link MqttClient.handlePublish}).
  *
  * **QoS 1/2 recovery**
- * A static map stores incomplete outbound publishes / PUBREL state per client id so sessions can resume after `cleanStart: false`.
+ * Retry state lives on the connection: `publishQosRetry` resends outbound PUBLISH frames the
+ * client has not acknowledged, and `receiveQos2Retry` resends the PUBREC of an inbound QoS 2
+ * handshake until PUBREL arrives. Nothing is persisted, so an unacknowledged outbound message is
+ * not replayed after a reconnect — only resends on the still-open connection are covered.
  */
 export class MqttClient {
-  /** Outbound QoS 1/2 state keyed by client identifier (publish snapshot or pubrel placeholder) for session resume. */
-  private static readonly outboundStore = new Map<string, Map<number, { type: 'publish' | 'pubrel'; publish?: IPublishData }>>();
   /** Topic Alias id → topic name mapping for inbound PUBLISH (MQTT 5 Topic Alias). */
   topicAliasNameMap: { [key: number]: string } = {};
   /** Count of outstanding inbound QoS 1/2 publishes toward {@link IMqttOptions.receiveMaximum}. */
@@ -167,8 +191,6 @@ export class MqttClient {
   private authMethod?: string;
   /** `false` while an AUTH challenge/response is still in progress; otherwise `true`. */
   private authDone = true;
-  /** Packet identifiers of inbound QoS 2 publishes awaiting PUBREL (dedup / handshake state). */
-  private inboundQoS2: Set<number> = new Set();
   /** Parsed CONNECT packet for this session (flags, properties, will, keep-alive, etc.). */
   public connData: IConnectData = {
     header: {
@@ -188,7 +210,9 @@ export class MqttClient {
   /** Allocator for outbound server→client packet identifiers (PUBLISH / PUBREL), with TTL. */
   packetIdentifierManager: ClientPacketIdentifierManager;
   /** Resends unacknowledged outbound QoS 1/2 frames until ack, release, or the retry limit. */
-  readonly qosRetry: ClientQosRetry = new ClientQosRetry();
+  readonly publishQosRetry: QosRetry = new QosRetry();
+  /** Resends the PUBREC of an inbound QoS 2 handshake until the client answers with PUBREL. */
+  readonly receiveQos2Retry: QosRetry = new QosRetry();
   /** Keep-alive deadline as Unix seconds; refreshed on client activity (see Manager.ping). */
   expire: number = 0;
 
@@ -209,59 +233,6 @@ export class MqttClient {
     private readonly options: Required<IMqttOptions>,
   ) {
     this.packetIdentifierManager = new ClientPacketIdentifierManager(this.options.packetIdentifierTTL);
-  }
-
-  /**
-   * Returns the outbound recovery queue for a client, creating it if missing.
-   *
-   * @param clientIdentifier - MQTT client identifier.
-   * @returns The per-client map of packet identifier → queued outbound item.
-   */
-  private getOutboundQueue(clientIdentifier: string) {
-    let queue = MqttClient.outboundStore.get(clientIdentifier);
-    if (!queue) {
-      queue = new Map();
-      MqttClient.outboundStore.set(clientIdentifier, queue);
-    }
-    return queue;
-  }
-  /**
-   * Drops all queued outbound state for a client (e.g. on clean start).
-   *
-   * @param clientIdentifier - MQTT client identifier.
-   */
-  private clearOutboundQueue(clientIdentifier: string) {
-    MqttClient.outboundStore.delete(clientIdentifier);
-  }
-  /**
-   * Re-sends unfinished QoS 1 publishes (with DUP) and completes QoS 2 PUBREL legs after reconnect.
-   *
-   * @param clientIdentifier - MQTT client identifier whose queue should be replayed.
-   */
-  private async restoreOutboundQueue(clientIdentifier: string) {
-    const queue = MqttClient.outboundStore.get(clientIdentifier);
-    if (!queue || !queue.size) {
-      return;
-    }
-    for (const [packetIdentifier, item] of queue.entries()) {
-      if (item.type === 'publish' && item.publish) {
-        const replayData: IPublishData = JSON.parse(JSON.stringify(item.publish));
-        replayData.header.packetIdentifier = packetIdentifier;
-        replayData.header.dupFlag = true;
-        const packet = encodePacket(replayData, this.connData.header.protocolVersion);
-        this.socket.write(packet);
-      } else if (item.type === 'pubrel') {
-        await this.handlePubRel({
-          header: {
-            packetType: PacketType.PUBREC,
-            packetIdentifier,
-            received: 0x00,
-            reasonCode: 0x00,
-          },
-          properties: {},
-        });
-      }
-    }
   }
 
   /**
@@ -366,8 +337,6 @@ export class MqttClient {
     if (this.connData.connectFlags.cleanStart) {
       await this.clientManager.clearSubscribe(this.clientIdentifier);
       this.receiveCounter = 0;
-      this.inboundQoS2.clear();
-      this.clearOutboundQueue(this.clientIdentifier);
     }
     if (
       this.connData.properties.authenticationMethod &&
@@ -408,8 +377,10 @@ export class MqttClient {
     await this.clientManager.connect(targetId, connData, this);
     await this.handleConnAck(this.connData);
     this.clientIdentifier = targetId;
+    // TODO [MQTT-4.1.0] Session resume on Clean Start 0: re-send unacknowledged QoS 1/2 messages
+    // and finish any outstanding PUBREL. The replay call was dropped with the session-recovery
+    // refactor, so this branch is currently empty.
     if (!this.connData.connectFlags.cleanStart) {
-      await this.restoreOutboundQueue(targetId);
     }
     if (this.isAuth && !this.authDone) {
       await this.handleAuthPacket(AuthenticateReasonCode.ContinueAuthentication, this.authMethod, this.connData.properties.authenticationData);
@@ -572,23 +543,7 @@ export class MqttClient {
           pubData.header.topicName = this.topicAliasNameMap[pubData.properties.topicAlias];
         }
       }
-      // QoS 2 dedup: duplicate packet id only gets PUBREC again, not re-delivered upstream.
-      if (pubData.header.qosLevel === QoSType.QoS2 && pubData.header.packetIdentifier !== undefined) {
-        if (this.inboundQoS2.has(pubData.header.packetIdentifier)) {
-          const pubRecData: IPubRecData = {
-            header: {
-              packetType: PacketType.PUBREC,
-              packetIdentifier: pubData.header.packetIdentifier,
-              received: 0x00,
-              reasonCode: 0x00,
-            },
-            properties: {},
-          };
-          await this.handlePubRec(pubRecData);
-          return;
-        }
-        this.inboundQoS2.add(pubData.header.packetIdentifier);
-      }
+
       if (!(await emitAsync(this.socket, 'publish', pubData, this, this.clientManager))) {
         return false;
       }
@@ -651,10 +606,14 @@ export class MqttClient {
     }
   }
   /**
-   * Encodes and sends a PUBLISH to a client, queuing outbound QoS state for session recovery.
+   * Encodes and sends a PUBLISH to a client, registering outbound QoS state for resends.
    *
-   * @param client - Target {@link MqttClient} connection.
-   * @param pubData - Publish to deliver (packet id assigned when QoS is QoS1 or QoS2).
+   * @param pubData - Publish to deliver; mutated in place (a packet identifier is allocated for
+   * QoS 1/2, and `retain` is always cleared).
+   * @remarks
+   * QoS is downgraded to QoS 0 when the send quota is exhausted, per [MQTT-4.9.0-2]. Registering
+   * without `releaseIdentifier` means an outbound identifier whose retries ran out stays
+   * allocated in {@link MqttClient.packetIdentifierManager} until its TTL expires.
    */
   public async handlePublish(pubData: IPublishData) {
     let targetPacketIdentifier: number | undefined;
@@ -670,13 +629,6 @@ export class MqttClient {
       }
       targetPacketIdentifier = pubData.header.packetIdentifier;
       pubData.header.dupFlag = false;
-      if (this.clientIdentifier && targetPacketIdentifier) {
-        const queue = this.getOutboundQueue(this.clientIdentifier);
-        queue.set(targetPacketIdentifier, {
-          type: 'publish',
-          publish: JSON.parse(JSON.stringify(pubData)),
-        });
-      }
     }
     pubData.header.retain = false;
     const pubPacket = encodePacket(pubData, this.connData.header.protocolVersion);
@@ -686,7 +638,7 @@ export class MqttClient {
     }
     this.socket.write(pubPacket);
     if (targetPacketIdentifier) {
-      this.qosRetry.registerPendingPacket(this, targetPacketIdentifier, pubPacket);
+      this.publishQosRetry.registerPendingPacket(this, targetPacketIdentifier, pubPacket);
     }
   }
   /**
@@ -705,6 +657,7 @@ export class MqttClient {
    */
   async handlePubRec(pubRecData: IPubRecData) {
     const pubRecPacket = encodePacket(pubRecData, this.connData.header.protocolVersion);
+    this.receiveQos2Retry.registerPendingPacket(this, pubRecData.header.packetIdentifier, pubRecPacket);
     this.socket.write(pubRecPacket);
   }
   /**
@@ -717,18 +670,16 @@ export class MqttClient {
     if (!this.packetIdentifierManager.has(pubAckData.header.packetIdentifier)) {
       throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'PUBACK contained unknown packet identifier!');
     }
-    this.qosRetry.clearPendingPacket(this, pubAckData.header.packetIdentifier);
-    if (this.clientIdentifier) {
-      this.getOutboundQueue(this.clientIdentifier).delete(pubAckData.header.packetIdentifier);
-    }
+    this.publishQosRetry.clearPendingPacket(this, pubAckData.header.packetIdentifier, true);
   }
   /**
-   * Finishes inbound QoS 2 after PUBREL: clears dedup state, decrements receive quota, sends PUBCOMP.
+   * Finishes inbound QoS 2 after PUBREL: stops resending the PUBREC, frees the receive quota slot,
+   * sends PUBCOMP.
    *
    * @param pubRelData - Client PUBREL (same id as PUBREC).
    */
   public async pubRelHandle(pubRelData: IPubRelData) {
-    this.inboundQoS2.delete(pubRelData.header.packetIdentifier);
+    this.receiveQos2Retry.clearPendingPacket(this, pubRelData.header.packetIdentifier);
     this.receiveCounter = Math.max(0, this.receiveCounter - 1);
     await this.handlePubComp(pubRelData as any);
   }
@@ -758,14 +709,6 @@ export class MqttClient {
     if (!this.packetIdentifierManager.has(pubRecData.header.packetIdentifier)) {
       throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'PUBREC contained unknown packet identifier!');
     }
-    // [MQTT-4.3.3-6] MUST NOT re-send the PUBLISH once it has sent the corresponding PUBREL packet.
-    this.qosRetry.clearPendingPacket(this, pubRecData.header.packetIdentifier, false);
-    if (this.clientIdentifier) {
-      const queue = this.getOutboundQueue(this.clientIdentifier);
-      if (queue.has(pubRecData.header.packetIdentifier)) {
-        queue.set(pubRecData.header.packetIdentifier, { type: 'pubrel' });
-      }
-    }
     await this.handlePubRel(pubRecData);
   }
   /**
@@ -782,8 +725,9 @@ export class MqttClient {
       PubCompReasonCode.Success,
       ...properties.buffer,
     ]);
+    // [MQTT-4.3.3-6] MUST NOT re-send the PUBLISH once it has sent the corresponding PUBREL packet.
+    this.publishQosRetry.updatePacket(pubRecData.header.packetIdentifier, pubRelPacket);
     this.socket.write(pubRelPacket);
-    // this.clientManager.promotePendingToPubRel(this, pubRecData.header.packetIdentifier, pubRelPacket);
   }
   /**
    * Handles inbound PUBCOMP: frees packet identifier and removes outbound queue entry.
@@ -795,10 +739,7 @@ export class MqttClient {
     if (!this.packetIdentifierManager.has(pubCompData.header.packetIdentifier)) {
       throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'PUBCOMP contained unknown packet identifier!');
     }
-    this.qosRetry.clearPendingPacket(this, pubCompData.header.packetIdentifier);
-    if (this.clientIdentifier) {
-      this.getOutboundQueue(this.clientIdentifier).delete(pubCompData.header.packetIdentifier);
-    }
+    this.publishQosRetry.clearPendingPacket(this, pubCompData.header.packetIdentifier, true);
   }
   /**
    * Applies SUBSCRIBE: validates options, may deliver retained messages, registers subscriptions, sends SUBACK.

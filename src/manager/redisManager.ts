@@ -321,7 +321,7 @@ export class RedisManager extends Manager {
     const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : clientIdentifier.clientIdentifier;
     const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getClient(clientIdentifier) : clientIdentifier;
     if (client && identifier) {
-      client.qosRetry.clearPendingClient(client);
+      client.publishQosRetry.clearPendingClient(client);
       const connDataRaw = await this.redis.get(this.connectKey(identifier));
       const sessionExpiryInterval = connDataRaw ? ((JSON.parse(connDataRaw) as IConnectData).properties?.sessionExpiryInterval ?? 0) : 0;
       if (sessionExpiryInterval <= 0) {

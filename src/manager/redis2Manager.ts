@@ -380,7 +380,7 @@ export class Redis2Manager extends Manager {
       if (typeof clientIdentifier !== 'string' && clientIdentifier !== idClient) {
         return;
       }
-      client.qosRetry.clearPendingClient(client);
+      client.publishQosRetry.clearPendingClient(client);
       const connDataRaw = await this.redisPub.get(this.connectKey(identifier));
       const sessionExpiryInterval = connDataRaw ? ((JSON.parse(connDataRaw) as IConnectData).properties?.sessionExpiryInterval ?? 0) : 0;
       if (sessionExpiryInterval <= 0) {

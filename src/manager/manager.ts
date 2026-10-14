@@ -234,7 +234,9 @@ export class ClientIdentifierManager {
  *
  * @remarks
  * Subclasses implement connection state, subscriptions, retained messages, and may delegate packet-id storage to {@link ClientIdentifierManager}.
- * This class adds shared helpers for outbound packet identifiers and QoS 1/2 retry timers for pending PUBLISH/PUBREL.
+ * This class owns the registry of live clients and a 30-minute sweep that expires unused outbound
+ * packet identifiers across all of them. QoS 1/2 resend timers are not managed here: each
+ * {@link MqttClient} owns its own `publishQosRetry` / `receiveQos2Retry` trackers.
  */
 export abstract class Manager {
   abstract readonly clientIdentifierManager: ClientIdentifierManager;

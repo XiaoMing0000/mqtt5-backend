@@ -174,7 +174,7 @@ export class MemoryManager extends Manager {
       if (typeof clientIdentifier !== 'string' && clientIdentifier !== idClient) {
         return;
       }
-      client.qosRetry.clearPendingClient(client);
+      client.publishQosRetry.clearPendingClient(client);
 
       const session = this.sessionStore.get(identifier);
       if (session && session.sessionExpiryInterval > 0) {
