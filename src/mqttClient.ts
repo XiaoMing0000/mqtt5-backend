@@ -450,7 +450,7 @@ export class MqttClient {
           topicName: this.connData.payload.willTopic || '',
         },
         properties: this.connData.payload.willProperties ?? {},
-        payload: willPayload ? willPayload.toString() : '',
+        payload: willPayload ?? Buffer.alloc(0),
       };
       const delayInterval = this.connData.payload.willProperties?.willDelayInterval ?? 0;
       const messageExpiry = this.connData.payload.willProperties?.messageExpiryInterval ?? 0;

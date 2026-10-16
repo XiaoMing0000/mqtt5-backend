@@ -40,6 +40,11 @@ function utf8Property(id: PropertyIdentifier, value: string): number[] {
   return [id, ...encodeUTF8String(value)];
 }
 
+/** One User Property block: identifier followed by the key/value UTF-8 string pair. */
+function userPropertyPair(key: string, value: string): number[] {
+  return [PropertyIdentifier.userProperty, ...encodeUTF8String(key), ...encodeUTF8String(value)];
+}
+
 function binaryProperty(id: PropertyIdentifier, value: Buffer): number[] {
   return [id, ...encodeBinaryData(value)];
 }
@@ -115,6 +120,20 @@ describe('property', () => {
       encoder.add(PropertyIdentifier.subscriptionIdentifier, [1, 2] as any);
       encoder.add(PropertyIdentifier.subscriptionIdentifier, '42' as any);
       expect(encoder.length).toBeGreaterThan(1);
+    });
+
+    test('should expand an array userProperty value into one pair per element', () => {
+      const encoder = new EncoderProperties();
+      encoder.push({ userProperty: { k: ['v1', 'v2'], single: 'only' } });
+      const props = [...userPropertyPair('k', 'v1'), ...userPropertyPair('k', 'v2'), ...userPropertyPair('single', 'only')];
+      expect(encoder.buffer).toEqual(Buffer.concat([Buffer.from(encodeVariableByteInteger(props.length)), Buffer.from(props)]));
+    });
+
+    test('should skip userProperty entries that are neither a string nor a string array', () => {
+      const encoder = new EncoderProperties();
+      encoder.push({ userProperty: { kept: 'yes', dropped: 42 as any } });
+      const props = userPropertyPair('kept', 'yes');
+      expect(encoder.buffer).toEqual(Buffer.concat([Buffer.from(encodeVariableByteInteger(props.length)), Buffer.from(props)]));
     });
 
     test('should ignore undefined properties', () => {

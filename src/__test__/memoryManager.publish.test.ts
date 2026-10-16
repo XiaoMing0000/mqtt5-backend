@@ -92,7 +92,7 @@ function publishData(topic: string): IPublishData {
       topicName: topic,
     },
     properties: {},
-    payload: 'hi',
+    payload: Buffer.from('hi'),
   };
 }
 

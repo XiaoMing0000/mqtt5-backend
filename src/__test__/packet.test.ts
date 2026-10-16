@@ -83,7 +83,7 @@ describe('packet', () => {
       const result = decodePacket(buffer, ProtocolVersion.V5) as IPublishData;
       expect(result.header.packetType).toBe(PacketType.PUBLISH);
       expect(result.header.topicName).toBe('test/topic');
-      expect(result.payload).toBe('payload');
+      expect(result.payload).toEqual(Buffer.from('payload'));
     });
 
     test('dispatches SUBSCRIBE', () => {
@@ -149,7 +149,7 @@ describe('packet', () => {
       expect(result.header.packetType).toBe(PacketType.PUBLISH);
       expect(result.header.topicName).toBe('');
       expect(result.properties.topicAlias).toBe(1);
-      expect(result.payload).toBe('payload');
+      expect(result.payload).toEqual(Buffer.from('payload'));
     });
 
     test('dispatches DISCONNECT with 0 remaining length', () => {
@@ -237,7 +237,7 @@ describe('packet', () => {
           topicName: 'test/topic',
         },
         properties: {},
-        payload: 'test payload',
+        payload: Buffer.from('test payload'),
       };
       const buffer = encodePacket(pubData, ProtocolVersion.V5);
       expect(Buffer.isBuffer(buffer)).toBe(true);
@@ -256,7 +256,7 @@ describe('packet', () => {
           packetIdentifier: 0x1234,
         },
         properties: {},
-        payload: 'test payload',
+        payload: Buffer.from('test payload'),
       };
       const buffer = encodePacket(pubData, ProtocolVersion.V5);
       expect(Buffer.isBuffer(buffer)).toBe(true);
@@ -273,7 +273,7 @@ describe('packet', () => {
           topicName: 't',
         },
         properties: { contentType: 'ignored' },
-        payload: 'x',
+        payload: Buffer.from('x'),
       };
       const v5 = encodePacket(pubData, ProtocolVersion.V5);
       const v311 = encodePacket(pubData, ProtocolVersion.V3_1_1);

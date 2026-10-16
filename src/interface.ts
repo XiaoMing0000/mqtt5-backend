@@ -224,7 +224,7 @@ export interface IProperties {
   assignedClientIdentifier?: string;
   requestResponseInformation?: boolean;
   requestProblemInformation?: boolean;
-  userProperty?: { [key: string]: any };
+  userProperty?: { [key: string]: string | string[] };
   authenticationMethod?: string;
   authenticationData?: string;
   willDelayInterval?: number;
@@ -450,7 +450,7 @@ export interface IPublishData {
     topicName: string;
   };
   properties: IPublishProperties;
-  payload: string;
+  payload: Buffer;
 }
 
 /** Decoded SUBSCRIBE packet. */

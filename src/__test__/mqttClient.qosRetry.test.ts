@@ -80,7 +80,7 @@ function inboundPublish(qosLevel: QoSType.QoS1 | QoSType.QoS2, packetIdentifier 
       packetIdentifier,
     },
     properties: {},
-    payload: 'hello',
+    payload: Buffer.from('hello'),
   };
 }
 
@@ -95,7 +95,7 @@ function outboundPublish(qosLevel: QoSType.QoS1 | QoSType.QoS2 = QoSType.QoS1): 
       topicName: 'test/topic',
     },
     properties: {},
-    payload: 'hello',
+    payload: Buffer.from('hello'),
   };
 }
 

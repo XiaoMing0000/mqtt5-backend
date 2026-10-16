@@ -200,7 +200,7 @@ function decodePublish(buffer: Buffer, protocolVersion: ProtocolVersion) {
       topicName: '',
     },
     properties: {},
-    payload: '',
+    payload: Buffer.alloc(0),
   };
   pubData.header.packetType = (buffer[0] >> 4) as PacketType;
   pubData.header.dupFlag = !!(buffer[0] & 0x8);
@@ -231,7 +231,7 @@ function decodePublish(buffer: Buffer, protocolVersion: ProtocolVersion) {
       'It is a Protocol Error if the Topic Name is zero length and there is no Topic Alias.',
     );
   }
-  pubData.payload = data.buffer.slice(data.index).toString();
+  pubData.payload = data.buffer.subarray(data.index);
 
   return pubData;
 }
@@ -625,7 +625,7 @@ function decodeAuth(buffer: Buffer, protocolVersion: ProtocolVersion): IAuthData
   return authData;
 }
 
-export function encodePacket(data: PacketTypeData, protocolVersion: ProtocolVersion) {
+export function encodePacket(data: PacketTypeData, protocolVersion: ProtocolVersion): Buffer {
   const packetType = data.header.packetType as PacketType;
 
   switch (packetType) {
@@ -702,23 +702,28 @@ function encodePublishPacket(pubData: IPublishData, protocolVersion: ProtocolVer
 
   const topicNameBuffer = encodeUTF8String(pubData.header.topicName);
 
-  let packetIdentifierBuffer: Array<number> = [];
+  let packetIdentifierBuffer: Buffer = Buffer.alloc(0);
   if (pubData.header.qosLevel > 0 && pubData.header.packetIdentifier !== undefined) {
-    packetIdentifierBuffer = encodeTwoByteInteger(pubData.header.packetIdentifier);
+    packetIdentifierBuffer = Buffer.from(encodeTwoByteInteger(pubData.header.packetIdentifier));
   }
 
-  const properties = new EncoderProperties();
-  properties.push(pubData.properties);
+  let propertiesBuffer: Buffer | undefined;
+  if (protocolVersion === ProtocolVersion.V5) {
+    const properties = new EncoderProperties();
+    properties.push(pubData.properties);
+    propertiesBuffer = properties.buffer;
+  }
 
-  const remainingBuffer = [
-    ...topicNameBuffer,
-    ...packetIdentifierBuffer,
-    ...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
-    ...Buffer.from(pubData.payload),
-  ];
-  const publishedPacket = Buffer.from([fixedHeader, ...encodeVariableByteInteger(remainingBuffer.length), ...remainingBuffer]);
-
-  return publishedPacket;
+  const remainingLength =
+    topicNameBuffer.length + packetIdentifierBuffer.length + (propertiesBuffer ? propertiesBuffer.length : 0) + pubData.payload.length;
+  return Buffer.concat([
+    Buffer.from([fixedHeader]),
+    Buffer.from(encodeVariableByteInteger(remainingLength)),
+    topicNameBuffer,
+    Buffer.from(packetIdentifierBuffer),
+    propertiesBuffer ? propertiesBuffer : Buffer.alloc(0),
+    pubData.payload,
+  ]);
 }
 
 /**

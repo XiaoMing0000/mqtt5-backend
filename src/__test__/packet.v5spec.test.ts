@@ -48,7 +48,7 @@ function emptyPubData(): IPublishData {
   return {
     header: { packetType: PacketType.RESERVED, dupFlag: false, qosLevel: 0, retain: false, remainingLength: 0, topicName: '' },
     properties: {},
-    payload: '',
+    payload: Buffer.alloc(0),
   };
 }
 
@@ -237,7 +237,7 @@ describe('decodePublish (§3.3 PUBLISH via decodePacket)', () => {
     const buf = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(body.length), ...body]);
     const pubData = emptyPubData();
     Object.assign(pubData, decodePacket(buf, ProtocolVersion.V5));
-    expect(pubData.payload).toBe('');
+    expect(pubData.payload).toEqual(Buffer.alloc(0));
   });
 
   test('parses v3.1.1 PUBLISH without properties block', () => {
@@ -248,7 +248,7 @@ describe('decodePublish (§3.3 PUBLISH via decodePacket)', () => {
     const pubData = emptyPubData();
     Object.assign(pubData, decodePacket(buf, ProtocolVersion.V3_1_1));
     expect(pubData.header.topicName).toBe('v4/t');
-    expect(pubData.payload).toBe('v4data');
+    expect(pubData.payload).toEqual(Buffer.from('v4data'));
   });
 
   test('rejects topic with # wildcard (§3.3.2.1)', () => {
@@ -284,7 +284,7 @@ describe('decodePublish (§3.3 PUBLISH via decodePacket)', () => {
     const pubData = decodePacket(buf, ProtocolVersion.V5) as IPublishData;
     expect(pubData.header.topicName).toBe('');
     expect(pubData.properties.topicAlias).toBe(7);
-    expect(pubData.payload).toBe('msg');
+    expect(pubData.payload).toEqual(Buffer.from('msg'));
   });
 
   test('throws ProtocolError on zero-length topic name in v3.1.1 (§3.3.2.1)', () => {
@@ -655,13 +655,13 @@ describe('encode/decode roundtrip', () => {
     const original: IPublishData = {
       header: { packetType: PacketType.PUBLISH, dupFlag: false, qosLevel: QoSType.QoS0, retain: false, topicName: 'round/trip' },
       properties: {},
-      payload: 'roundtrip-data',
+      payload: Buffer.from('roundtrip-data'),
     };
     const encoded = encodePacket(original, ProtocolVersion.V5);
     const parsed = emptyPubData();
     Object.assign(parsed, decodePacket(encoded, ProtocolVersion.V5));
     expect(parsed.header.topicName).toBe('round/trip');
-    expect(parsed.payload).toBe('roundtrip-data');
+    expect(parsed.payload).toEqual(Buffer.from('roundtrip-data'));
     expect(parsed.header.qosLevel).toBe(QoSType.QoS0);
     expect(parsed.header.dupFlag).toBe(false);
     expect(parsed.header.retain).toBe(false);
@@ -671,7 +671,7 @@ describe('encode/decode roundtrip', () => {
     const original: IPublishData = {
       header: { packetType: PacketType.PUBLISH, dupFlag: true, qosLevel: QoSType.QoS1, retain: true, topicName: 'rt/q1', packetIdentifier: 0xabcd },
       properties: {},
-      payload: 'q1-payload',
+      payload: Buffer.from('q1-payload'),
     };
     const encoded = encodePacket(original, ProtocolVersion.V5);
     const parsed = emptyPubData();
@@ -681,21 +681,45 @@ describe('encode/decode roundtrip', () => {
     expect(parsed.header.qosLevel).toBe(QoSType.QoS1);
     expect(parsed.header.dupFlag).toBe(true);
     expect(parsed.header.retain).toBe(true);
-    expect(parsed.payload).toBe('q1-payload');
+    expect(parsed.payload).toEqual(Buffer.from('q1-payload'));
   });
 
   test('encodePublishPacket → parsePublish yields identical fields (QoS 2)', () => {
     const original: IPublishData = {
       header: { packetType: PacketType.PUBLISH, dupFlag: false, qosLevel: QoSType.QoS2, retain: false, topicName: 'rt/q2', packetIdentifier: 42 },
       properties: {},
-      payload: 'q2-payload',
+      payload: Buffer.from('q2-payload'),
     };
     const encoded = encodePacket(original, ProtocolVersion.V5);
     const parsed = emptyPubData();
     Object.assign(parsed, decodePacket(encoded, ProtocolVersion.V5));
     expect(parsed.header.packetIdentifier).toBe(42);
     expect(parsed.header.qosLevel).toBe(QoSType.QoS2);
-    expect(parsed.payload).toBe('q2-payload');
+    expect(parsed.payload).toEqual(Buffer.from('q2-payload'));
+  });
+
+  test('encodePublishPacket → parsePublish preserves a binary payload byte-for-byte', () => {
+    const binaryPayload = Buffer.from([0x00, 0xff, 0xfe, 0x80, 0x01, 0xc3, 0x28]);
+    const original: IPublishData = {
+      header: { packetType: PacketType.PUBLISH, dupFlag: false, qosLevel: QoSType.QoS0, retain: false, topicName: 'rt/bin' },
+      properties: {},
+      payload: binaryPayload,
+    };
+    const encoded = encodePacket(original, ProtocolVersion.V5);
+    const parsed = emptyPubData();
+    Object.assign(parsed, decodePacket(encoded, ProtocolVersion.V5));
+    expect(parsed.payload).toEqual(binaryPayload);
+  });
+
+  test('decodePublish keeps a binary payload as raw bytes', () => {
+    const topic = encodeUTF8String('bin/t');
+    const payload = Buffer.from([0xff, 0x00, 0x80]);
+    const body = [...topic, 0x00, ...payload];
+    const buf = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(body.length), ...body]);
+    const pubData = emptyPubData();
+    Object.assign(pubData, decodePacket(buf, ProtocolVersion.V5));
+    expect(Buffer.isBuffer(pubData.payload)).toBe(true);
+    expect(pubData.payload).toEqual(payload);
   });
 
   test('encodePubControlPacket → parsePubAck roundtrip', () => {

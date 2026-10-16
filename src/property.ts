@@ -545,12 +545,18 @@ function encodeProperties<K extends keyof PropertyDataMap>(id: K, data: Property
     case PropertyIdentifier.retainAvailable:
       return [PropertyIdentifier.retainAvailable, encodeOneByteInteger(data as number)];
     case PropertyIdentifier.userProperty: {
-      const buffer: Array<number> = [];
+      const array: number[] = [];
       const userPropertyData = data as IProperties['userProperty'];
       for (const key in userPropertyData) {
-        buffer.push(...[PropertyIdentifier.userProperty, ...encodeUTF8String(key), ...encodeUTF8String(userPropertyData[key])]);
+        if (typeof userPropertyData[key] === 'string') {
+          array.push(PropertyIdentifier.userProperty, ...encodeUTF8String(key), ...encodeUTF8String(userPropertyData[key]));
+        } else if (Array.isArray(userPropertyData[key])) {
+          for (const value of userPropertyData[key]) {
+            array.push(PropertyIdentifier.userProperty, ...encodeUTF8String(key), ...encodeUTF8String(value));
+          }
+        }
       }
-      return buffer;
+      return array;
     }
     case PropertyIdentifier.maximumPacketSize:
       return [PropertyIdentifier.maximumPacketSize, ...encodeFourByteInteger(data as number)];
@@ -570,7 +576,7 @@ function encodeProperties<K extends keyof PropertyDataMap>(id: K, data: Property
  */
 export class EncoderProperties {
   private propertyLength: number = 0;
-  private properties: Array<number> = [];
+  private properties: number[][] = [];
 
   /**
    * Appends one property (identifier + value) using the shared encoder from `property.ts`.
@@ -579,7 +585,7 @@ export class EncoderProperties {
    */
   add<K extends TPropertyIdentifier>(identifier: K, data: PropertyDataMap[K]) {
     const list = encodeProperties(identifier, data);
-    this.properties.push(...list);
+    this.properties.push(list);
     this.propertyLength += list.length;
   }
 
@@ -601,7 +607,7 @@ export class EncoderProperties {
    * @returns A `Buffer` ready to append after fixed header / other fields as required by the packet type.
    */
   get buffer() {
-    return Buffer.from([...encodeVariableByteInteger(this.propertyLength), ...this.properties]);
+    return Buffer.concat([Buffer.from(encodeVariableByteInteger(this.propertyLength)), Buffer.from(this.properties.flat())]);
   }
 
   /**

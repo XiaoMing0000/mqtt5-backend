@@ -44,7 +44,7 @@ export function decodeTwoByteInteger(data: BufferData): number {
  * @returns An integer in the range 0 to 2³²−1.
  */
 export function decodeFourByteInteger(data: BufferData): number {
-  return (data.buffer[data.index++] << 24) | (data.buffer[data.index++] << 16) | (data.buffer[data.index++] << 8) | data.buffer[data.index++];
+  return ((data.buffer[data.index++] << 24) | (data.buffer[data.index++] << 16) | (data.buffer[data.index++] << 8) | data.buffer[data.index++]) >>> 0;
 }
 
 /**
@@ -77,7 +77,7 @@ export function decodeVariableByteInteger(data: BufferData, length = 4): number 
  */
 export function decodeUtf8String(data: BufferData): string {
   const strLength = (data.buffer[data.index++] << 8) | data.buffer[data.index++];
-  return data.buffer.slice(data.index, (data.index += strLength)).toString();
+  return data.buffer.subarray(data.index, (data.index += strLength)).toString();
 }
 
 /**
@@ -100,7 +100,7 @@ export function decodeUtf8StringPair(data: BufferData): { key: string; value: st
  */
 export function decodeBinaryData(data: BufferData): Buffer {
   const length = (data.buffer[data.index++] << 8) | data.buffer[data.index++];
-  return Buffer.from(data.buffer.slice(data.index, (data.index += length)));
+  return Buffer.from(data.buffer.subarray(data.index, (data.index += length)));
 }
 
 /****************************** encode *****************************/
@@ -143,7 +143,7 @@ export function encodeVariableByteInteger(value: number): number[] {
     throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'Variable byte integer Value out of range.');
   }
 
-  const bytes = [];
+  const bytes: number[] = [];
   do {
     let encodedByte = value & 0x7f; // low 7 bits of the current chunk
     value >>= 7;
@@ -171,26 +171,13 @@ export function variableByteIntegerLength(data: number): number {
 }
 
 /**
- * Concatenates multiple byte arrays or `Uint8Array`s into a single dense number array.
- * @param args - Segments to merge in order.
- * @returns Flattened array of byte values.
- */
-export function mergeUint8Arrays(...args: Array<Array<number> | Uint8Array>) {
-  const arrNumber = [];
-  for (const data of args) {
-    arrNumber.push(...data);
-  }
-  return arrNumber;
-}
-
-/**
  * Encodes a string as MQTT UTF-8: Two Byte Integer length (big-endian) followed by UTF-8 bytes.
  * @param str - Source string.
  * @returns Byte sequence suitable for appending to a packet body.
  */
-export function encodeUTF8String(str: string): Array<number> {
-  const strBuffer = new TextEncoder().encode(str);
-  return mergeUint8Arrays(encodeTwoByteInteger(strBuffer.length), strBuffer);
+export function encodeUTF8String(str: string): Buffer {
+  const strBuffer = Buffer.from(str);
+  return Buffer.concat([Buffer.from(encodeTwoByteInteger(strBuffer.length)), strBuffer]);
 }
 /**
  * Encodes binary data as MQTT Binary Data: length prefix (Two Byte Integer) plus raw bytes.

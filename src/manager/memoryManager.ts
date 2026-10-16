@@ -1,5 +1,6 @@
-import { IConnectData, IPublishData, QoSType, TIdentifier, TTopic } from '../interface';
+import { IConnectData, IPublishData, ProtocolVersion, QoSType, TIdentifier, TTopic } from '../interface';
 import { MqttClient } from '../mqttClient';
+import { decodePacket, encodePacket } from '../packet';
 import { isWildcardTopic } from '../topicFilters';
 import { ClientIdentifierManager, Manager, TSocketSubscription, TSubscribeData } from './manager';
 
@@ -380,12 +381,13 @@ export class MemoryManager extends Manager {
    */
   public publish(clientIdentifier: string, topic: string, pubData: IPublishData) {
     const pubClient = this.geTSocket(clientIdentifier);
+    const pubBuffer = encodePacket(pubData, ProtocolVersion.V5);
     this.topicMap.get(topic)?.forEach((data: TSubscribeData, client: MqttClient) => {
       // [MQTT-3.8.3-3] Bit 2 of the Subscription Options represents the No Local option. If the value is 1, Application Messages MUST NOT be forwarded to a connection with a ClientID equal to the ClientID of the publishing connection.
       if (data.noLocal && client === pubClient) {
         return;
       }
-      const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
+      const distributeData: IPublishData = decodePacket(pubBuffer, ProtocolVersion.V5) as IPublishData;
       const qos = Math.min(data.qos || 0, pubData.header.qosLevel);
 
       // [MQTT-3.3.1-3] The value of the DUP flag from an incoming PUBLISH packet is not propagated when the PUBLISH packet is sent to subscribers by the Server. The DUP flag in the outgoing PUBLISH packet is set independently to the incoming PUBLISH packet, its value MUST be determined solely by whether the outgoing PUBLISH packet is a retransmission.
@@ -467,7 +469,7 @@ export class MemoryManager extends Manager {
         continue;
       }
       for (const sub of selected) {
-        const distributeData: IPublishData = JSON.parse(JSON.stringify(pubData));
+        const distributeData: IPublishData = decodePacket(pubBuffer, ProtocolVersion.V5) as IPublishData;
         const qos = Math.min(sub.qos || 0, pubData.header.qosLevel);
         if (qos > QoSType.QoS0) {
           distributeData.header.dupFlag = false;

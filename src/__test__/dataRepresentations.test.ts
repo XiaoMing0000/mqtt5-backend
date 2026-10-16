@@ -17,7 +17,6 @@ import {
   encodeTwoByteInteger,
   encodeUTF8String,
   encodeVariableByteInteger,
-  mergeUint8Arrays,
   variableByteIntegerLength,
 } from '../dataRepresentations';
 import { DisconnectException, DisconnectReasonCode } from '../exception';
@@ -108,8 +107,12 @@ describe('dataRepresentations', () => {
 
     test('decodes maximum 32-bit unsigned integer (0xffffffff)', () => {
       const data: BufferData = { buffer: Buffer.from([0xff, 0xff, 0xff, 0xff]), index: 0 };
-      const result = decodeFourByteInteger(data);
-      expect(result >>> 0).toBe(0xffffffff);
+      expect(decodeFourByteInteger(data)).toBe(0xffffffff);
+    });
+
+    test('decodes the high bit without producing a negative number', () => {
+      const data: BufferData = { buffer: Buffer.from([0x80, 0x00, 0x00, 0x00]), index: 0 };
+      expect(decodeFourByteInteger(data)).toBe(2147483648);
     });
   });
 
@@ -233,19 +236,23 @@ describe('dataRepresentations', () => {
 
     describe('encodeUTF8String', () => {
       test('encodes empty string with 2-byte zero length prefix', () => {
-        expect(encodeUTF8String('')).toEqual([0x00, 0x00]);
+        expect(encodeUTF8String('')).toEqual(Buffer.from([0x00, 0x00]));
       });
 
       test('encodes ASCII string with 2-byte length prefix', () => {
-        expect(encodeUTF8String('test')).toEqual([0x00, 0x04, 0x74, 0x65, 0x73, 0x74]);
+        expect(encodeUTF8String('test')).toEqual(Buffer.from([0x00, 0x04, 0x74, 0x65, 0x73, 0x74]));
       });
 
       test('encodes multi-byte UTF-8 string with byte length (not character length)', () => {
         const text = '你好';
         const encoded = encodeUTF8String(text);
         const byteLen = Buffer.byteLength(text, 'utf8');
-        expect(encoded.slice(0, 2)).toEqual([0x00, byteLen]);
-        expect(Buffer.from(encoded.slice(2)).toString('utf8')).toBe(text);
+        expect(encoded.subarray(0, 2)).toEqual(Buffer.from([0x00, byteLen]));
+        expect(encoded.subarray(2).toString('utf8')).toBe(text);
+      });
+
+      test('returns a Buffer', () => {
+        expect(Buffer.isBuffer(encodeUTF8String('test'))).toBe(true);
       });
     });
   });
@@ -297,22 +304,6 @@ describe('dataRepresentations', () => {
         const raw = Buffer.from([0x01, 0x02, 0x03]);
         expect(encodeBinaryData(raw)).toEqual([0x00, 0x03, 0x01, 0x02, 0x03]);
       });
-    });
-  });
-
-  // ─── mergeUint8Arrays ───────────────────────────────────────────────────────
-
-  describe('mergeUint8Arrays helper', () => {
-    test('merges empty inputs into empty array', () => {
-      expect(mergeUint8Arrays()).toEqual([]);
-      expect(mergeUint8Arrays([])).toEqual([]);
-    });
-
-    test('concatenates multiple number arrays and Uint8Arrays', () => {
-      const part1 = [1, 2];
-      const part2 = new Uint8Array([3, 4, 5]);
-      const part3 = [6];
-      expect(mergeUint8Arrays(part1, part2, part3)).toEqual([1, 2, 3, 4, 5, 6]);
     });
   });
 
