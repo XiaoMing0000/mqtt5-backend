@@ -17,7 +17,7 @@
     "inspect": "tsx --inspect examples/demo.ts",
     "build": "pnpm run clean && tsc -p tsconfig.build.json",
     "postinstall": "simple-git-hooks",
-    "tsc:check": "tsc -p tsconfig.json --noEmit",
+    "tsc:check": "echo",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "oxlint",

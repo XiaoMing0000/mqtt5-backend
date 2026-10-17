@@ -1,21 +1,216 @@
-import { IConnectData, IPublishData, ProtocolVersion, QoSType, TIdentifier, TTopic } from '../interface';
+import { DisconnectReasonCode } from '../exception';
+import { IDisconnectData, IPublishData, PacketType, ProtocolVersion, TIdentifier, TTopic } from '../interface';
 import { MqttClient } from '../mqttClient';
+import { Manager, TSubscribeData, TSubscription } from './manager';
 import { decodePacket, encodePacket } from '../packet';
-import { isWildcardTopic } from '../topicFilters';
-import { ClientIdentifierManager, Manager, TSocketSubscription, TSubscribeData } from './manager';
+import { isWildcardTopic, topicToRegEx } from '../topicFilters';
 
-interface IRoute {
-  [key: string]: {
-    clients: Map<MqttClient, TTopic>;
-    child?: IRoute;
-  };
-}
+// interface IRoute {
+//   [key: string]: {
+//     clients: Map<MqttClient, TTopic>;
+//     child?: IRoute;
 
-interface ISessionData {
-  subscription: TSocketSubscription;
+//   };
+// }
+
+type TSession = {
+  subscription: TSubscription;
   sessionExpiryInterval: number;
-  expireAt?: number;
+  expireAt: number;
+};
+type TSessionStore = Map<TIdentifier, TSession>;
+
+enum TopicMatchType {
+  ALL = 0,
+  EXACT,
+  BLUR,
 }
+
+export class SessionManager {
+  private readonly sessionStore: TSessionStore = new Map();
+  private readonly clearSessionTimer: NodeJS.Timeout;
+
+  constructor() {
+    // 定时清除
+    this.clearSessionTimer = setInterval(() => {
+      const now = Date.now();
+      this.sessionStore.forEach((session, identifier) => {
+        if (session.expireAt !== 0 && session.expireAt < now) {
+          this.sessionStore.delete(identifier);
+        }
+      });
+    }, 1000);
+  }
+
+  // 清除会话
+  clear(identifier: TIdentifier) {
+    this.sessionStore.delete(identifier);
+  }
+
+  has(identifier: TIdentifier) {
+    return this.sessionStore.has(identifier);
+  }
+
+  get(identifier: TIdentifier) {
+    return this.sessionStore.get(identifier);
+  }
+
+  // 建立连接时初始化会话
+  connect(identifier: TIdentifier, sessionExpiryInterval: number, clearOldSession = false) {
+    if (clearOldSession) {
+      this.clear(identifier);
+    } else {
+      const session = this.sessionStore.get(identifier);
+      if (session) {
+        session.expireAt = 0;
+        session.sessionExpiryInterval = sessionExpiryInterval;
+        return;
+      }
+    }
+
+    this.sessionStore.set(identifier, {
+      subscription: new Map(),
+      sessionExpiryInterval: sessionExpiryInterval,
+      expireAt: 0,
+    });
+  }
+
+  // 添加订阅
+  subscribe(identifier: TIdentifier, topic: TTopic, data: TSubscribeData) {
+    this.sessionStore.get(identifier)?.subscription.set(topic, data);
+  }
+
+  // 取消订阅
+  unsubscribe(identifier: TIdentifier, topic: TTopic) {
+    this.sessionStore.get(identifier)?.subscription.delete(topic);
+  }
+
+  // 查询是否订阅
+  isSubscribe(identifier: TIdentifier, topic: TTopic) {
+    return this.sessionStore.get(identifier)?.subscription.get(topic);
+  }
+
+  // 保留 sessionExpiryInterval 或清除 session
+  disconnect(identifier: TIdentifier) {
+    const session = this.sessionStore.get(identifier);
+    if (session) {
+      if (session.sessionExpiryInterval) {
+        session.expireAt = Date.now() + session.sessionExpiryInterval * 1000;
+      } else {
+        this.sessionStore.delete(identifier);
+      }
+    }
+  }
+
+  dispose() {
+    this.sessionStore.clear();
+    clearInterval(this.clearSessionTimer);
+  }
+}
+
+type TRetainData = { buffer: Buffer; expireAt: number };
+class RetainStore {
+  private readonly retainStore = new Map<TTopic, TRetainData>();
+  private readonly clearRetainTimer: NodeJS.Timeout;
+
+  constructor() {
+    // 定时清除
+    this.clearRetainTimer = setInterval(() => {
+      const now = Date.now();
+      this.retainStore.forEach((data, topic) => {
+        if (data.expireAt > now) {
+          this.retainStore.delete(topic);
+        }
+      });
+    }, 1000 * 60);
+  }
+
+  update(topic: TTopic, data: TRetainData) {
+    this.retainStore.set(topic, data);
+  }
+
+  delete(topic: TTopic) {
+    this.retainStore.delete(topic);
+  }
+
+  get(topic: TTopic) {
+    return this.retainStore.get(topic);
+  }
+
+  clear() {
+    this.retainStore.clear();
+  }
+
+  entries() {
+    return this.retainStore.entries();
+  }
+
+  dispose() {
+    this.retainStore.clear();
+    clearInterval(this.clearRetainTimer);
+  }
+}
+
+class TopicHashRegexManager {
+  private readonly exact: Map<TTopic, Set<TIdentifier>> = new Map();
+  private readonly blur: Map<string, { topic: string; ids: Set<TIdentifier> }> = new Map();
+
+  subscribe(topic: TTopic, identifier: TIdentifier) {
+    if (isWildcardTopic(topic)) {
+      const regStr = topicToRegEx(topic);
+      if (!regStr) return;
+      this.blur.get(regStr)?.ids.add(identifier) ?? this.blur.set(regStr, { topic, ids: new Set([identifier]) });
+    } else {
+      this.exact.get(topic)?.add(identifier) ?? this.exact.set(topic, new Set([identifier]));
+    }
+  }
+
+  unsubscribe(topic: TTopic, identifier: TIdentifier) {
+    if (isWildcardTopic(topic)) {
+      const regStr = topicToRegEx(topic);
+      if (!regStr) return;
+
+      const data = this.blur.get(regStr);
+      if (data) {
+        data.ids.delete(identifier);
+        !data.ids.size && this.blur.delete(regStr);
+      }
+    } else {
+      const ids = this.exact.get(topic);
+      if (ids) {
+        ids.delete(identifier);
+        !ids.size && this.exact.delete(topic);
+      }
+    }
+  }
+
+  *getMatchBlur(topic: TTopic, matchType?: TopicMatchType) {
+    // 精准匹配
+    if (matchType !== TopicMatchType.BLUR) {
+      const idSet = this.exact.get(topic);
+      if (idSet) {
+        for (const id of idSet) {
+          yield [id, topic];
+        }
+      }
+    }
+
+    // 通配符匹配
+    if (matchType !== TopicMatchType.EXACT) {
+      for (const [pattern, data] of this.blur) {
+        if (new RegExp(pattern).test(topic)) {
+          for (const id of data.ids) {
+            yield [id, data.topic];
+          }
+        }
+      }
+    }
+  }
+}
+
+// class TopicTrieManager {
+
+// }
 
 /**
  * In-memory MQTT client and session manager backed by a topic trie for subscription routing.
@@ -27,345 +222,129 @@ interface ISessionData {
  * - Shared subscriptions: round-robin selection per group using an internal cursor map
  * - Timers: retain cleanup (~1 min), keep-alive expiry (~1 s), session cleanup (~10 s)
  */
+
 export class MemoryManager extends Manager {
-  readonly clientIdentifierManager: ClientIdentifierManager;
-  private readonly retainMessage = new Map<string, { data: IPublishData; TTL: number }>();
-  private readonly sessionStore = new Map<TIdentifier, ISessionData>();
-  private readonly retainCleanupTimer: NodeJS.Timeout;
-  private readonly keepAliveTimer: NodeJS.Timeout;
-  private readonly sessionCleanupTimer: NodeJS.Timeout;
-
-  private readonly clientDataMap = new Map<
-    MqttClient,
-    {
-      subscription: TSocketSubscription;
-    }
-  >();
-  private route: IRoute = {};
-  private readonly topicMap = new Map<string, Map<MqttClient, TSubscribeData>>();
-  private readonly sharedCursor = new Map<string, number>();
+  private readonly sessionStore: SessionManager = new SessionManager();
+  private readonly retainStore: RetainStore = new RetainStore();
+  // 存储非通配符
+  private readonly topicIndex = new TopicHashRegexManager();
 
   /**
-   * Creates the manager, wires {@link ClientIdentifierManager}, and starts retain, keep-alive, and session cleanup intervals.
-   */
-  constructor() {
-    super();
-    this.clientIdentifierManager = new ClientIdentifierManager();
-
-    this.retainCleanupTimer = setInterval(() => {
-      const timestamp = Math.floor(Date.now() / 1000);
-      this.retainMessage.forEach((value, key) => {
-        if (timestamp > value.TTL) {
-          this.retainMessage.delete(key);
-        }
-      });
-    }, 1000 * 60);
-
-    this.keepAliveTimer = setInterval(() => {
-      const timestamp = Math.floor(Date.now() / 1000);
-      this.clientIdentifierManager.clientForEach((client, identifier) => {
-        if (timestamp > client.expire) {
-          this.disconnect(identifier);
-        }
-      });
-    }, 1000);
-
-    this.sessionCleanupTimer = setInterval(() => {
-      const timestamp = Math.floor(Date.now() / 1000);
-      this.sessionStore.forEach((session, identifier) => {
-        if (session.expireAt !== undefined && timestamp > session.expireAt) {
-          this.clearSubscribeBySession(identifier);
-          this.sessionStore.delete(identifier);
-        }
-      });
-    }, 1000 * 10);
-  }
-
-  /**
-   * Clears all periodic timers used by this manager.
-   *
-   * @returns Resolves when cleanup is complete.
-   */
-  public override async dispose(): Promise<void> {
-    super.dispose();
-    clearInterval(this.retainCleanupTimer);
-    clearInterval(this.keepAliveTimer);
-    clearInterval(this.sessionCleanupTimer);
-  }
-
-  /**
-   * Resolves the live {@link MqttClient} for a client identifier, if connected.
-   *
-   * @param identifier - MQTT client id string.
-   * @returns The {@link MqttClient}, or `undefined` if unknown.
-   */
-  geTSocket(identifier: TIdentifier) {
-    return this.clientIdentifierManager.getClient(identifier);
-  }
-  /**
-   * Returns whether the given {@link MqttClient} or client id currently has an active in-memory session.
-   *
-   * @param key - Connected {@link MqttClient} or client identifier string.
-   * @returns `true` if the client is tracked in the in-memory client map.
+   * 客户端是否连接
+   * @param identifier
+   * @returns
    */
   async isConnected(identifier: TIdentifier): Promise<boolean> {
-    const client = this.clientIdentifierManager.getClient(identifier);
-    if (client) {
-      return this.clientDataMap.has(client);
-    }
-    return false;
+    return !!this.clientIdentifierManager.getClient(identifier);
   }
 
   /**
-   * Registers a new connection: maps the identifier to the {@link MqttClient}, initializes or restores session state, and updates the session store.
-   *
-   * If a persisted session exists and `cleanStart` is false, subscriptions are restored into the trie; otherwise a fresh subscription map is created.
-   *
-   * @param identifier - MQTT client id.
-   * @param connData - CONNECT packet payload (keep-alive, flags, properties).
-   * @param client - Live {@link MqttClient} for this connection.
+   * 建立连接
+   * @param identifier
+   * @param connData
+   * @param client
    */
-  public async connect(identifier: string, connData: IConnectData, client: MqttClient): Promise<void> {
+  public async connect(identifier: TIdentifier, client: MqttClient): Promise<void> {
     this.clientIdentifierManager.set(identifier, client);
-    client.expire = Date.now() / 1000 + connData.header.keepAlive * 1.5;
-
-    const existingSession = this.sessionStore.get(identifier);
-    if (existingSession && !connData.connectFlags.cleanStart) {
-      existingSession.expireAt = undefined;
-      this.clientDataMap.set(client, { subscription: existingSession.subscription });
-      existingSession.subscription.forEach((_data, topic) => {
-        this.addRouteForClient(client, topic);
-      });
-    } else {
-      this.clientDataMap.set(client, { subscription: new Map() });
-    }
-
-    const sessionExpiryInterval = connData.properties?.sessionExpiryInterval ?? 0;
-    this.sessionStore.set(identifier, {
-      subscription: this.clientDataMap.get(client)!.subscription,
-      sessionExpiryInterval,
+    this.sessionStore.connect(identifier, client.connData.properties.sessionExpiryInterval ?? 0);
+    this.sessionStore.get(identifier)?.subscription.forEach((_, topic) => {
+      this.topicIndex.subscribe(topic, identifier);
     });
   }
 
-  /**
-   * Refreshes the keep-alive deadline for a connected client (extends expiry by `keepAlive * 1.5` seconds).
-   *
-   * @param clientIdentifier - MQTT client id.
-   */
-  public async ping(clientIdentifier: string): Promise<void> {
-    const client = this.clientIdentifierManager.getClient(clientIdentifier);
-    if (client) {
-      client.expire = Date.now() / 1000 + client.connData.header.keepAlive * 1.5;
-    }
-  }
-
-  /**
-   * Tears down a connection: removes keep-alive tracking and either schedules session expiry or fully clears subscriptions and session.
-   *
-   * When `sessionExpiryInterval` is greater than 0, routes are removed and `expireAt` is set; otherwise subscriptions and session row are deleted immediately.
-   *
-   * @param clientIdentifier - Client id string or connected {@link MqttClient}.
-   */
-  public clearConnect(clientIdentifier: MqttClient | TIdentifier): void {
-    const identifier = typeof clientIdentifier === 'string' ? clientIdentifier : clientIdentifier.clientIdentifier;
-    const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getClient(clientIdentifier) : clientIdentifier;
-
-    if (client && identifier) {
-      const idClient = this.clientIdentifierManager.getClient(identifier);
-      if (typeof clientIdentifier !== 'string' && clientIdentifier !== idClient) {
-        return;
-      }
-      client.publishQosRetry.clearPendingClient(client);
-
-      const session = this.sessionStore.get(identifier);
-      if (session && session.sessionExpiryInterval > 0) {
-        this.removeRouteForClient(client);
-        this.clientDataMap.delete(client);
-        session.expireAt = Math.floor(Date.now() / 1000) + session.sessionExpiryInterval;
-      } else {
-        this.clearSubscribe(identifier);
-        this.sessionStore.delete(identifier);
-      }
+  // 断开连接, 不清除 session
+  public async disconnect(identifier: TIdentifier, disconnectData?: IDisconnectData) {
+    const client = this.clientIdentifierManager.getClient(identifier);
+    if (client && !client.isDisconnect) {
+      client.isDisconnect = true;
+      client.handleDisconnect(
+        disconnectData ?? {
+          header: {
+            packetType: PacketType.DISCONNECT,
+            received: 0,
+            remainingLength: 0,
+            reasonCode: DisconnectReasonCode.NormalDisconnection,
+          },
+          properties: {},
+        },
+      );
 
       this.clientIdentifierManager.delete(identifier);
-    }
-  }
-
-  /**
-   * Returns whether a non-expired session row exists for the client id (may be disconnected but not past `expireAt`).
-   *
-   * @param clientIdentifier - MQTT client id.
-   * @returns `true` if session metadata is present and not expired; stale rows are removed and yield `false`.
-   */
-  public async hasSession(clientIdentifier: string): Promise<boolean> {
-    const session = this.sessionStore.get(clientIdentifier);
-    if (!session) return false;
-    if (session.expireAt !== undefined && Math.floor(Date.now() / 1000) > session.expireAt) {
-      this.sessionStore.delete(clientIdentifier);
-      return false;
-    }
-    return true;
-  }
-
-  /**
-   * Inserts the client's subscription topic filter into the trie so publish matching can find this client.
-   *
-   * @param client - Connected {@link MqttClient}.
-   * @param topic - Topic filter string (path segments separated by `/`).
-   */
-  private addRouteForClient(client: MqttClient, topic: string) {
-    const nodes = topic.split('/');
-    function push(nodeList: Array<string>, index: number, route: IRoute) {
-      if (!route[nodeList[index]]) {
-        route[nodeList[index]] = { clients: new Map() };
-      }
-      if (nodeList.length === index + 1) {
-        route[nodeList[index]].clients.set(client, topic);
-      } else {
-        const cur = route[nodeList[index]];
-        if (!cur.child) cur.child = {};
-        push(nodeList, index + 1, cur.child);
-      }
-    }
-    push(nodes, 0, this.route);
-  }
-
-  /**
-   * Removes this client from every trie node (and prunes empty branches).
-   *
-   * @param client - Connected {@link MqttClient}.
-   */
-  private removeRouteForClient(client: MqttClient) {
-    const removeFromRoute = (route: IRoute) => {
-      for (const key of Object.keys(route)) {
-        route[key].clients.delete(client);
-        if (route[key].child) {
-          removeFromRoute(route[key].child!);
-        }
-        if (!Object.keys(route[key].child ?? {}).length && !route[key].clients.size) {
-          delete route[key];
-        }
-      }
-    };
-    removeFromRoute(this.route);
-  }
-
-  /**
-   * Clears subscription entries in the session store when the session expires (timer-driven), without touching live sockets.
-   *
-   * @param identifier - MQTT client id.
-   */
-  private clearSubscribeBySession(identifier: string) {
-    const session = this.sessionStore.get(identifier);
-    if (session) {
-      session.subscription.clear();
-    }
-  }
-
-  /**
-   * Unsubscribes all topics for the client id and drops local subscription state.
-   *
-   * @param clientIdentifier - MQTT client id.
-   */
-  public async clearSubscribe(clientIdentifier: string): Promise<void> {
-    const client = this.clientIdentifierManager.getClient(clientIdentifier);
-    if (client) {
-      client.topicManager.forEach((topic) => {
-        this.unsubscribe(clientIdentifier, topic);
+      this.sessionStore.get(identifier)?.subscription.forEach((_, topic) => {
+        this.topicIndex.unsubscribe(topic, identifier);
       });
-
-      this.clientDataMap.delete(client);
-      this.clearSubscribeBySession(clientIdentifier);
+      this.sessionStore.disconnect(identifier);
     }
   }
 
-  /**
-   * Records a subscription for the client and adds the topic filter to the trie.
-   *
-   * @param clientIdentifier - MQTT client id.
-   * @param topic - Topic filter.
-   * @param data - Subscription options (QoS, flags, shared group, etc.).
-   */
-  public async subscribe(clientIdentifier: string, topic: string, data: TSubscribeData): Promise<void> {
-    const client = this.clientIdentifierManager.getClient(clientIdentifier);
-    if (client) {
-      if (!isWildcardTopic(topic)) {
-        // 非通配符主题
-        if (!this.topicMap.has(topic)) {
-          const map = new Map<MqttClient, TSubscribeData>();
-          map.set(client, data);
-          this.topicMap.set(topic, map);
-        } else {
-          this.topicMap.get(topic)?.set(client, data);
-        }
+  public async subscribe(identifier: TIdentifier, topic: TTopic, data: TSubscribeData) {
+    this.sessionStore.subscribe(identifier, topic, data);
+    this.topicIndex.subscribe(topic, identifier);
+  }
+
+  public async isSubscribe(identifier: TIdentifier, topic: TTopic): Promise<boolean> {
+    return !!this.sessionStore.isSubscribe(identifier, topic);
+  }
+
+  public async unsubscribe(identifier: TIdentifier, topic: TTopic): Promise<void> {
+    this.sessionStore.unsubscribe(identifier, topic);
+    this.topicIndex.unsubscribe(topic, identifier);
+  }
+
+  public async clearSession(identifier: TIdentifier): Promise<void> {
+    this.sessionStore.get(identifier)?.subscription.forEach((_data, topic) => {
+      this.topicIndex.unsubscribe(topic, identifier);
+    });
+    this.sessionStore.clear(identifier);
+  }
+
+  public async hasSession(identifier: TIdentifier): Promise<boolean> {
+    return this.sessionStore.has(identifier);
+  }
+
+  public async addRetainMessage(topic: TTopic, pubData: IPublishData, retainTTL?: number): Promise<void> {
+    this.retainStore.update(topic, {
+      buffer: encodePacket(pubData, ProtocolVersion.V5),
+      expireAt: retainTTL ? Date.now() + 1000 * retainTTL : Date.now() + 1000 * 3600,
+    });
+  }
+  public async deleteRetainMessage(topic: string): Promise<void> {
+    this.retainStore.delete(topic);
+  }
+  public async getRetainMessage(topic: string): Promise<IPublishData | undefined> {
+    const data = this.retainStore.get(topic);
+    if (data) {
+      if (data.expireAt === 0 || data.expireAt < Date.now()) {
+        return decodePacket(data.buffer, ProtocolVersion.V5) as IPublishData;
       } else {
-        // 通配符主题
-        if (this.clientDataMap.has(client)) {
-          this.clientDataMap.get(client)?.subscription.set(topic, data);
-        }
-
-        function push(nodes: Array<string>, index: number, route: IRoute) {
-          if (!route[nodes[index]]) {
-            route[nodes[index]] = {
-              clients: new Map(),
-            };
-          }
-          const currentRouter = route[nodes[index]];
-          if (nodes.length === index + 1) {
-            if (client) {
-              route[nodes[index]].clients.set(client, topic);
-            }
-          } else {
-            if (!currentRouter.child) {
-              currentRouter.child = {};
-            }
-            push(nodes, index + 1, currentRouter.child);
-          }
-        }
-
-        const nodes = topic.split('/');
-        push(nodes, 0, this.route);
+        this.retainStore.delete(topic);
       }
     }
   }
 
-  /**
-   * Removes one subscription from the client map and prunes the trie along that topic path.
-   *
-   * @param clientIdentifier - MQTT client id.
-   * @param topic - Topic filter to remove.
-   */
-  public async unsubscribe(clientIdentifier: string, topic: string): Promise<void> {
-    const client = this.clientIdentifierManager.getClient(clientIdentifier);
-    if (client) {
-      if (!isWildcardTopic(topic)) {
-        // 非通配符主题
-        this.topicMap.get(topic)?.delete(client);
-        if (!this.topicMap.get(topic)?.size) {
-          this.topicMap.delete(topic);
+  public async matchRetainMessage(topic: TTopic, callbackfn: (data: IPublishData) => Promise<void>) {
+    const now = Date.now();
+    if (!isWildcardTopic(topic)) {
+      const data = this.retainStore.get(topic);
+      if (data) {
+        if (data.expireAt < now) {
+          this.retainStore.delete(topic);
+        } else {
+          await callbackfn(decodePacket(data.buffer, ProtocolVersion.V5) as IPublishData);
         }
-      } else {
-        // 通配符主题
-        if (this.clientDataMap.has(client)) {
-          this.clientDataMap.get(client)?.subscription.delete(topic);
-        }
-        function pop(nodes: Array<string>, index: number, route: IRoute) {
-          const currentRouter = route[nodes[index]];
-          if (currentRouter) {
-            if (nodes.length === index + 1 && route[nodes[index]]) {
-              if (client) {
-                route[nodes[index]].clients.delete(client);
-              }
-            } else if (currentRouter.child) {
-              pop(nodes, index + 1, currentRouter.child);
-            }
-            if (!Object.keys(currentRouter.child ?? {}).length && !currentRouter.clients.size) {
-              delete route[nodes[index]];
-            }
+      }
+      return;
+    } else {
+      const reg = topicToRegEx(topic);
+      if (reg) {
+        const topicRegEx = new RegExp(reg);
+        for (const [key, data] of this.retainStore.entries()) {
+          if (data.expireAt < now) {
+            this.retainStore.delete(key);
+            continue;
           }
+          topicRegEx.test(key) && (await callbackfn(decodePacket(data.buffer, ProtocolVersion.V5) as IPublishData));
         }
-        const nodes = topic.split('/');
-        pop(nodes, 0, this.route);
       }
     }
   }
@@ -379,206 +358,37 @@ export class MemoryManager extends Manager {
    * @param topic - Publish topic name.
    * @param pubData - PUBLISH payload and headers.
    */
-  public publish(clientIdentifier: string, topic: string, pubData: IPublishData) {
-    const pubClient = this.geTSocket(clientIdentifier);
+  public publish(sourceIdentifier: string, topic: string, pubData: IPublishData) {
     const pubBuffer = encodePacket(pubData, ProtocolVersion.V5);
-    this.topicMap.get(topic)?.forEach((data: TSubscribeData, client: MqttClient) => {
+    // 非统配符
+    for (const [targetIdentifier, targetTopic] of this.topicIndex.getMatchBlur(topic) ?? []) {
+      const targetClient = this.clientIdentifierManager.getClient(targetIdentifier);
+      const targetClientSubscribeData = this.sessionStore.get(targetIdentifier)?.subscription.get(targetTopic);
+
+      if (!targetClient || !targetClientSubscribeData) {
+        return;
+      }
+
       // [MQTT-3.8.3-3] Bit 2 of the Subscription Options represents the No Local option. If the value is 1, Application Messages MUST NOT be forwarded to a connection with a ClientID equal to the ClientID of the publishing connection.
-      if (data.noLocal && client === pubClient) {
+      if (targetClientSubscribeData && targetClientSubscribeData.noLocal && sourceIdentifier === targetIdentifier) {
         return;
       }
       const distributeData: IPublishData = decodePacket(pubBuffer, ProtocolVersion.V5) as IPublishData;
-      const qos = Math.min(data.qos || 0, pubData.header.qosLevel);
+      const qos = Math.min(targetClientSubscribeData.qos || 0, pubData.header.qosLevel);
 
       // [MQTT-3.3.1-3] The value of the DUP flag from an incoming PUBLISH packet is not propagated when the PUBLISH packet is sent to subscribers by the Server. The DUP flag in the outgoing PUBLISH packet is set independently to the incoming PUBLISH packet, its value MUST be determined solely by whether the outgoing PUBLISH packet is a retransmission.
       distributeData.header.dupFlag = false;
 
       distributeData.header.qosLevel = qos;
-      distributeData.header.retain = data.retainAsPublished ? distributeData.header.retain : false;
-      if (data.subscriptionIdentifier !== undefined) {
-        distributeData.properties.subscriptionIdentifier = Array.isArray(data.subscriptionIdentifier)
-          ? data.subscriptionIdentifier
-          : [data.subscriptionIdentifier];
+      distributeData.header.retain = targetClientSubscribeData.retainAsPublished ? distributeData.header.retain : false;
+      if (targetClientSubscribeData.subscriptionIdentifier !== undefined) {
+        distributeData.properties.subscriptionIdentifier = Array.isArray(targetClientSubscribeData.subscriptionIdentifier)
+          ? targetClientSubscribeData.subscriptionIdentifier
+          : [targetClientSubscribeData.subscriptionIdentifier];
       } else {
         delete distributeData.properties.subscriptionIdentifier;
       }
-      client.handlePublish(distributeData);
-    });
-
-    const matchedByClient = new Map<MqttClient, TSubscribeData[]>();
-    const putMatch = (client: MqttClient, subFlags: TSubscribeData) => {
-      const list = matchedByClient.get(client) ?? [];
-      if (list.includes(subFlags)) return;
-      list.push(subFlags);
-      matchedByClient.set(client, list);
-    };
-
-    const collect = (node: IRoute[string] | undefined) => {
-      node?.clients.forEach((topic, client) => {
-        const data = this.clientDataMap.get(client)?.subscription.get(topic);
-        if (data) {
-          putMatch(client, data);
-        }
-      });
-    };
-
-    const match = (nodes: Array<string>, index: number, route: IRoute) => {
-      const level = nodes[index];
-      const isLast = nodes.length === index + 1;
-      const descend = (key: string) => {
-        const currentRoute = route[key];
-        if (!currentRoute) return;
-        if (isLast) {
-          collect(currentRoute);
-          // `filter/#` matches the parent topic itself, so a terminal `#` is one level down.
-          collect(currentRoute.child?.['#']);
-        } else if (currentRoute.child) {
-          match(nodes, index + 1, currentRoute.child);
-        }
-      };
-
-      descend(level);
-      if (level !== '+') descend('+');
-      // `#` matches the rest of this topic, and must not block sibling or deeper filters.
-      collect(route['#']);
-    };
-    const nodes = topic.split('/');
-    match(nodes, 0, this.route);
-    for (const [client, subscriptions] of matchedByClient.entries()) {
-      const candidates = subscriptions.filter((sub) => !(sub.noLocal && client === pubClient));
-      if (!candidates.length) {
-        continue;
-      }
-      const common = candidates.filter((sub) => !sub.sharedGroup);
-      const sharedBuckets = new Map<string, TSubscribeData[]>();
-      for (const sub of candidates) {
-        if (!sub.sharedGroup) continue;
-        const key = sub.sharedGroup;
-        const list = sharedBuckets.get(key) ?? [];
-        list.push(sub);
-        sharedBuckets.set(key, list);
-      }
-      const selected: TSubscribeData[] = [...common];
-      for (const [group, list] of sharedBuckets.entries()) {
-        if (!list.length) continue;
-        const cursor = this.sharedCursor.get(group) ?? 0;
-        selected.push(list[cursor % list.length]);
-        this.sharedCursor.set(group, (cursor + 1) % list.length);
-      }
-      if (pubData.properties.messageExpiryTimestamp && Date.now() > pubData.properties.messageExpiryTimestamp) {
-        continue;
-      }
-      for (const sub of selected) {
-        const distributeData: IPublishData = decodePacket(pubBuffer, ProtocolVersion.V5) as IPublishData;
-        const qos = Math.min(sub.qos || 0, pubData.header.qosLevel);
-        if (qos > QoSType.QoS0) {
-          distributeData.header.dupFlag = false;
-        } else {
-          delete distributeData.header.packetIdentifier;
-        }
-        distributeData.header.qosLevel = qos;
-        distributeData.header.retain = sub.retainAsPublished ? distributeData.header.retain : false;
-        if (sub.subscriptionIdentifier !== undefined) {
-          distributeData.properties.subscriptionIdentifier = Array.isArray(sub.subscriptionIdentifier)
-            ? sub.subscriptionIdentifier
-            : [sub.subscriptionIdentifier];
-        } else {
-          delete distributeData.properties.subscriptionIdentifier;
-        }
-        client.handlePublish(distributeData);
-      }
-    }
-  }
-
-  /**
-   * Returns whether the client has an active subscription entry for the exact topic filter string.
-   *
-   * @param clientIdentifier - MQTT client id.
-   * @param topic - Topic filter to check.
-   * @returns `true` if the subscription map contains `topic`.
-   */
-  public async isSubscribe(clientIdentifier: string, topic: string) {
-    const client = this.clientIdentifierManager.getClient(clientIdentifier);
-    if (client) {
-      return !!this.clientDataMap.get(client)?.subscription.has(topic);
-    }
-    return false;
-  }
-
-  /**
-   * Returns subscription options for a topic filter, if present.
-   *
-   * @param clientIdentifier - MQTT client id.
-   * @param topic - Topic filter.
-   * @returns The stored {@link TSubscribeData}, or `undefined`.
-   */
-  public async getSubscription(clientIdentifier: TIdentifier, topic: string): Promise<TSubscribeData | undefined> {
-    const client = this.clientIdentifierManager.getClient(clientIdentifier);
-    if (client) {
-      return this.clientDataMap.get(client)?.subscription.get(topic);
-    }
-    return undefined;
-  }
-
-  /**
-   * Stores or updates a retained message for a topic with an optional TTL (seconds); may derive `messageExpiryTimestamp` from `messageExpiryInterval`.
-   *
-   * @param topic - Topic name for the retain entry.
-   * @param pubData - PUBLISH payload to retain.
-   * @param retainTTL - Seconds until retain entry expires (default 3600).
-   */
-  public async addRetainMessage(topic: string, pubData: IPublishData, retainTTL?: number) {
-    if (pubData.properties.messageExpiryInterval && !pubData.properties.messageExpiryTimestamp) {
-      pubData.properties.messageExpiryTimestamp = Date.now() + pubData.properties.messageExpiryInterval * 1000;
-    }
-    this.retainMessage.set(topic, {
-      TTL: Math.floor(Date.now() / 1000) + (retainTTL ?? 3600),
-      data: pubData,
-    });
-  }
-
-  /**
-   * Removes the retained message for a topic, if any.
-   *
-   * @param topic - Topic name.
-   */
-  public async deleteRetainMessage(topic: string) {
-    this.retainMessage.delete(topic);
-  }
-
-  /**
-   * Returns the retained payload for a topic if the store entry is still within TTL and message expiry.
-   *
-   * @param topic - Topic name.
-   * @returns Retained {@link IPublishData}, or `undefined` if missing or expired.
-   */
-  public async getRetainMessage(topic: string) {
-    const retainData: any = this.retainMessage.get(topic);
-    if (retainData && retainData.TTL > Math.floor(Date.now() / 1000)) {
-      if (retainData.data?.properties?.messageExpiryTimestamp && Date.now() > retainData.data.properties.messageExpiryTimestamp) {
-        this.retainMessage.delete(topic);
-        return undefined;
-      }
-      return this.retainMessage.get(topic)?.data;
-    }
-    return undefined;
-  }
-
-  /**
-   * Iterates retained messages that are still valid, invoking the callback for each; skips and deletes per-message expiry violations.
-   *
-   * @param callbackfn - Async handler receiving `(topic, data)` for each retained message.
-   */
-  public async forEachRetainMessage(callbackfn: (topic: string, data: IPublishData) => Promise<void>) {
-    const nowDate = Math.floor(Date.now() / 1000);
-    for (const [key, value] of this.retainMessage.entries()) {
-      if (value.TTL > nowDate) {
-        if (value.data?.properties?.messageExpiryTimestamp && Date.now() > value.data.properties.messageExpiryTimestamp) {
-          this.retainMessage.delete(key);
-          continue;
-        }
-        await callbackfn(key, value.data);
-      }
+      targetClient.handlePublish(distributeData);
     }
   }
 }

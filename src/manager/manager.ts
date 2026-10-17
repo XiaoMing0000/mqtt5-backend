@@ -16,7 +16,6 @@ import {
   TTopic,
 } from '../interface';
 import { MqttClient } from '../mqttClient';
-import { encodePacket } from '../packet';
 
 /**
  * Typed args + return for MQTT lifecycle events on a {@link TSocket}.
@@ -130,7 +129,7 @@ export type TSubscribeData = {
   sharedGroup?: string;
 };
 /** Map from topic (or filter) to subscription metadata for one client. */
-export type TSocketSubscription = Map<TTopic, TSubscribeData>;
+export type TSubscription = Map<TTopic, TSubscribeData>;
 
 /**
  * Registry of live MQTT clients keyed by client identifier.
@@ -236,18 +235,11 @@ export class ClientIdentifierManager {
  * {@link MqttClient} owns its own `publishQosRetry` / `receiveQos2Retry` trackers.
  */
 export abstract class Manager {
-  abstract readonly clientIdentifierManager: ClientIdentifierManager;
-  private readonly packetIdentifierCleanupTimer: NodeJS.Timeout;
+  readonly clientIdentifierManager: ClientIdentifierManager;
+  // private readonly packetIdentifierCleanupTimer: NodeJS.Timeout;
 
   constructor() {
-    this.packetIdentifierCleanupTimer = setInterval(
-      () => {
-        this.clientIdentifierManager.clientForEach((value) => {
-          value.packetIdentifierManager.clearExpiredIdentifiers();
-        });
-      },
-      1000 * 60 * 30,
-    ); // 30 minutes
+    this.clientIdentifierManager = new ClientIdentifierManager();
   }
 
   /**
@@ -263,40 +255,27 @@ export abstract class Manager {
    * @param connData - CONNECT payload-derived session options.
    * @param client - Live {@link MqttClient} for this session.
    */
-  abstract connect(clientIdentifier: string, connData: IConnectData, client: MqttClient): Promise<void>;
+  abstract connect(identifier: TIdentifier, client: MqttClient): Promise<void>;
 
   /**
    * Gracefully closes the transport for a client id or the given {@link MqttClient}.
    *
    * @param clientIdentifier - Client id string, or the {@link MqttClient} to end.
    */
-  public disconnect(clientIdentifier: string | MqttClient, disconnectData?: IDisconnectData, protocolVersion?: ProtocolVersion): void {
-    // TODO: [MQTT-3.1.2.5] If the existing Client has a Will Message, that Will Message is published as described in section 3.1.2.5.
-    const client = typeof clientIdentifier === 'string' ? this.clientIdentifierManager.getClient(clientIdentifier) : clientIdentifier;
-    if (client) {
-      client.socket.end(Buffer.from(disconnectData ? encodePacket(disconnectData, client.connData.header.protocolVersion ?? protocolVersion) : []));
-    }
-  }
-
-  /**
-   * Clears session state for a disconnect: closes transport and applies session expiry policy per `sessionExpiryInterval`.
-   *
-   * @param clientIdentifier - {@link MqttClient} or client id.
-   */
-  abstract clearConnect(clientIdentifier: MqttClient | TIdentifier): void;
+  abstract disconnect(identifier: TIdentifier, disconnectData?: IDisconnectData, protocolVersion?: ProtocolVersion): void;
 
   /**
    * @param clientIdentifier - MQTT client id.
    * @returns Whether a non-expired session exists for this client.
    */
-  abstract hasSession(clientIdentifier: string): Promise<boolean>;
+  abstract hasSession(identifier: TIdentifier): Promise<boolean>;
 
   /**
    * Removes all subscription state for a client.
    *
    * @param clientIdentifier - Subscriber client id.
    */
-  abstract clearSubscribe(clientIdentifier: string): Promise<void>;
+  abstract clearSession(identifier: TIdentifier): Promise<void>;
 
   /**
    * Adds or updates a topic subscription for a client.
@@ -305,7 +284,7 @@ export abstract class Manager {
    * @param topic - Topic filter or name.
    * @param data - QoS and MQTT 5 subscription options.
    */
-  abstract subscribe(clientIdentifier: string, topic: TTopic, data: TSubscribeData): Promise<void>;
+  abstract subscribe(identifier: TIdentifier, topic: TTopic, data: TSubscribeData): Promise<void>;
 
   /**
    * Removes a topic subscription for a client.
@@ -313,21 +292,14 @@ export abstract class Manager {
    * @param clientIdentifier - Subscriber client id.
    * @param topic - Topic to unsubscribe.
    */
-  abstract unsubscribe(clientIdentifier: string, topic: TTopic): Promise<void>;
+  abstract unsubscribe(identifier: TIdentifier, topic: TTopic): Promise<void>;
 
   /**
    * @param clientIdentifier - Client id.
    * @param topic - Topic to check.
    * @returns Whether the client is subscribed to that topic.
    */
-  abstract isSubscribe(clientIdentifier: string, topic: TTopic): Promise<boolean>;
-
-  /**
-   * @param clientIdentifier - Client id.
-   * @param topic - Topic or filter.
-   * @returns Subscription metadata, if any.
-   */
-  abstract getSubscription(clientIdentifier: TIdentifier, topic: string): Promise<TSubscribeData | undefined>;
+  abstract isSubscribe(identifier: TIdentifier, topic: TTopic): Promise<boolean>;
 
   /**
    * Publishes a message to matching subscribers (implementation handles fan-out and QoS).
@@ -336,14 +308,7 @@ export abstract class Manager {
    * @param topic - Publish topic.
    * @param pubData - Payload and MQTT 5 publish properties.
    */
-  abstract publish(clientIdentifier: string, topic: TTopic, pubData: IPublishData): void;
-
-  /**
-   * Records client activity for keep-alive / session liveness.
-   *
-   * @param clientIdentifier - Client id.
-   */
-  abstract ping(clientIdentifier: string): Promise<void>;
+  abstract publish(identifier: TIdentifier, topic: TTopic, pubData: IPublishData): void;
 
   /** Retained message store: add or replace retained message for a topic (optional TTL). */
   abstract addRetainMessage(topic: string, pubData: IPublishData, retainTTL?: number): Promise<void>;
@@ -360,14 +325,12 @@ export abstract class Manager {
    * @param callbackfn - Async handler per topic.
    * @param topic - If set, restricts iteration (implementation-defined).
    */
-  abstract forEachRetainMessage(callbackfn: (topic: string, data: IPublishData) => Promise<void>, topic?: string): Promise<void>;
+  abstract matchRetainMessage(topic: TTopic, callbackfn: (data: IPublishData) => Promise<void>): Promise<void>;
 
   /**
    * Releases backend resources (default: no-op; override in concrete managers).
    */
-  public async dispose(): Promise<void> {
-    clearInterval(this.packetIdentifierCleanupTimer);
-  }
+  public async dispose(): Promise<void> {}
 }
 
 export class ClientPacketIdentifierManager extends Map<number, number> {

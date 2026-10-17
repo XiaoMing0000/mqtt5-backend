@@ -416,14 +416,11 @@ class MqttEvent {
     const framer = new StreamFramer();
     socket.on('data', async (buffer) => {
       try {
+        client.updateExpire();
         const allPacketData = framer.push(buffer, protocolVersion);
-
         for (const data of allPacketData) {
           try {
             await client.commonHandle(data);
-            if (!(data.header.packetType === PacketType.PINGREQ || data.header.packetType === PacketType.PINGRESP)) {
-              await client.updateKeepaliveTime();
-            }
             switch (data.header.packetType) {
               case PacketType.CONNECT:
                 protocolVersion = (data as IConnectData).header.protocolVersion;
@@ -498,19 +495,32 @@ class MqttEvent {
     });
 
     socket.on('error', (err) => {
-      client.handleDisconnect(DisconnectReasonCode.UnspecifiedError, { reasonString: err.message });
+      client.handleDisconnect({
+        header: {
+          packetType: PacketType.DISCONNECT,
+          received: 0,
+          remainingLength: 0,
+          reasonCode: DisconnectReasonCode.UnspecifiedError,
+        },
+        properties: { reasonString: err.message },
+      });
       console.error('Client error:', err.message);
     });
 
     socket.on('close', (hadError: boolean) => {
       // Clear socket state synchronously so the close path stays non-blocking.
-      this.clientManager.clearConnect(client);
+      if (!client.isDisconnect) {
+        this.clientManager.disconnect(client.clientIdentifier);
+      }
       // Defer will message publish so it does not block the close handler.
-      setImmediate(() => {
-        client.publishWillMessage(this.clientEmitAsync).catch((err) => {
-          console.error('Error publishing will message:', err.message);
+      if (!this.clientManager.clientIdentifierManager.has(client.clientIdentifier)) {
+        setImmediate(() => {
+          client.publishWillMessage(this.clientEmitAsync).catch((err) => {
+            console.error('Error publishing will message:', err.message);
+          });
         });
-      });
+      }
+
       if (hadError) {
         console.error('Connection closed due to error!');
       }
@@ -527,7 +537,15 @@ class MqttEvent {
  */
 async function catchMqttError(error: unknown, client: MqttClient, data?: PacketTypeData) {
   if (error instanceof DisconnectException) {
-    await client.handleDisconnect(error.code as DisconnectReasonCode, { reasonString: error.msg });
+    await client.handleDisconnect({
+      header: {
+        packetType: PacketType.DISCONNECT,
+        received: 0,
+        remainingLength: 0,
+        reasonCode: error.code as DisconnectReasonCode,
+      },
+      properties: { reasonString: error.msg },
+    });
   } else if (error instanceof ConnectAckException) {
     await client.handleConnAck(data as IConnectData, error.code as ConnectAckReasonCode, error.msg);
   } else if (error instanceof SubscribeAckException && data) {
