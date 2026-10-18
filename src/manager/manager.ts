@@ -16,6 +16,7 @@ import {
   TTopic,
 } from '../interface';
 import { MqttClient } from '../mqttClient';
+import { isWildcardTopic, topicToRegEx } from '../topicFilters';
 
 /**
  * Typed args + return for MQTT lifecycle events on a {@link TSocket}.
@@ -222,6 +223,161 @@ export class ClientIdentifierManager {
    */
   clientForEach(callbackfn: (value: MqttClient, key: TIdentifier, map: Map<TIdentifier, MqttClient>) => void) {
     this.clientMap.forEach(callbackfn);
+  }
+}
+
+export class TopicHashRegexManager {
+  private readonly exact: Map<TTopic, Set<TIdentifier>> = new Map();
+  private readonly blur: Map<string, { topic: string; ids: Set<TIdentifier> }> = new Map();
+
+  subscribe(topic: TTopic, identifier: TIdentifier, enableWildcard = true) {
+    if (isWildcardTopic(topic) && enableWildcard) {
+      const regStr = topicToRegEx(topic);
+      if (!regStr) return;
+      this.blur.get(regStr)?.ids.add(identifier) ?? this.blur.set(regStr, { topic, ids: new Set([identifier]) });
+    } else {
+      this.exact.get(topic)?.add(identifier) ?? this.exact.set(topic, new Set([identifier]));
+    }
+  }
+
+  unsubscribe(topic: TTopic, identifier: TIdentifier, enableWildcard = true) {
+    if (isWildcardTopic(topic) && enableWildcard) {
+      const regStr = topicToRegEx(topic);
+      if (!regStr) return;
+
+      const data = this.blur.get(regStr);
+      if (data) {
+        data.ids.delete(identifier);
+        !data.ids.size && this.blur.delete(regStr);
+      }
+    } else {
+      const ids = this.exact.get(topic);
+      if (ids) {
+        ids.delete(identifier);
+        !ids.size && this.exact.delete(topic);
+      }
+    }
+  }
+
+  *getMatchBlur(topic: TTopic, enableWildcard = true) {
+    // 精准匹配
+    const idSet = this.exact.get(topic);
+    if (idSet) {
+      for (const id of idSet) {
+        yield [id, topic];
+      }
+    }
+
+    // 通配符匹配
+    if (enableWildcard) {
+      for (const [pattern, data] of this.blur) {
+        if (new RegExp(pattern).test(topic)) {
+          for (const id of data.ids) {
+            yield [id, data.topic];
+          }
+        }
+      }
+    }
+  }
+}
+interface IRouteNode {
+  clients: Map<TIdentifier, TTopic>;
+  child?: IRoute;
+}
+
+interface IRoute {
+  [key: string]: IRouteNode;
+}
+export class TopicTrieManager {
+  private route: IRoute = {};
+
+  subscribe(topic: TTopic, id: TIdentifier): void {
+    const nodes = topic.split('/');
+    let route = this.route;
+
+    for (let i = 0; i < nodes.length; i++) {
+      const level = nodes[i];
+      const current = (route[level] ??= { clients: new Map() });
+
+      if (i === nodes.length - 1) {
+        current.clients.set(id, topic);
+      } else {
+        route = current.child ??= {};
+      }
+    }
+  }
+
+  unsubscribe(topic: TTopic, id: TIdentifier): void {
+    const nodes = topic.split('/');
+
+    const remove = (route: IRoute, index: number): void => {
+      const level = nodes[index];
+      const node = route[level];
+      if (!node) return;
+
+      if (index === nodes.length - 1) {
+        node.clients.delete(id);
+      } else if (node.child) {
+        remove(node.child, index + 1);
+      }
+
+      if (!node.clients.size && !Object.keys(node.child ?? {}).length) {
+        delete route[level];
+      }
+    };
+
+    remove(this.route, 0);
+  }
+
+  /** 返回 [客户端 ID, 匹配的订阅过滤器] */
+
+  /** 逐条返回 [客户端 ID, 匹配的订阅过滤器] */
+  *matchTopic(topic: TTopic): Generator<[TIdentifier, TTopic]> {
+    const nodes = topic.split('/');
+    const isSystemTopic = nodes[0].startsWith('$');
+
+    const collect = function* (node?: IRouteNode): Generator<[TIdentifier, TTopic]> {
+      if (!node) return;
+
+      for (const [id, filter] of node.clients) {
+        yield [id, filter];
+      }
+    };
+
+    function* match(route: IRoute, index: number): Generator<[TIdentifier, TTopic]> {
+      const level = nodes[index];
+      const isLast = index === nodes.length - 1;
+
+      // # 匹配零层或多层
+      if (!(index === 0 && isSystemTopic)) {
+        yield* collect(route['#']);
+      }
+
+      const descend = function* (key: string): Generator<[TIdentifier, TTopic]> {
+        const node = route[key];
+        if (!node) return;
+
+        if (isLast) {
+          yield* collect(node);
+
+          // sensor/# 也匹配 sensor
+          if (key !== '#') {
+            yield* collect(node.child?.['#']);
+          }
+        } else if (node.child) {
+          yield* match(node.child, index + 1);
+        }
+      };
+
+      yield* descend(level);
+
+      // + 匹配一个层级，但根层不能匹配 $ 开头的主题
+      if (!(index === 0 && isSystemTopic)) {
+        yield* descend('+');
+      }
+    }
+
+    yield* match(this.route, 0);
   }
 }
 

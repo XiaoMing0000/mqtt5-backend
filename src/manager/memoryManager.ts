@@ -1,17 +1,9 @@
 import { DisconnectReasonCode } from '../exception';
 import { IDisconnectData, IPublishData, PacketType, ProtocolVersion, TIdentifier, TTopic } from '../interface';
 import { MqttClient } from '../mqttClient';
-import { Manager, TSubscribeData, TSubscription } from './manager';
+import { Manager, TopicHashRegexManager, TopicTrieManager, TSubscribeData, TSubscription } from './manager';
 import { decodePacket, encodePacket } from '../packet';
 import { isWildcardTopic, topicToRegEx } from '../topicFilters';
-
-// interface IRoute {
-//   [key: string]: {
-//     clients: Map<MqttClient, TTopic>;
-//     child?: IRoute;
-
-//   };
-// }
 
 type TSession = {
   subscription: TSubscription;
@@ -19,12 +11,6 @@ type TSession = {
   expireAt: number;
 };
 type TSessionStore = Map<TIdentifier, TSession>;
-
-enum TopicMatchType {
-  ALL = 0,
-  EXACT,
-  BLUR,
-}
 
 export class SessionManager {
   private readonly sessionStore: TSessionStore = new Map();
@@ -151,67 +137,6 @@ class RetainStore {
   }
 }
 
-class TopicHashRegexManager {
-  private readonly exact: Map<TTopic, Set<TIdentifier>> = new Map();
-  private readonly blur: Map<string, { topic: string; ids: Set<TIdentifier> }> = new Map();
-
-  subscribe(topic: TTopic, identifier: TIdentifier) {
-    if (isWildcardTopic(topic)) {
-      const regStr = topicToRegEx(topic);
-      if (!regStr) return;
-      this.blur.get(regStr)?.ids.add(identifier) ?? this.blur.set(regStr, { topic, ids: new Set([identifier]) });
-    } else {
-      this.exact.get(topic)?.add(identifier) ?? this.exact.set(topic, new Set([identifier]));
-    }
-  }
-
-  unsubscribe(topic: TTopic, identifier: TIdentifier) {
-    if (isWildcardTopic(topic)) {
-      const regStr = topicToRegEx(topic);
-      if (!regStr) return;
-
-      const data = this.blur.get(regStr);
-      if (data) {
-        data.ids.delete(identifier);
-        !data.ids.size && this.blur.delete(regStr);
-      }
-    } else {
-      const ids = this.exact.get(topic);
-      if (ids) {
-        ids.delete(identifier);
-        !ids.size && this.exact.delete(topic);
-      }
-    }
-  }
-
-  *getMatchBlur(topic: TTopic, matchType?: TopicMatchType) {
-    // 精准匹配
-    if (matchType !== TopicMatchType.BLUR) {
-      const idSet = this.exact.get(topic);
-      if (idSet) {
-        for (const id of idSet) {
-          yield [id, topic];
-        }
-      }
-    }
-
-    // 通配符匹配
-    if (matchType !== TopicMatchType.EXACT) {
-      for (const [pattern, data] of this.blur) {
-        if (new RegExp(pattern).test(topic)) {
-          for (const id of data.ids) {
-            yield [id, data.topic];
-          }
-        }
-      }
-    }
-  }
-}
-
-// class TopicTrieManager {
-
-// }
-
 /**
  * In-memory MQTT client and session manager backed by a topic trie for subscription routing.
  *
@@ -228,6 +153,7 @@ export class MemoryManager extends Manager {
   private readonly retainStore: RetainStore = new RetainStore();
   // 存储非通配符
   private readonly topicIndex = new TopicHashRegexManager();
+  private readonly topicTrie = new TopicTrieManager();
 
   /**
    * 客户端是否连接
@@ -271,7 +197,11 @@ export class MemoryManager extends Manager {
 
       this.clientIdentifierManager.delete(identifier);
       this.sessionStore.get(identifier)?.subscription.forEach((_, topic) => {
-        this.topicIndex.unsubscribe(topic, identifier);
+        if (!isWildcardTopic(topic)) {
+          this.topicIndex.unsubscribe(topic, identifier, false);
+        } else {
+          this.topicTrie.unsubscribe(topic, identifier);
+        }
       });
       this.sessionStore.disconnect(identifier);
     }
@@ -279,7 +209,12 @@ export class MemoryManager extends Manager {
 
   public async subscribe(identifier: TIdentifier, topic: TTopic, data: TSubscribeData) {
     this.sessionStore.subscribe(identifier, topic, data);
-    this.topicIndex.subscribe(topic, identifier);
+
+    if (!isWildcardTopic(topic)) {
+      this.topicIndex.subscribe(topic, identifier, false);
+    } else {
+      this.topicTrie.subscribe(topic, identifier);
+    }
   }
 
   public async isSubscribe(identifier: TIdentifier, topic: TTopic): Promise<boolean> {
@@ -288,12 +223,20 @@ export class MemoryManager extends Manager {
 
   public async unsubscribe(identifier: TIdentifier, topic: TTopic): Promise<void> {
     this.sessionStore.unsubscribe(identifier, topic);
-    this.topicIndex.unsubscribe(topic, identifier);
+    if (!isWildcardTopic(topic)) {
+      this.topicIndex.unsubscribe(topic, identifier, false);
+    } else {
+      this.topicTrie.unsubscribe(topic, identifier);
+    }
   }
 
   public async clearSession(identifier: TIdentifier): Promise<void> {
     this.sessionStore.get(identifier)?.subscription.forEach((_data, topic) => {
-      this.topicIndex.unsubscribe(topic, identifier);
+      if (!isWildcardTopic(topic)) {
+        this.topicIndex.unsubscribe(topic, identifier, false);
+      } else {
+        this.topicTrie.unsubscribe(topic, identifier);
+      }
     });
     this.sessionStore.clear(identifier);
   }
@@ -358,10 +301,10 @@ export class MemoryManager extends Manager {
    * @param topic - Publish topic name.
    * @param pubData - PUBLISH payload and headers.
    */
-  public publish(sourceIdentifier: string, topic: string, pubData: IPublishData) {
+  public publish(sourceIdentifier: TIdentifier, topic: TTopic, pubData: IPublishData) {
     const pubBuffer = encodePacket(pubData, ProtocolVersion.V5);
-    // 非统配符
-    for (const [targetIdentifier, targetTopic] of this.topicIndex.getMatchBlur(topic) ?? []) {
+
+    const publishData = (targetIdentifier: TIdentifier, targetTopic: TTopic) => {
       const targetClient = this.clientIdentifierManager.getClient(targetIdentifier);
       const targetClientSubscribeData = this.sessionStore.get(targetIdentifier)?.subscription.get(targetTopic);
 
@@ -389,6 +332,16 @@ export class MemoryManager extends Manager {
         delete distributeData.properties.subscriptionIdentifier;
       }
       targetClient.handlePublish(distributeData);
+    };
+
+    // 非通配符主题
+    for (const [targetIdentifier, targetTopic] of this.topicIndex.getMatchBlur(topic, false) ?? []) {
+      publishData(targetIdentifier, targetTopic);
+    }
+
+    // 通配符主题
+    for (const [targetIdentifier, targetTopic] of this.topicTrie.matchTopic(topic) ?? []) {
+      publishData(targetIdentifier, targetTopic);
     }
   }
 }
