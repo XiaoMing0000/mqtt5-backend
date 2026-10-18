@@ -3,7 +3,7 @@ import { IDisconnectData, IPublishData, PacketType, ProtocolVersion, TIdentifier
 import { MqttClient } from '../mqttClient';
 import { Manager, TopicHashRegexManager, TopicTrieManager, TSubscribeData, TSubscription } from './manager';
 import { decodePacket, encodePacket } from '../packet';
-import { isWildcardTopic, topicToRegEx } from '../topicFilters';
+import { isWildcardTopic, matchTopic } from '../topicFilters';
 
 type TSession = {
   subscription: TSubscription;
@@ -278,16 +278,12 @@ export class MemoryManager extends Manager {
       }
       return;
     } else {
-      const reg = topicToRegEx(topic);
-      if (reg) {
-        const topicRegEx = new RegExp(reg);
-        for (const [key, data] of this.retainStore.entries()) {
-          if (data.expireAt < now) {
-            this.retainStore.delete(key);
-            continue;
-          }
-          topicRegEx.test(key) && (await callbackfn(decodePacket(data.buffer, ProtocolVersion.V5) as IPublishData));
+      for (const [key, data] of this.retainStore.entries()) {
+        if (data.expireAt < now) {
+          this.retainStore.delete(key);
+          continue;
         }
+        matchTopic(key, topic) && (await callbackfn(decodePacket(data.buffer, ProtocolVersion.V5) as IPublishData));
       }
     }
   }
@@ -335,7 +331,7 @@ export class MemoryManager extends Manager {
     };
 
     // 非通配符主题
-    for (const [targetIdentifier, targetTopic] of this.topicIndex.getMatchBlur(topic, false) ?? []) {
+    for (const [targetIdentifier, targetTopic] of this.topicIndex.getMatchBlur(topic) ?? []) {
       publishData(targetIdentifier, targetTopic);
     }
 

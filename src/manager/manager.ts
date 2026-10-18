@@ -16,7 +16,7 @@ import {
   TTopic,
 } from '../interface';
 import { MqttClient } from '../mqttClient';
-import { isWildcardTopic, topicToRegEx } from '../topicFilters';
+import { isWildcardTopic, matchTopic } from '../topicFilters';
 
 /**
  * Typed args + return for MQTT lifecycle events on a {@link TSocket}.
@@ -228,13 +228,11 @@ export class ClientIdentifierManager {
 
 export class TopicHashRegexManager {
   private readonly exact: Map<TTopic, Set<TIdentifier>> = new Map();
-  private readonly blur: Map<string, { topic: string; ids: Set<TIdentifier> }> = new Map();
+  private readonly blur: Map<TTopic, { topic: string; ids: Set<TIdentifier> }> = new Map();
 
   subscribe(topic: TTopic, identifier: TIdentifier, enableWildcard = true) {
     if (isWildcardTopic(topic) && enableWildcard) {
-      const regStr = topicToRegEx(topic);
-      if (!regStr) return;
-      this.blur.get(regStr)?.ids.add(identifier) ?? this.blur.set(regStr, { topic, ids: new Set([identifier]) });
+      this.blur.get(topic)?.ids.add(identifier) ?? this.blur.set(topic, { topic, ids: new Set([identifier]) });
     } else {
       this.exact.get(topic)?.add(identifier) ?? this.exact.set(topic, new Set([identifier]));
     }
@@ -242,13 +240,10 @@ export class TopicHashRegexManager {
 
   unsubscribe(topic: TTopic, identifier: TIdentifier, enableWildcard = true) {
     if (isWildcardTopic(topic) && enableWildcard) {
-      const regStr = topicToRegEx(topic);
-      if (!regStr) return;
-
-      const data = this.blur.get(regStr);
+      const data = this.blur.get(topic);
       if (data) {
         data.ids.delete(identifier);
-        !data.ids.size && this.blur.delete(regStr);
+        !data.ids.size && this.blur.delete(topic);
       }
     } else {
       const ids = this.exact.get(topic);
@@ -270,8 +265,8 @@ export class TopicHashRegexManager {
 
     // 通配符匹配
     if (enableWildcard) {
-      for (const [pattern, data] of this.blur) {
-        if (new RegExp(pattern).test(topic)) {
+      for (const [wildcardTopic, data] of this.blur) {
+        if (matchTopic(topic, wildcardTopic)) {
           for (const id of data.ids) {
             yield [id, data.topic];
           }
