@@ -37,7 +37,6 @@ import { encodePacket } from './packet';
 import { EncoderProperties } from './property';
 import { verifyTopic, isWildcardTopic } from './topicFilters';
 import { generateClientIdentifier } from './utils';
-
 type TQosRetryEntry = { packet: Buffer; attempts: number; timer?: NodeJS.Timeout };
 
 /**
@@ -806,7 +805,7 @@ export class MqttClient {
       ) {
         await this.clientManager.matchRetainMessage(topicFilter, async (data) => {
           data.header.qosLevel = Math.min(data.header.qosLevel, options.qos);
-          this.handlePublish(data, true);
+          await this.handlePublish(data, true);
         });
       }
       await this.clientManager.subscribe(this.clientIdentifier, topicFilter, {

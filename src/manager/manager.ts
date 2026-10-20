@@ -254,7 +254,7 @@ export class TopicHashRegexManager {
     }
   }
 
-  *getMatchBlur(topic: TTopic, enableWildcard = true) {
+  *matchTopic(topic: TTopic, enableWildcard = true) {
     // 精准匹配
     const idSet = this.exact.get(topic);
     if (idSet) {
@@ -373,6 +373,43 @@ export class TopicTrieManager {
     }
 
     yield* match(this.route, 0);
+  }
+}
+
+export class TopicManager {
+  private readonly topicIndex = new TopicHashRegexManager();
+  private readonly topicTrie = new TopicTrieManager();
+
+  subscribe(topic: TTopic, identifier: TIdentifier): void {
+    if (!isWildcardTopic(topic)) {
+      this.topicIndex.subscribe(topic, identifier, false);
+    } else {
+      this.topicTrie.subscribe(topic, identifier);
+    }
+  }
+
+  unsubscribe(topic: TTopic, identifier: TIdentifier): void {
+    if (!isWildcardTopic(topic)) {
+      this.topicIndex.unsubscribe(topic, identifier, false);
+    } else {
+      this.topicTrie.unsubscribe(topic, identifier);
+    }
+  }
+
+  /** 返回 [客户端 ID, 匹配的订阅过滤器] */
+
+  /** 逐条返回 [客户端 ID, 匹配的订阅过滤器] */
+  *matchTopic(topic: TTopic, enableWildcard = true): Generator<[TIdentifier, TTopic]> {
+    for (const [targetIdentifier, targetTopic] of this.topicIndex.matchTopic(topic, false) ?? []) {
+      yield [targetIdentifier, targetTopic];
+    }
+
+    if (enableWildcard) {
+      // 通配符主题
+      for (const [targetIdentifier, targetTopic] of this.topicTrie.matchTopic(topic) ?? []) {
+        yield [targetIdentifier, targetTopic];
+      }
+    }
   }
 }
 

@@ -1,7 +1,7 @@
 import { DisconnectReasonCode } from '../exception';
 import { IDisconnectData, IPublishData, PacketType, ProtocolVersion, TIdentifier, TTopic } from '../interface';
 import { MqttClient } from '../mqttClient';
-import { Manager, TopicHashRegexManager, TopicTrieManager, TSubscribeData, TSubscription } from './manager';
+import { Manager, TopicManager, TSubscribeData, TSubscription } from './manager';
 import { decodePacket, encodePacket } from '../packet';
 import { isWildcardTopic, matchTopic } from '../topicFilters';
 
@@ -151,9 +151,7 @@ class RetainStore {
 export class MemoryManager extends Manager {
   private readonly sessionStore: SessionManager = new SessionManager();
   private readonly retainStore: RetainStore = new RetainStore();
-  // 存储非通配符
-  private readonly topicIndex = new TopicHashRegexManager();
-  private readonly topicTrie = new TopicTrieManager();
+  private readonly topicManager = new TopicManager();
 
   /**
    * 客户端是否连接
@@ -174,7 +172,7 @@ export class MemoryManager extends Manager {
     this.clientIdentifierManager.set(identifier, client);
     this.sessionStore.connect(identifier, client.connData.properties.sessionExpiryInterval ?? 0);
     this.sessionStore.get(identifier)?.subscription.forEach((_, topic) => {
-      this.topicIndex.subscribe(topic, identifier);
+      this.topicManager.subscribe(topic, identifier);
     });
   }
 
@@ -197,11 +195,7 @@ export class MemoryManager extends Manager {
 
       this.clientIdentifierManager.delete(identifier);
       this.sessionStore.get(identifier)?.subscription.forEach((_, topic) => {
-        if (!isWildcardTopic(topic)) {
-          this.topicIndex.unsubscribe(topic, identifier, false);
-        } else {
-          this.topicTrie.unsubscribe(topic, identifier);
-        }
+        this.topicManager.unsubscribe(topic, identifier);
       });
       this.sessionStore.disconnect(identifier);
     }
@@ -210,11 +204,7 @@ export class MemoryManager extends Manager {
   public async subscribe(identifier: TIdentifier, topic: TTopic, data: TSubscribeData) {
     this.sessionStore.subscribe(identifier, topic, data);
 
-    if (!isWildcardTopic(topic)) {
-      this.topicIndex.subscribe(topic, identifier, false);
-    } else {
-      this.topicTrie.subscribe(topic, identifier);
-    }
+    this.topicManager.subscribe(topic, identifier);
   }
 
   public async isSubscribe(identifier: TIdentifier, topic: TTopic): Promise<boolean> {
@@ -223,20 +213,12 @@ export class MemoryManager extends Manager {
 
   public async unsubscribe(identifier: TIdentifier, topic: TTopic): Promise<void> {
     this.sessionStore.unsubscribe(identifier, topic);
-    if (!isWildcardTopic(topic)) {
-      this.topicIndex.unsubscribe(topic, identifier, false);
-    } else {
-      this.topicTrie.unsubscribe(topic, identifier);
-    }
+    this.topicManager.unsubscribe(topic, identifier);
   }
 
   public async clearSession(identifier: TIdentifier): Promise<void> {
     this.sessionStore.get(identifier)?.subscription.forEach((_data, topic) => {
-      if (!isWildcardTopic(topic)) {
-        this.topicIndex.unsubscribe(topic, identifier, false);
-      } else {
-        this.topicTrie.unsubscribe(topic, identifier);
-      }
+      this.topicManager.unsubscribe(topic, identifier);
     });
     this.sessionStore.clear(identifier);
   }
@@ -331,12 +313,7 @@ export class MemoryManager extends Manager {
     };
 
     // 非通配符主题
-    for (const [targetIdentifier, targetTopic] of this.topicIndex.getMatchBlur(topic) ?? []) {
-      publishData(targetIdentifier, targetTopic);
-    }
-
-    // 通配符主题
-    for (const [targetIdentifier, targetTopic] of this.topicTrie.matchTopic(topic) ?? []) {
+    for (const [targetIdentifier, targetTopic] of this.topicManager.matchTopic(topic) ?? []) {
       publishData(targetIdentifier, targetTopic);
     }
   }
