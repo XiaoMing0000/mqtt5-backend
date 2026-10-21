@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "test:commit-msg": "node --test scripts/check-commit-msg.test.js",
     "dev": "nodemon --exec tsx examples/demo.ts",
+    "dev:otel": "nodemon --exec \"tsx --import ./examples/instrumentation.ts\" examples/demo.ts",
     "inspect": "tsx --inspect examples/demo.ts",
     "build": "pnpm run clean && tsc -p tsconfig.build.json",
     "postinstall": "simple-git-hooks",
@@ -41,6 +42,14 @@
     "pnpm": ">=11.23.0"
   },
   "devDependencies": {
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/exporter-trace-otlp-proto": "0.223.0",
+    "@opentelemetry/instrumentation": "^0.223.0",
+    "@opentelemetry/instrumentation-ioredis": "^0.71.0",
+    "@opentelemetry/resources": "^2.12.0",
+    "@opentelemetry/sdk-node": "^0.223.0",
+    "@opentelemetry/sdk-trace-node": "^2.12.0",
+    "@opentelemetry/semantic-conventions": "^1.43.0",
     "@types/node": "^22.5.1",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^5.0.1",

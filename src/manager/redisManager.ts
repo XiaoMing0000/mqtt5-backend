@@ -650,7 +650,7 @@ export class RedisManager extends Manager {
 
     // 非通配符主题
     for (const [targetIdentifier, targetTopic] of this.topicManager.matchTopic(topic) ?? []) {
-      publishData(targetIdentifier, targetTopic);
+      await publishData(targetIdentifier, targetTopic);
     }
   }
 }

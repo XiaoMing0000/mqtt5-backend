@@ -1,11 +1,20 @@
-// import tls from 'tls';
-// import fs from 'fs';
-// import path from 'path';
-import { IConnectData, IDisconnectData, IPublishData, ISubscribeData, Manager, MqttClient, MqttServer, MqttServerWebSocket } from '../src';
+import 'ioredis';
+import {
+  IConnectData,
+  IDisconnectData,
+  IMqttOptions,
+  IPublishData,
+  ISubscribeData,
+  Manager,
+  MqttClient,
+  MqttServer,
+  MqttServerWebSocket,
+} from '../src';
+import { RedisManager } from '../src/manager/redisManager';
 // import http from 'http';
 // import https from 'https';
 import { CONFIG } from './config';
-import { MemoryManager } from '../src/manager/memoryManager';
+// import { MemoryManager } from '../src/manager/memoryManager';
 // import { RedisManager } from '../src/manager/redisManager';
 // import { Redis2Manager } from '../src/manager/redis2Manager';
 // import { WebSocketServer } from 'ws';
@@ -17,18 +26,22 @@ import { MemoryManager } from '../src/manager/memoryManager';
 // 	db: CONFIG.redisDB,
 // });
 
-const clientManager = new MemoryManager();
-// const clientManager = new Redis2Manager({
-//   host: CONFIG.redisHost,
-//   port: CONFIG.redisPort,
-//   username: CONFIG.redisUsername,
-//   password: CONFIG.redisPassword,
-//   db: CONFIG.redisDB,
-// });
+// const clientManager = new MemoryManager();
+const clientManager = new RedisManager({
+  host: CONFIG.redisHost,
+  port: CONFIG.redisPort,
+  username: CONFIG.redisUsername,
+  password: CONFIG.redisPassword,
+  db: CONFIG.redisDB,
+});
 
-const server = new MqttServer(clientManager);
+const mqttOptions: IMqttOptions = {
+  retainTTL: 3600 * 24 * 31,
+};
 
-const wsMqttServer = new MqttServerWebSocket(clientManager);
+const server = new MqttServer(clientManager, mqttOptions);
+
+const wsMqttServer = new MqttServerWebSocket(clientManager, mqttOptions);
 
 // 异步错误处理
 // process.on('uncaughtException', (err) => {
