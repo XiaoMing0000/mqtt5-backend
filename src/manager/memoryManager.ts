@@ -1,98 +1,9 @@
 import { DisconnectReasonCode } from '../exception';
 import { IDisconnectData, IPublishData, PacketType, ProtocolVersion, TIdentifier, TTopic } from '../interface';
 import { MqttClient } from '../mqttClient';
-import { Manager, TopicManager, TSubscribeData, TSubscription } from './manager';
+import { Manager, MemorySessionManager, TopicManager, TSubscribeData } from './manager';
 import { decodePacket, encodePacket } from '../packet';
 import { isWildcardTopic, matchTopic } from '../topicFilters';
-
-type TSession = {
-  subscription: TSubscription;
-  sessionExpiryInterval: number;
-  expireAt: number;
-};
-type TSessionStore = Map<TIdentifier, TSession>;
-
-export class SessionManager {
-  private readonly sessionStore: TSessionStore = new Map();
-  private readonly clearSessionTimer: NodeJS.Timeout;
-
-  constructor() {
-    // 定时清除
-    this.clearSessionTimer = setInterval(() => {
-      const now = Date.now();
-      this.sessionStore.forEach((session, identifier) => {
-        if (session.expireAt !== 0 && session.expireAt < now) {
-          this.sessionStore.delete(identifier);
-        }
-      });
-    }, 1000);
-  }
-
-  // 清除会话
-  clear(identifier: TIdentifier) {
-    this.sessionStore.delete(identifier);
-  }
-
-  has(identifier: TIdentifier) {
-    return this.sessionStore.has(identifier);
-  }
-
-  get(identifier: TIdentifier) {
-    return this.sessionStore.get(identifier);
-  }
-
-  // 建立连接时初始化会话
-  connect(identifier: TIdentifier, sessionExpiryInterval: number, clearOldSession = false) {
-    if (clearOldSession) {
-      this.clear(identifier);
-    } else {
-      const session = this.sessionStore.get(identifier);
-      if (session) {
-        session.expireAt = 0;
-        session.sessionExpiryInterval = sessionExpiryInterval;
-        return;
-      }
-    }
-
-    this.sessionStore.set(identifier, {
-      subscription: new Map(),
-      sessionExpiryInterval: sessionExpiryInterval,
-      expireAt: 0,
-    });
-  }
-
-  // 添加订阅
-  subscribe(identifier: TIdentifier, topic: TTopic, data: TSubscribeData) {
-    this.sessionStore.get(identifier)?.subscription.set(topic, data);
-  }
-
-  // 取消订阅
-  unsubscribe(identifier: TIdentifier, topic: TTopic) {
-    this.sessionStore.get(identifier)?.subscription.delete(topic);
-  }
-
-  // 查询是否订阅
-  isSubscribe(identifier: TIdentifier, topic: TTopic) {
-    return this.sessionStore.get(identifier)?.subscription.get(topic);
-  }
-
-  // 保留 sessionExpiryInterval 或清除 session
-  disconnect(identifier: TIdentifier) {
-    const session = this.sessionStore.get(identifier);
-    if (session) {
-      if (session.sessionExpiryInterval) {
-        session.expireAt = Date.now() + session.sessionExpiryInterval * 1000;
-      } else {
-        this.sessionStore.delete(identifier);
-      }
-    }
-  }
-
-  dispose() {
-    this.sessionStore.clear();
-    clearInterval(this.clearSessionTimer);
-  }
-}
 
 type TRetainData = { buffer: Buffer; expireAt: number };
 class RetainStore {
@@ -149,7 +60,7 @@ class RetainStore {
  */
 
 export class MemoryManager extends Manager {
-  private readonly sessionStore: SessionManager = new SessionManager();
+  private readonly sessionStore: MemorySessionManager = new MemorySessionManager();
   private readonly retainStore: RetainStore = new RetainStore();
   private readonly topicManager = new TopicManager();
 

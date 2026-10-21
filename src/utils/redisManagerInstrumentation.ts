@@ -3,8 +3,8 @@ import { InstrumentationBase } from '@opentelemetry/instrumentation';
 import type { TIdentifier, TTopic } from '../interface';
 import { RedisManager } from '../manager/redisManager';
 
-const ATTR_DB_SYSTEM = 'db.system';
-const ATTR_DB_OPERATION = 'db.operation';
+const ATTR_MESSAGING_SYSTEM = 'messaging.system';
+const ATTR_MESSAGING_OPERATION = 'messaging.operation';
 const ATTR_MESSAGING_CLIENT_ID = 'messaging.client.id';
 const ATTR_MESSAGING_DESTINATION_NAME = 'messaging.destination.name';
 
@@ -20,6 +20,9 @@ type TBroadcastMessage = (topic: TTopic, sourceIdentifier: TIdentifier, pubBuffe
  * intercepting a third-party module at load time. Each wrapped method becomes an `INTERNAL` span
  * that sits between the MQTT handler span and the raw ioredis command spans, carrying the MQTT
  * context (client id / topic) so the whole chain stays correlated.
+ *
+ * Span 用 `mqtt.` 前缀命名（如 `mqtt.connect`、`mqtt.retain.add`），表明这些是 broker 层面的
+ * MQTT 操作，而不是底层 Redis 命令；底层 ioredis 命令由 IORedisInstrumentation 单独打点。
  */
 export class RedisManagerInstrumentation extends InstrumentationBase {
   constructor() {
@@ -107,10 +110,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
     const instrumentation = this;
     return function (this: RedisManager, identifier, client) {
       return instrumentation._withSpan(
-        'redis.connect',
+        'mqtt.connect',
         {
-          [ATTR_DB_SYSTEM]: 'redis',
-          [ATTR_DB_OPERATION]: 'connect',
+          [ATTR_MESSAGING_SYSTEM]: 'mqtt',
+          [ATTR_MESSAGING_OPERATION]: 'connect',
           [ATTR_MESSAGING_CLIENT_ID]: identifier,
         },
         () => original.call(this, identifier, client),
@@ -122,10 +125,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
     const instrumentation = this;
     return function (this: RedisManager, identifier, disconnectData) {
       return instrumentation._withSpan(
-        'redis.disconnect',
+        'mqtt.disconnect',
         {
-          [ATTR_DB_SYSTEM]: 'redis',
-          [ATTR_DB_OPERATION]: 'disconnect',
+          [ATTR_MESSAGING_SYSTEM]: 'mqtt',
+          [ATTR_MESSAGING_OPERATION]: 'disconnect',
           [ATTR_MESSAGING_CLIENT_ID]: identifier,
         },
         () => original.call(this, identifier, disconnectData),
@@ -137,10 +140,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
     const instrumentation = this;
     return function (this: RedisManager, identifier, topic, data) {
       return instrumentation._withSpan(
-        'redis.subscribe',
+        'mqtt.subscribe',
         {
-          [ATTR_DB_SYSTEM]: 'redis',
-          [ATTR_DB_OPERATION]: 'subscribe',
+          [ATTR_MESSAGING_SYSTEM]: 'mqtt',
+          [ATTR_MESSAGING_OPERATION]: 'subscribe',
           [ATTR_MESSAGING_CLIENT_ID]: identifier,
           [ATTR_MESSAGING_DESTINATION_NAME]: topic,
         },
@@ -153,10 +156,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
     const instrumentation = this;
     return function (this: RedisManager, identifier, topic) {
       return instrumentation._withSpan(
-        'redis.isSubscribe',
+        'mqtt.isSubscribe',
         {
-          [ATTR_DB_SYSTEM]: 'redis',
-          [ATTR_DB_OPERATION]: 'isSubscribe',
+          [ATTR_MESSAGING_SYSTEM]: 'mqtt',
+          [ATTR_MESSAGING_OPERATION]: 'isSubscribe',
           [ATTR_MESSAGING_CLIENT_ID]: identifier,
           [ATTR_MESSAGING_DESTINATION_NAME]: topic,
         },
@@ -169,10 +172,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
     const instrumentation = this;
     return function (this: RedisManager, identifier, topic) {
       return instrumentation._withSpan(
-        'redis.unsubscribe',
+        'mqtt.unsubscribe',
         {
-          [ATTR_DB_SYSTEM]: 'redis',
-          [ATTR_DB_OPERATION]: 'unsubscribe',
+          [ATTR_MESSAGING_SYSTEM]: 'mqtt',
+          [ATTR_MESSAGING_OPERATION]: 'unsubscribe',
           [ATTR_MESSAGING_CLIENT_ID]: identifier,
           [ATTR_MESSAGING_DESTINATION_NAME]: topic,
         },
@@ -185,10 +188,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
     const instrumentation = this;
     return function (this: RedisManager, identifier) {
       return instrumentation._withSpan(
-        'redis.clearSession',
+        'mqtt.clearSession',
         {
-          [ATTR_DB_SYSTEM]: 'redis',
-          [ATTR_DB_OPERATION]: 'clearSession',
+          [ATTR_MESSAGING_SYSTEM]: 'mqtt',
+          [ATTR_MESSAGING_OPERATION]: 'clearSession',
           [ATTR_MESSAGING_CLIENT_ID]: identifier,
         },
         () => original.call(this, identifier),
@@ -200,10 +203,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
     const instrumentation = this;
     return function (this: RedisManager, identifier) {
       return instrumentation._withSpan(
-        'redis.hasSession',
+        'mqtt.hasSession',
         {
-          [ATTR_DB_SYSTEM]: 'redis',
-          [ATTR_DB_OPERATION]: 'hasSession',
+          [ATTR_MESSAGING_SYSTEM]: 'mqtt',
+          [ATTR_MESSAGING_OPERATION]: 'hasSession',
           [ATTR_MESSAGING_CLIENT_ID]: identifier,
         },
         () => original.call(this, identifier),
@@ -215,10 +218,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
     const instrumentation = this;
     return function (this: RedisManager, topic, pubData, retainTTL) {
       return instrumentation._withSpan(
-        'redis.retain.add',
+        'mqtt.retain.add',
         {
-          [ATTR_DB_SYSTEM]: 'redis',
-          [ATTR_DB_OPERATION]: 'retain.add',
+          [ATTR_MESSAGING_SYSTEM]: 'mqtt',
+          [ATTR_MESSAGING_OPERATION]: 'retain.add',
           [ATTR_MESSAGING_DESTINATION_NAME]: topic,
         },
         () => original.call(this, topic, pubData, retainTTL),
@@ -230,10 +233,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
     const instrumentation = this;
     return function (this: RedisManager, topic) {
       return instrumentation._withSpan(
-        'redis.retain.delete',
+        'mqtt.retain.delete',
         {
-          [ATTR_DB_SYSTEM]: 'redis',
-          [ATTR_DB_OPERATION]: 'retain.delete',
+          [ATTR_MESSAGING_SYSTEM]: 'mqtt',
+          [ATTR_MESSAGING_OPERATION]: 'retain.delete',
           [ATTR_MESSAGING_DESTINATION_NAME]: topic,
         },
         () => original.call(this, topic),
@@ -245,10 +248,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
     const instrumentation = this;
     return function (this: RedisManager, topic) {
       return instrumentation._withSpan(
-        'redis.retain.get',
+        'mqtt.retain.get',
         {
-          [ATTR_DB_SYSTEM]: 'redis',
-          [ATTR_DB_OPERATION]: 'retain.get',
+          [ATTR_MESSAGING_SYSTEM]: 'mqtt',
+          [ATTR_MESSAGING_OPERATION]: 'retain.get',
           [ATTR_MESSAGING_DESTINATION_NAME]: topic,
         },
         () => original.call(this, topic),
@@ -260,10 +263,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
     const instrumentation = this;
     return function (this: RedisManager, topic, callbackfn) {
       return instrumentation._withSpan(
-        'redis.retain.match',
+        'mqtt.retain.match',
         {
-          [ATTR_DB_SYSTEM]: 'redis',
-          [ATTR_DB_OPERATION]: 'retain.match',
+          [ATTR_MESSAGING_SYSTEM]: 'mqtt',
+          [ATTR_MESSAGING_OPERATION]: 'retain.match',
           [ATTR_MESSAGING_DESTINATION_NAME]: topic,
         },
         () => original.call(this, topic, callbackfn),
@@ -275,10 +278,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
     const instrumentation = this;
     return function (this: RedisManager, sourceIdentifier, topic, pubData) {
       return instrumentation._withSpan(
-        'redis.publish',
+        'mqtt.publish',
         {
-          [ATTR_DB_SYSTEM]: 'redis',
-          [ATTR_DB_OPERATION]: 'publish',
+          [ATTR_MESSAGING_SYSTEM]: 'mqtt',
+          [ATTR_MESSAGING_OPERATION]: 'publish',
           [ATTR_MESSAGING_CLIENT_ID]: sourceIdentifier,
           [ATTR_MESSAGING_DESTINATION_NAME]: topic,
         },
@@ -291,10 +294,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
     const instrumentation = this;
     return function (this: RedisManager, topic, sourceIdentifier, pubBuffer) {
       return instrumentation._withSpan(
-        'redis.broadcast',
+        'mqtt.broadcast',
         {
-          [ATTR_DB_SYSTEM]: 'redis',
-          [ATTR_DB_OPERATION]: 'broadcast',
+          [ATTR_MESSAGING_SYSTEM]: 'mqtt',
+          [ATTR_MESSAGING_OPERATION]: 'broadcast',
           [ATTR_MESSAGING_CLIENT_ID]: sourceIdentifier,
           [ATTR_MESSAGING_DESTINATION_NAME]: topic,
         },

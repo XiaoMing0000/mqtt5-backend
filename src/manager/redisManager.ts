@@ -1,130 +1,83 @@
 import { DisconnectReasonCode } from '../exception';
 import { IDisconnectData, IPublishData, PacketType, ProtocolVersion, TIdentifier, TTopic } from '../interface';
 import { MqttClient } from '../mqttClient';
-import { Manager, TopicManager, TSubscribeData, TSubscription } from './manager';
+import { Manager, MemorySessionManager, TopicManager, TSubscribeData, TSubscription } from './manager';
 import { decodePacket, encodePacket } from '../packet';
 import { isWildcardTopic, matchTopic } from '../topicFilters';
 import Redis, { RedisOptions } from 'ioredis';
 import { decodeUtf8String, encodeUTF8String } from '../dataRepresentations';
 
-class SessionManager {
+class RedisSessionManager {
   private readonly redis: Redis;
   private readonly prefix = 'session:';
   private readonly batchSize = 500;
+  private readonly sessionCache = new MemorySessionManager();
 
   /**
-   * 空字符串用作会话标记。
+   * 空字符串用作会话标记字段。
    * MQTT Topic 不能为空，因此不会与合法 Topic 冲突。
    */
   private readonly sessionMarker = '';
 
   constructor(redis: Redis) {
     this.redis = redis;
-    // this.dispose();
   }
 
   private encode(value: string): string {
     return Buffer.from(value).toString('base64url');
   }
 
+  private decode(value: string): string {
+    return Buffer.from(value, 'base64url').toString();
+  }
+
+  /**
+   * 会话 Key：每个客户端一个 Hash，字段为 base64url(topic)，值为序列化后的订阅数据。
+   */
   private sessionKey(identifier: TIdentifier): string {
     return `${this.prefix}${this.encode(identifier)}`;
   }
 
-  private subscriptionPrefix(identifier: TIdentifier): string {
-    return `${this.sessionKey(identifier)}:`;
-  }
-
-  private subscriptionKey(identifier: TIdentifier, topic: TTopic): string {
-    return `${this.subscriptionPrefix(identifier)}${this.encode(topic)}`;
-  }
-
   /**
-   * 执行 Pipeline 并检查命令错误。
+   * 从 Redis 载入指定客户端的全部订阅。
+   *
+   * 仅在写入路径（connect 水合内存缓存）中使用。
    */
-  private async execPipeline(pipeline: ReturnType<Redis['pipeline']>, message: string): Promise<void> {
-    const results = await pipeline.exec();
+  private async loadFromRedis(identifier: TIdentifier): Promise<TSubscription | undefined> {
+    const entries = await this.redis.hgetall(this.sessionKey(identifier));
 
-    if (results === null || results.some(([error]) => error !== null)) {
-      throw new Error(message);
+    // 会话标记字段不存在，说明 Redis 中无此会话。
+    if (entries[this.sessionMarker] === undefined) {
+      return undefined;
     }
-  }
 
-  // 重置过期时间
-  async subscriptionKeyPersist(identifier: TIdentifier, topic: TTopic) {
-    this.redis.persist(this.subscriptionKey(identifier, topic));
-  }
+    const subscription: TSubscription = new Map();
 
-  /**
-   * 获取会话中的全部 Topic。
-   * 过滤掉用于标记会话存在的空字符串。
-   */
-  private async getTopics(identifier: TIdentifier): Promise<TTopic[]> {
-    const members = await this.redis.smembers(this.sessionKey(identifier));
-
-    return members.filter((topic) => topic !== this.sessionMarker);
-  }
-
-  /**
-   * 删除指定客户端的会话及所有订阅。
-   */
-  async clear(identifier: TIdentifier): Promise<void> {
-    const sessionKey = this.sessionKey(identifier);
-    const topics = await this.getTopics(identifier);
-
-    for (let i = 0; i < topics.length; i += this.batchSize) {
-      const batch = topics.slice(i, i + this.batchSize);
-      const keys = batch.map((topic) => this.subscriptionKey(identifier, topic));
-
-      if (keys.length > 0) {
-        await this.redis.unlink(...keys);
+    for (const [field, value] of Object.entries(entries)) {
+      if (field === this.sessionMarker) {
+        continue;
       }
+
+      subscription.set(this.decode(field), JSON.parse(value) as TSubscribeData);
     }
 
-    await this.redis.unlink(sessionKey);
+    return subscription;
   }
 
   /**
    * 判断会话是否存在。
    */
-  async has(identifier: TIdentifier): Promise<boolean> {
-    return (await this.redis.sismember(this.sessionKey(identifier), this.sessionMarker)) === 1;
+  has(identifier: TIdentifier): boolean {
+    return this.sessionCache.has(identifier);
   }
 
   /**
    * 获取指定客户端的全部订阅。
+   *
+   * 读取内存缓存，避免在消息分发路径上访问 Redis。
    */
-  async get(identifier: TIdentifier): Promise<TSubscription | undefined> {
-    if (!(await this.has(identifier))) {
-      return undefined;
-    }
-
-    const topics = await this.getTopics(identifier);
-    const subscription: TSubscription = new Map();
-
-    for (let i = 0; i < topics.length; i += this.batchSize) {
-      const batch = topics.slice(i, i + this.batchSize);
-      const keys = batch.map((topic) => this.subscriptionKey(identifier, topic));
-
-      if (keys.length === 0) {
-        continue;
-      }
-
-      const values = await this.redis.mget(...keys);
-
-      for (let j = 0; j < batch.length; j++) {
-        const value = values[j];
-
-        // 订阅 Key 可能已过期或被并发删除。
-        if (value === null) {
-          continue;
-        }
-
-        subscription.set(batch[j], JSON.parse(value) as TSubscribeData);
-      }
-    }
-
-    return subscription;
+  get(identifier: TIdentifier): TSubscription | undefined {
+    return this.sessionCache.get(identifier)?.subscription;
   }
 
   /**
@@ -138,7 +91,17 @@ class SessionManager {
       await this.clear(identifier);
     }
 
-    await this.redis.multi().sadd(this.sessionKey(identifier), this.sessionMarker).persist(this.sessionKey(identifier)).exec();
+    if (await this.redis.persist(this.sessionKey(identifier))) {
+      // session 存在
+
+      // 从 Redis 水合内存缓存（进程重启后内存缓存为空）。
+      const subscription = (await this.loadFromRedis(identifier)) ?? new Map<TTopic, TSubscribeData>();
+      for (const [topic, data] of subscription) {
+        this.sessionCache.subscribe(identifier, topic, data);
+      }
+    }
+    await this.redis.hset(this.sessionKey(identifier), this.sessionMarker, '1');
+    this.sessionCache.connect(identifier, 0, true);
   }
 
   /**
@@ -147,7 +110,7 @@ class SessionManager {
    * expireSeconds:
    * - 未传入：立即删除会话和所有订阅。
    * - 0：立即删除会话和所有订阅。
-   * - 大于 0：设置会话及所有订阅 Key 的过期时间。
+   * - 大于 0：设置会话 Key 的过期时间。
    */
   async disconnect(identifier: TIdentifier, expireSeconds?: number): Promise<void> {
     if (expireSeconds === undefined || expireSeconds === 0) {
@@ -159,21 +122,9 @@ class SessionManager {
       throw new RangeError('expireSeconds must be a non-negative safe integer');
     }
 
-    const sessionKey = this.sessionKey(identifier);
-    const topics = await this.getTopics(identifier);
+    await this.redis.expire(this.sessionKey(identifier), expireSeconds);
 
-    const keys = [sessionKey, ...topics.map((topic) => this.subscriptionKey(identifier, topic))];
-
-    for (let i = 0; i < keys.length; i += this.batchSize) {
-      const batch = keys.slice(i, i + this.batchSize);
-      const pipeline = this.redis.pipeline();
-
-      for (const key of batch) {
-        pipeline.expire(key, expireSeconds);
-      }
-
-      await this.execPipeline(pipeline, `Failed to set session expiration for client: ${identifier}`);
-    }
+    this.sessionCache.clear(identifier);
   }
 
   /**
@@ -184,18 +135,13 @@ class SessionManager {
       throw new Error('Topic must not be empty');
     }
 
-    if (!(await this.has(identifier))) {
+    if (!this.has(identifier)) {
       return;
     }
 
-    const key = this.subscriptionKey(identifier, topic);
-    const sessionKey = this.sessionKey(identifier);
-    const pipeline = this.redis.pipeline();
+    await this.redis.hset(this.sessionKey(identifier), this.encode(topic), JSON.stringify(data));
 
-    pipeline.set(key, JSON.stringify(data));
-    pipeline.sadd(sessionKey, topic);
-
-    await this.execPipeline(pipeline, `Failed to save subscription for topic: ${topic}`);
+    this.sessionCache.subscribe(identifier, topic, data);
   }
 
   /**
@@ -204,25 +150,25 @@ class SessionManager {
    * 即使最后一个订阅被移除，也保留 sessionMarker。
    */
   async unsubscribe(identifier: TIdentifier, topic: TTopic): Promise<void> {
-    const pipeline = this.redis.pipeline();
+    await this.redis.hdel(this.sessionKey(identifier), this.encode(topic));
 
-    pipeline.unlink(this.subscriptionKey(identifier, topic));
-    pipeline.srem(this.sessionKey(identifier), topic);
-
-    await this.execPipeline(pipeline, `Failed to remove subscription for topic: ${topic}`);
+    this.sessionCache.unsubscribe(identifier, topic);
   }
 
   /**
    * 查询单个 Topic 的订阅信息。
    */
-  async isSubscribe(identifier: TIdentifier, topic: TTopic): Promise<TSubscribeData | undefined> {
-    const value = await this.redis.get(this.subscriptionKey(identifier, topic));
+  isSubscribe(identifier: TIdentifier, topic: TTopic): TSubscribeData | undefined {
+    return this.sessionCache.isSubscribe(identifier, topic);
+  }
 
-    if (value === null) {
-      return undefined;
-    }
+  /**
+   * 删除指定客户端的会话及所有订阅。
+   */
+  async clear(identifier: TIdentifier): Promise<void> {
+    await this.redis.unlink(this.sessionKey(identifier));
 
-    return JSON.parse(value) as TSubscribeData;
+    this.sessionCache.clear(identifier);
   }
 
   /**
@@ -361,11 +307,22 @@ class RetainStore {
   /**
    * 不关闭调用方管理的 Redis 连接。
    */
-  async dispose(): Promise<void> {}
+  async dispose(): Promise<void> {
+    let cursor = '0';
+
+    do {
+      const [nextCursor, keys] = await this.redis.scan(cursor, 'MATCH', `${this.prefix}*`);
+
+      cursor = nextCursor;
+
+      if (keys.length > 0) {
+        await this.redis.unlink(...keys);
+      }
+    } while (cursor !== '0');
+  }
 }
 
 class MessagesManager {
-  private readonly topicIds: Map<TTopic, Set<TIdentifier>> = new Map();
   private readonly subRedis: Redis;
   private readonly pubRedis: Redis;
 
@@ -374,28 +331,6 @@ class MessagesManager {
     this.pubRedis = pubRedis;
     this.subRedis.subscribe('mqtt-message');
   }
-  // async subscribe(topic: TTopic, identifier: TIdentifier) {
-  //   if (isWildcardTopic(topic)) {
-  //     // TODO 主题转换
-  //     await this.subRedis.psubscribe(topic);
-  //   } else {
-  //     await this.subRedis.subscribe(topic);
-  //   }
-  //   this.topicIds.get(topic)?.add(identifier) ?? this.topicIds.set(topic, new Set(identifier));
-  // }
-
-  // async unsubscribe(topic: TTopic, identifier: TIdentifier) {
-  //   if (isWildcardTopic(topic)) {
-  //     // TODO 主题转换
-  //     await this.subRedis.punsubscribe(topic);
-  //   } else {
-  //     await this.subRedis.unsubscribe(topic);
-  //   }
-  //   const ids = this.topicIds.get(topic);
-  //   if (ids) {
-  //     ids.delete(identifier) && !ids.size && this.topicIds.delete(topic);
-  //   }
-  // }
 
   async publish(identifier: string, topic: string, pubData: IPublishData) {
     await this.pubRedis.publish(
@@ -405,7 +340,7 @@ class MessagesManager {
   }
 
   async message(broadcastCallback: (identifier: string, topic: string, pubBuffer: Buffer) => Promise<void>) {
-    this.subRedis.on('messageBuffer', (channel, message) => {
+    this.subRedis.on('messageBuffer', (_channel, message) => {
       const data = {
         index: 0,
         buffer: message,
@@ -430,15 +365,9 @@ class MessagesManager {
  */
 
 export class RedisManager extends Manager {
-  private readonly sessionStore: SessionManager;
+  private readonly sessionStore: RedisSessionManager;
   private readonly retainStore: RetainStore;
   private readonly messageManager: MessagesManager;
-
-  /**
-   * 当前在线客户端的订阅缓存。
-   * publish() 保持同步，不在消息分发路径中访问 Redis。
-   */
-  private readonly activeSubscriptions = new Map<TIdentifier, TSubscription>();
   private readonly topicManager = new TopicManager();
 
   private pubRedis: Redis;
@@ -449,7 +378,7 @@ export class RedisManager extends Manager {
     this.pubRedis = new Redis(options);
     this.subRedis = new Redis(options);
     this.retainStore = new RetainStore(this.pubRedis);
-    this.sessionStore = new SessionManager(this.pubRedis);
+    this.sessionStore = new RedisSessionManager(this.pubRedis);
     this.messageManager = new MessagesManager(this.subRedis, this.pubRedis);
 
     this.messageManager.message(this.broadcastMessage.bind(this));
@@ -472,21 +401,19 @@ export class RedisManager extends Manager {
    */
   public async connect(identifier: TIdentifier, client: MqttClient): Promise<void> {
     // 如果同一 Client ID 被新连接替换，先移除旧连接的路由，避免重复路由。
-    const oldSubscriptions = this.activeSubscriptions.get(identifier);
+    const oldSubscriptions = this.sessionStore.get(identifier);
     for (const [topic, _data] of oldSubscriptions ?? []) {
-      await this.topicManager.unsubscribe(topic, identifier);
+      this.topicManager.unsubscribe(topic, identifier);
     }
 
     await this.sessionStore.connect(identifier);
 
-    const subscription = (await this.sessionStore.get(identifier)) ?? new Map<TTopic, TSubscribeData>();
+    const subscription = this.sessionStore.get(identifier) ?? new Map<TTopic, TSubscribeData>();
 
     this.clientIdentifierManager.set(identifier, client);
-    this.activeSubscriptions.set(identifier, subscription);
 
     for (const [topic, _data] of subscription) {
       this.topicManager.subscribe(topic, identifier);
-      await this.sessionStore.subscriptionKeyPersist(identifier, topic);
     }
   }
 
@@ -514,49 +441,37 @@ export class RedisManager extends Manager {
 
     this.clientIdentifierManager.delete(identifier);
 
-    const subscription = this.activeSubscriptions.get(identifier);
+    const subscription = this.sessionStore.get(identifier);
     for (const [topic, _data] of subscription ?? []) {
-      await this.topicManager.unsubscribe(topic, identifier);
+      this.topicManager.unsubscribe(topic, identifier);
     }
-    this.activeSubscriptions.delete(identifier);
-    this.sessionStore.disconnect(
+    await this.sessionStore.disconnect(
       identifier,
       client.connData.properties.sessionExpiryInterval ? client.connData.properties.sessionExpiryInterval : undefined,
     );
   }
 
   public async subscribe(identifier: TIdentifier, topic: TTopic, data: TSubscribeData): Promise<void> {
-    // 先确认持久化成功，再更新在线缓存与路由。
+    // 先确认持久化成功，再更新内存缓存与路由。
     await this.sessionStore.subscribe(identifier, topic, data);
     this.topicManager.subscribe(topic, identifier);
-
-    const subscription = this.activeSubscriptions.get(identifier);
-    if (!subscription || !this.clientIdentifierManager.getClient(identifier)) {
-      return;
-    }
-    subscription.set(topic, data);
   }
 
   public async isSubscribe(identifier: TIdentifier, topic: TTopic): Promise<boolean> {
-    return (await this.sessionStore.isSubscribe(identifier, topic)) !== undefined;
+    return this.sessionStore.isSubscribe(identifier, topic) !== undefined;
   }
 
   public async unsubscribe(identifier: TIdentifier, topic: TTopic): Promise<void> {
     await this.sessionStore.unsubscribe(identifier, topic);
-
-    const subscription = this.activeSubscriptions.get(identifier);
-    if (subscription?.has(topic)) {
-      subscription.delete(topic);
-      await this.topicManager.unsubscribe(topic, identifier);
-    }
+    // sessionStore.unsubscribe 已同步删除内存缓存中的订阅，需移除路由（幂等）。
+    this.topicManager.unsubscribe(topic, identifier);
   }
 
   public async clearSession(identifier: TIdentifier): Promise<void> {
-    const subscription = this.activeSubscriptions.get(identifier);
+    const subscription = this.sessionStore.get(identifier);
     for (const [topic, _data] of subscription ?? []) {
-      await this.topicManager.unsubscribe(topic, identifier);
+      this.topicManager.unsubscribe(topic, identifier);
     }
-    this.activeSubscriptions.delete(identifier);
 
     await this.sessionStore.clear(identifier);
   }
@@ -617,10 +532,9 @@ export class RedisManager extends Manager {
   private async broadcastMessage(topic: TTopic, sourceIdentifier: TIdentifier, pubBuffer: Buffer) {
     const pubData = decodePacket(pubBuffer, ProtocolVersion.V5) as IPublishData;
 
-    const publishData = async (targetIdentifier: TIdentifier, targetTopic: TTopic) => {
+    const publishData = (targetIdentifier: TIdentifier, targetTopic: TTopic) => {
       const targetClient = this.clientIdentifierManager.getClient(targetIdentifier);
-      // const targetClientSubscribeData = await this.sessionStore.get(targetIdentifier)
-      const targetClientSubscribeData = (await this.sessionStore.get(targetIdentifier))?.get(targetTopic);
+      const targetClientSubscribeData = this.sessionStore.get(targetIdentifier)?.get(targetTopic);
 
       if (!targetClient || !targetClientSubscribeData) {
         return;
@@ -650,7 +564,7 @@ export class RedisManager extends Manager {
 
     // 非通配符主题
     for (const [targetIdentifier, targetTopic] of this.topicManager.matchTopic(topic) ?? []) {
-      await publishData(targetIdentifier, targetTopic);
+      publishData(targetIdentifier, targetTopic);
     }
   }
 }

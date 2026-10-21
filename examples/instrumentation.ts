@@ -35,7 +35,7 @@ register('@opentelemetry/instrumentation/hook.mjs', import.meta.url);
 const exporter = new OTLPTraceExporter();
 const spanProcessors: SpanProcessor[] = [
   new BatchSpanProcessor(exporter, {
-    scheduledDelayMillis: 5_000, // 改成 10 秒
+    scheduledDelayMillis: 2_000, // 改成 10 秒
   }),
 ];
 process.env.OTEL_LOG_LEVEL && spanProcessors.push(new SimpleSpanProcessor(new ConsoleSpanExporter()));
