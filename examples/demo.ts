@@ -84,5 +84,3 @@ wsMqttServer.listen(8083, async () => {
 
 // TODO 共享订阅
 // TODO 消息队列
-
-// TODO 3.1.2.11.2 会话过期间隔 Session Expiry Interval

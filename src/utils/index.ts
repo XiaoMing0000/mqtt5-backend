@@ -11,3 +11,15 @@ import crypto from 'crypto';
 export function generateClientIdentifier() {
   return 'mqtt_' + crypto.randomUUID().replace(/-/g, '');
 }
+
+/**
+ * Generates a unique token for one connection instance.
+ *
+ * Used to distinguish an old connection from a new one when a session is taken
+ * over across processes (the same client identifier connecting to a different process).
+ *
+ * @returns A random UUID string, unique per connection instance.
+ */
+export function generateConnectionToken(): string {
+  return crypto.randomUUID();
+}

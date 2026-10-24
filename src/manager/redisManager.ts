@@ -7,6 +7,9 @@ import { isWildcardTopic, matchTopic } from '../topicFilters';
 import Redis, { RedisOptions } from 'ioredis';
 import { decodeUtf8String, encodeUTF8String } from '../dataRepresentations';
 
+const CLIENT_TAKEOVER_CHANNEL = 'mqtt-client-takeover';
+const CLIENT_OWNER_PREFIX = 'client-owner:';
+
 class RedisSessionManager {
   private readonly redis: Redis;
   private readonly prefix = 'session:';
@@ -276,6 +279,7 @@ class RetainStore {
 
   /**
    * 遍历所有尚未过期的保留消息。
+   * TODO 当前遍历redis retain: 的方案需要优化
    */
   async *entries(): AsyncGenerator<[TTopic, Buffer]> {
     let cursor = '0';
@@ -340,7 +344,11 @@ class MessagesManager {
   }
 
   async message(broadcastCallback: (identifier: string, topic: string, pubBuffer: Buffer) => Promise<void>) {
-    this.subRedis.on('messageBuffer', (_channel, message) => {
+    this.subRedis.on('messageBuffer', (channel, message) => {
+      if (channel.toString() !== 'mqtt-message') {
+        return;
+      }
+
       const data = {
         index: 0,
         buffer: message,
@@ -349,6 +357,61 @@ class MessagesManager {
       const topic = decodeUtf8String(data);
 
       broadcastCallback(identifier, topic, message.subarray(data.index));
+    });
+  }
+}
+
+/**
+ * 跨进程会话接管协调：以 Redis 所有权 key 作为单一事实来源，配合共享频道广播。
+ * 当同一 client identifier 连到其他进程时，本进程据此断开旧连接（SessionTakenOver）。
+ */
+class ClientTakeoverManager {
+  private readonly redis: Redis;
+  private readonly subRedis: Redis;
+
+  constructor(redis: Redis, subRedis: Redis) {
+    this.redis = redis;
+    this.subRedis = subRedis;
+    this.subRedis.subscribe(CLIENT_TAKEOVER_CHANNEL);
+  }
+
+  private ownerKey(identifier: TIdentifier): string {
+    return `${CLIENT_OWNER_PREFIX}${Buffer.from(identifier).toString('base64url')}`;
+  }
+
+  /** 原子抢占所有权：后写者胜，对应 MQTT「新连接接管旧连接」语义。 */
+  async claim(identifier: TIdentifier, token: string): Promise<void> {
+    await this.redis.set(this.ownerKey(identifier), token);
+  }
+
+  /** 释放所有权：仅当仍由本人持有时才删除，避免误删新所有者的 key。 */
+  async release(identifier: TIdentifier, token: string): Promise<void> {
+    await this.redis.eval(
+      "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
+      1,
+      this.ownerKey(identifier),
+      token,
+    );
+  }
+
+  /** 当前所有者 token，无则返回 null。 */
+  async owner(identifier: TIdentifier): Promise<string | null> {
+    return this.redis.get(this.ownerKey(identifier));
+  }
+
+  /** 广播接管通知：所有进程据此重新校验自己对 `identifier` 的所有权。 */
+  async publish(identifier: TIdentifier): Promise<void> {
+    await this.redis.publish(CLIENT_TAKEOVER_CHANNEL, encodeUTF8String(identifier));
+  }
+
+  message(onTakeover: (identifier: TIdentifier) => void): void {
+    this.subRedis.on('messageBuffer', (channel, message) => {
+      if (channel.toString() !== CLIENT_TAKEOVER_CHANNEL) {
+        return;
+      }
+
+      const data = { index: 0, buffer: message };
+      onTakeover(decodeUtf8String(data));
     });
   }
 }
@@ -368,6 +431,7 @@ export class RedisManager extends Manager {
   private readonly sessionStore: RedisSessionManager;
   private readonly retainStore: RetainStore;
   private readonly messageManager: MessagesManager;
+  private readonly clientTakeoverManager: ClientTakeoverManager;
   private readonly topicManager = new TopicManager();
 
   private pubRedis: Redis;
@@ -380,8 +444,10 @@ export class RedisManager extends Manager {
     this.retainStore = new RetainStore(this.pubRedis);
     this.sessionStore = new RedisSessionManager(this.pubRedis);
     this.messageManager = new MessagesManager(this.subRedis, this.pubRedis);
+    this.clientTakeoverManager = new ClientTakeoverManager(this.pubRedis, this.subRedis);
 
     this.messageManager.message(this.broadcastMessage.bind(this));
+    this.clientTakeoverManager.message(this.handleRemoteTakeover.bind(this));
   }
 
   /**
@@ -400,6 +466,10 @@ export class RedisManager extends Manager {
    * @param client
    */
   public async connect(identifier: TIdentifier, client: MqttClient): Promise<void> {
+    // 跨进程会话接管：先抢占所有权，再广播，最后才本地注册与水合。
+    await this.clientTakeoverManager.claim(identifier, client.connectionToken);
+    await this.clientTakeoverManager.publish(identifier);
+
     // 如果同一 Client ID 被新连接替换，先移除旧连接的路由，避免重复路由。
     const oldSubscriptions = this.sessionStore.get(identifier);
     for (const [topic, _data] of oldSubscriptions ?? []) {
@@ -426,6 +496,9 @@ export class RedisManager extends Manager {
     }
 
     client.isDisconnect = true;
+
+    // 释放所有权（仅当仍持有时），让后续连接能干净接管。
+    void this.clientTakeoverManager.release(identifier, client.connectionToken);
 
     client.handleDisconnect(
       disconnectData ?? {
@@ -527,6 +600,34 @@ export class RedisManager extends Manager {
   public async publish(sourceIdentifier: TIdentifier, topic: TTopic, pubData: IPublishData) {
     console.log('publish: ', Buffer.concat([encodeUTF8String(sourceIdentifier), encodeUTF8String(topic), encodePacket(pubData, ProtocolVersion.V5)]));
     this.messageManager.publish(topic, sourceIdentifier, pubData);
+  }
+
+  /**
+   * 处理跨进程接管通知：断开本进程内 `identifier` 的旧连接，
+   * 除非它就是刚声明所有权的那个连接（token 相同）。
+   */
+  private handleRemoteTakeover(identifier: TIdentifier): void {
+    const client = this.clientIdentifierManager.getClient(identifier);
+
+    if (!client || client.isDisconnect) {
+      return;
+    }
+
+    void (async () => {
+      const owner = await this.clientTakeoverManager.owner(identifier);
+
+      if (owner !== null && owner !== client.connectionToken) {
+        await this.disconnect(identifier, {
+          header: {
+            packetType: PacketType.DISCONNECT,
+            received: 0,
+            remainingLength: 0,
+            reasonCode: DisconnectReasonCode.SessionTakenOver,
+          },
+          properties: {},
+        });
+      }
+    })();
   }
 
   private async broadcastMessage(topic: TTopic, sourceIdentifier: TIdentifier, pubBuffer: Buffer) {
