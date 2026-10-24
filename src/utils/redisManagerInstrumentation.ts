@@ -10,7 +10,7 @@ const ATTR_MESSAGING_DESTINATION_NAME = 'messaging.destination.name';
 
 type SpanAttributes = Record<string, string | number | boolean>;
 
-/** `RedisManager.broadcastMessage` 是 private，无法通过 `keyof` 取类型，单独声明其签名。 */
+/** `RedisManager.broadcastMessage` is private, so its type cannot be derived via `keyof`; declare its signature separately. */
 type TBroadcastMessage = (topic: TTopic, sourceIdentifier: TIdentifier, pubBuffer: Buffer) => Promise<void>;
 
 /**
@@ -21,8 +21,9 @@ type TBroadcastMessage = (topic: TTopic, sourceIdentifier: TIdentifier, pubBuffe
  * that sits between the MQTT handler span and the raw ioredis command spans, carrying the MQTT
  * context (client id / topic) so the whole chain stays correlated.
  *
- * Span 用 `mqtt.` 前缀命名（如 `mqtt.connect`、`mqtt.retain.add`），表明这些是 broker 层面的
- * MQTT 操作，而不是底层 Redis 命令；底层 ioredis 命令由 IORedisInstrumentation 单独打点。
+ * Spans are named with an `mqtt.` prefix (e.g. `mqtt.connect`, `mqtt.retain.add`) to mark them
+ * as broker-level MQTT operations rather than raw Redis commands; the raw ioredis commands are
+ * instrumented separately by IORedisInstrumentation.
  */
 export class RedisManagerInstrumentation extends InstrumentationBase {
   constructor() {
@@ -64,7 +65,7 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
     this._wrap(proto, 'getRetainMessage', (original) => this._traceGetRetainMessage(original));
     this._wrap(proto, 'matchRetainMessage', (original) => this._traceMatchRetainMessage(original));
     this._wrap(proto, 'publish', (original) => this._tracePublish(original));
-    // broadcastMessage 是 private，keyof RedisManager 取不到，放宽类型后按原签名包装。
+    // `broadcastMessage` is private, so `keyof RedisManager` cannot see it; widen the type and wrap using its original signature.
     this._wrap(proto as any, 'broadcastMessage', (original: TBroadcastMessage) => this._traceBroadcastMessage(original));
   }
 
@@ -88,7 +89,7 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
   private _withSpan<T>(name: string, attributes: SpanAttributes, fn: () => Promise<T>): Promise<T> {
     const span = this.tracer.startSpan(name, { kind: SpanKind.INTERNAL });
     span.setAttributes(attributes);
-    // 让 RedisManager Span 成为活动上下文，内部 ioredis 命令 Span 才能把它当作父 Span。
+    // Make the RedisManager span the active context so inner ioredis command spans can treat it as the parent span.
     const activeContext = trace.setSpan(context.active(), span);
     return context
       .with(activeContext, () => fn())

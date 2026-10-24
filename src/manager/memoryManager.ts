@@ -11,7 +11,7 @@ class RetainStore {
   private readonly clearRetainTimer: NodeJS.Timeout;
 
   constructor() {
-    // 定时清除
+    // Periodically clear expired entries.
     this.clearRetainTimer = setInterval(() => {
       const now = Date.now();
       this.retainStore.forEach((data, topic) => {
@@ -65,19 +65,20 @@ export class MemoryManager extends Manager {
   private readonly topicManager = new TopicManager();
 
   /**
-   * 客户端是否连接
-   * @param identifier
-   * @returns
+   * Whether a live client is registered for the given identifier.
+   *
+   * @param identifier - MQTT client identifier string.
+   * @returns `true` if a client is currently connected under `identifier`.
    */
   async isConnected(identifier: TIdentifier): Promise<boolean> {
     return !!this.clientIdentifierManager.getClient(identifier);
   }
 
   /**
-   * 建立连接
-   * @param identifier
-   * @param connData
-   * @param client
+   * Registers a client connection and restores routing for any persisted session.
+   *
+   * @param identifier - MQTT client identifier string.
+   * @param client - Live {@link MqttClient} for this session.
    */
   public async connect(identifier: TIdentifier, client: MqttClient): Promise<void> {
     this.clientIdentifierManager.set(identifier, client);
@@ -87,7 +88,7 @@ export class MemoryManager extends Manager {
     });
   }
 
-  // 断开连接, 不清除 session
+  // Disconnect without clearing the session.
   public async disconnect(identifier: TIdentifier, disconnectData?: IDisconnectData) {
     const client = this.clientIdentifierManager.getClient(identifier);
     if (client && !client.isDisconnect) {
@@ -223,7 +224,7 @@ export class MemoryManager extends Manager {
       targetClient.handlePublish(distributeData);
     };
 
-    // 非通配符主题
+    // Non-wildcard topic
     for (const [targetIdentifier, targetTopic] of this.topicManager.matchTopic(topic) ?? []) {
       publishData(targetIdentifier, targetTopic);
     }

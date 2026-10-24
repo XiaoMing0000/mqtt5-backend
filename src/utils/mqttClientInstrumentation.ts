@@ -73,8 +73,9 @@ export class MqttClientInstrumentation extends InstrumentationBase {
     const span = this.tracer.startSpan(name, { kind });
     span.setAttribute(ATTR_MESSAGING_SYSTEM, 'mqtt');
     span.setAttributes(attributes);
-    // 把 MQTT Span 设为当前活动上下文，处理器内部发起的 ioredis 调用
-    // 才能把它当作父 Span（配合 ioredis 插桩默认的 requireParentSpan: true）。
+    // Make the MQTT span the active context so ioredis calls initiated inside the
+    // handler can treat it as the parent span (matching ioredis instrumentation's
+    // default `requireParentSpan: true`).
     const activeContext = trace.setSpan(context.active(), span);
     return context
       .with(activeContext, () => fn())

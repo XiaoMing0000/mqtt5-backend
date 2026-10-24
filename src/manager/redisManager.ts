@@ -17,8 +17,8 @@ class RedisSessionManager {
   private readonly sessionCache = new MemorySessionManager();
 
   /**
-   * 空字符串用作会话标记字段。
-   * MQTT Topic 不能为空，因此不会与合法 Topic 冲突。
+   * Empty string used as the session marker field.
+   * MQTT topics cannot be empty, so this never collides with a legal topic.
    */
   private readonly sessionMarker = '';
 
@@ -35,21 +35,21 @@ class RedisSessionManager {
   }
 
   /**
-   * 会话 Key：每个客户端一个 Hash，字段为 base64url(topic)，值为序列化后的订阅数据。
+   * Session key: one Redis hash per client, keyed by base64url(topic) with serialized subscription data as values.
    */
   private sessionKey(identifier: TIdentifier): string {
     return `${this.prefix}${this.encode(identifier)}`;
   }
 
   /**
-   * 从 Redis 载入指定客户端的全部订阅。
+   * Loads all subscriptions for a client from Redis.
    *
-   * 仅在写入路径（connect 水合内存缓存）中使用。
+   * Used only on the write path (connect hydration of the in-memory cache).
    */
   private async loadFromRedis(identifier: TIdentifier): Promise<TSubscription | undefined> {
     const entries = await this.redis.hgetall(this.sessionKey(identifier));
 
-    // 会话标记字段不存在，说明 Redis 中无此会话。
+    // If the session marker field is absent, the session does not exist in Redis.
     if (entries[this.sessionMarker] === undefined) {
       return undefined;
     }
@@ -68,26 +68,26 @@ class RedisSessionManager {
   }
 
   /**
-   * 判断会话是否存在。
+   * Whether a session exists for the client.
    */
   has(identifier: TIdentifier): boolean {
     return this.sessionCache.has(identifier);
   }
 
   /**
-   * 获取指定客户端的全部订阅。
+   * Returns all subscriptions for a client.
    *
-   * 读取内存缓存，避免在消息分发路径上访问 Redis。
+   * Reads the in-memory cache to avoid hitting Redis on the message fan-out path.
    */
   get(identifier: TIdentifier): TSubscription | undefined {
     return this.sessionCache.get(identifier)?.subscription;
   }
 
   /**
-   * 建立会话。
+   * Establishes a session.
    *
-   * 默认保留已有会话和订阅。
-   * clearOldSession 为 true 时先删除旧会话。
+   * Existing sessions and subscriptions are kept by default.
+   * When `clearOldSession` is true, the old session is deleted first.
    */
   async connect(identifier: TIdentifier, clearOldSession = false): Promise<void> {
     if (clearOldSession) {
@@ -95,9 +95,9 @@ class RedisSessionManager {
     }
 
     if (await this.redis.persist(this.sessionKey(identifier))) {
-      // session 存在
+      // Session exists.
 
-      // 从 Redis 水合内存缓存（进程重启后内存缓存为空）。
+      // Hydrate the in-memory cache from Redis (it is empty after a process restart).
       const subscription = (await this.loadFromRedis(identifier)) ?? new Map<TTopic, TSubscribeData>();
       for (const [topic, data] of subscription) {
         this.sessionCache.subscribe(identifier, topic, data);
@@ -108,12 +108,13 @@ class RedisSessionManager {
   }
 
   /**
-   * 断开客户端会话。
+   * Disconnects a client session.
    *
-   * expireSeconds:
-   * - 未传入：立即删除会话和所有订阅。
-   * - 0：立即删除会话和所有订阅。
-   * - 大于 0：设置会话 Key 的过期时间。
+   * @param identifier - MQTT client identifier string.
+   * @param expireSeconds - Session expiry:
+   * - omitted: deletes the session and all subscriptions immediately.
+   * - `0`: deletes the session and all subscriptions immediately.
+   * - greater than 0: sets the expiry of the session key.
    */
   async disconnect(identifier: TIdentifier, expireSeconds?: number): Promise<void> {
     if (expireSeconds === undefined || expireSeconds === 0) {
@@ -131,7 +132,7 @@ class RedisSessionManager {
   }
 
   /**
-   * 添加或更新订阅。
+   * Adds or updates a subscription.
    */
   async subscribe(identifier: TIdentifier, topic: TTopic, data: TSubscribeData): Promise<void> {
     if (topic.length === 0) {
@@ -148,9 +149,9 @@ class RedisSessionManager {
   }
 
   /**
-   * 取消订阅。
+   * Removes a subscription.
    *
-   * 即使最后一个订阅被移除，也保留 sessionMarker。
+   * The session marker is kept even when the last subscription is removed.
    */
   async unsubscribe(identifier: TIdentifier, topic: TTopic): Promise<void> {
     await this.redis.hdel(this.sessionKey(identifier), this.encode(topic));
@@ -159,14 +160,14 @@ class RedisSessionManager {
   }
 
   /**
-   * 查询单个 Topic 的订阅信息。
+   * Looks up the subscription information for a single topic.
    */
   isSubscribe(identifier: TIdentifier, topic: TTopic): TSubscribeData | undefined {
     return this.sessionCache.isSubscribe(identifier, topic);
   }
 
   /**
-   * 删除指定客户端的会话及所有订阅。
+   * Deletes the session and all subscriptions for a client.
    */
   async clear(identifier: TIdentifier): Promise<void> {
     await this.redis.unlink(this.sessionKey(identifier));
@@ -175,12 +176,12 @@ class RedisSessionManager {
   }
 
   /**
-   * 清理 Redis 中全部 session:* Key。
+   * Cleans up all `session:*` keys in Redis.
    *
-   * 注意：此方法会删除该 Redis 数据库中所有以 session:
-   * 开头的 Key，不只限于当前实例创建的会话。
+   * Note: this deletes every key starting with `session:` in the Redis database,
+   * not only sessions created by the current instance.
    *
-   * 不关闭调用方管理的 Redis 连接。
+   * Does not close the Redis connection managed by the caller.
    */
   async dispose(): Promise<void> {
     let cursor = '0';
@@ -223,9 +224,9 @@ class RetainStore {
   }
 
   /**
-   * 新增或更新保留消息。
-   * ttl 为剩余存活时间，单位毫秒。
-   * ttl <= 0 时删除保留消息。
+   * Adds or updates a retained message.
+   * `ttl` is the remaining time-to-live in milliseconds.
+   * When `ttl <= 0`, the retained message is deleted.
    */
   async update(topic: TTopic, data: TRetainData): Promise<void> {
     const key = this.retainKey(topic);
@@ -241,14 +242,14 @@ class RetainStore {
   }
 
   /**
-   * 删除指定 Topic 的保留消息。
+   * Deletes the retained message for a topic.
    */
   async delete(topic: TTopic): Promise<void> {
     await this.redis.del(this.retainKey(topic));
   }
 
   /**
-   * 获取指定 Topic 的保留消息。
+   * Returns the retained message for a topic.
    */
   async get(topic: TTopic): Promise<Buffer | undefined> {
     const value = await this.redis.get(this.retainKey(topic));
@@ -261,7 +262,7 @@ class RetainStore {
   }
 
   /**
-   * 删除所有保留消息，不影响 Redis 中其他业务数据。
+   * Deletes all retained messages without affecting other business data in Redis.
    */
   async clear(): Promise<void> {
     let cursor = '0';
@@ -278,7 +279,7 @@ class RetainStore {
   }
 
   /**
-   * 遍历所有尚未过期的保留消息。
+   * Iterates over all non-expired retained messages.
    * TODO 当前遍历redis retain: 的方案需要优化
    */
   async *entries(): AsyncGenerator<[TTopic, Buffer]> {
@@ -298,7 +299,7 @@ class RetainStore {
       for (let i = 0; i < keys.length; i++) {
         const value = values[i];
 
-        // Key 可能在 SCAN 后、MGET 前过期
+        // The key may expire between SCAN and MGET.
         if (value === null) {
           continue;
         }
@@ -309,7 +310,7 @@ class RetainStore {
   }
 
   /**
-   * 不关闭调用方管理的 Redis 连接。
+   * Does not close the Redis connection managed by the caller.
    */
   async dispose(): Promise<void> {
     let cursor = '0';
@@ -362,8 +363,9 @@ class MessagesManager {
 }
 
 /**
- * 跨进程会话接管协调：以 Redis 所有权 key 作为单一事实来源，配合共享频道广播。
- * 当同一 client identifier 连到其他进程时，本进程据此断开旧连接（SessionTakenOver）。
+ * Cross-process session takeover coordination: uses a Redis ownership key as the single source of
+ * truth, combined with a shared-channel broadcast. When the same client identifier connects to
+ * another process, this process disconnects the old connection (SessionTakenOver).
  */
 class ClientTakeoverManager {
   private readonly redis: Redis;
@@ -379,12 +381,12 @@ class ClientTakeoverManager {
     return `${CLIENT_OWNER_PREFIX}${Buffer.from(identifier).toString('base64url')}`;
   }
 
-  /** 原子抢占所有权：后写者胜，对应 MQTT「新连接接管旧连接」语义。 */
+  /** Atomically claims ownership: last writer wins, matching MQTT "new connection takes over old connection" semantics. */
   async claim(identifier: TIdentifier, token: string): Promise<void> {
     await this.redis.set(this.ownerKey(identifier), token);
   }
 
-  /** 释放所有权：仅当仍由本人持有时才删除，避免误删新所有者的 key。 */
+  /** Releases ownership: deletes the key only if still owned by the caller, avoiding deleting a new owner's key. */
   async release(identifier: TIdentifier, token: string): Promise<void> {
     await this.redis.eval(
       "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
@@ -394,12 +396,12 @@ class ClientTakeoverManager {
     );
   }
 
-  /** 当前所有者 token，无则返回 null。 */
+  /** Returns the current owner token, or null if there is none. */
   async owner(identifier: TIdentifier): Promise<string | null> {
     return this.redis.get(this.ownerKey(identifier));
   }
 
-  /** 广播接管通知：所有进程据此重新校验自己对 `identifier` 的所有权。 */
+  /** Broadcasts a takeover notice so every process revalidates its ownership of `identifier`. */
   async publish(identifier: TIdentifier): Promise<void> {
     await this.redis.publish(CLIENT_TAKEOVER_CHANNEL, encodeUTF8String(identifier));
   }
@@ -451,26 +453,27 @@ export class RedisManager extends Manager {
   }
 
   /**
-   * 客户端是否连接
-   * @param identifier
-   * @returns
+   * Whether a live client is registered for the given identifier.
+   *
+   * @param identifier - MQTT client identifier string.
+   * @returns `true` if a client is currently connected under `identifier`.
    */
   async isConnected(identifier: TIdentifier): Promise<boolean> {
     return !!this.clientIdentifierManager.getClient(identifier);
   }
 
   /**
-   * 建立连接
-   * @param identifier
-   * @param connData
-   * @param client
+   * Establishes a connection, claiming ownership and restoring routing.
+   *
+   * @param identifier - MQTT client identifier string.
+   * @param client - Live {@link MqttClient} for this session.
    */
   public async connect(identifier: TIdentifier, client: MqttClient): Promise<void> {
-    // 跨进程会话接管：先抢占所有权，再广播，最后才本地注册与水合。
+    // Cross-process session takeover: claim ownership first, then broadcast, then register and hydrate locally.
     await this.clientTakeoverManager.claim(identifier, client.connectionToken);
     await this.clientTakeoverManager.publish(identifier);
 
-    // 如果同一 Client ID 被新连接替换，先移除旧连接的路由，避免重复路由。
+    // If the same client id is replaced by a new connection, remove the old connection's routing first to avoid duplicate routes.
     const oldSubscriptions = this.sessionStore.get(identifier);
     for (const [topic, _data] of oldSubscriptions ?? []) {
       this.topicManager.unsubscribe(topic, identifier);
@@ -487,7 +490,7 @@ export class RedisManager extends Manager {
     }
   }
 
-  // 断开连接但保留持久会话；离线客户端不应继续参与在线消息路由。
+  // Disconnect but keep the persistent session; offline clients should not keep participating in online message routing.
   public async disconnect(identifier: TIdentifier, disconnectData?: IDisconnectData): Promise<void> {
     const client = this.clientIdentifierManager.getClient(identifier);
 
@@ -497,7 +500,7 @@ export class RedisManager extends Manager {
 
     client.isDisconnect = true;
 
-    // 释放所有权（仅当仍持有时），让后续连接能干净接管。
+    // Release ownership (only if still held) so a later connection can take over cleanly.
     void this.clientTakeoverManager.release(identifier, client.connectionToken);
 
     client.handleDisconnect(
@@ -525,7 +528,7 @@ export class RedisManager extends Manager {
   }
 
   public async subscribe(identifier: TIdentifier, topic: TTopic, data: TSubscribeData): Promise<void> {
-    // 先确认持久化成功，再更新内存缓存与路由。
+    // Persist first; only then update the in-memory cache and routing.
     await this.sessionStore.subscribe(identifier, topic, data);
     this.topicManager.subscribe(topic, identifier);
   }
@@ -536,7 +539,7 @@ export class RedisManager extends Manager {
 
   public async unsubscribe(identifier: TIdentifier, topic: TTopic): Promise<void> {
     await this.sessionStore.unsubscribe(identifier, topic);
-    // sessionStore.unsubscribe 已同步删除内存缓存中的订阅，需移除路由（幂等）。
+    // sessionStore.unsubscribe already removed the subscription from the in-memory cache; remove the route (idempotent).
     this.topicManager.unsubscribe(topic, identifier);
   }
 
@@ -603,8 +606,8 @@ export class RedisManager extends Manager {
   }
 
   /**
-   * 处理跨进程接管通知：断开本进程内 `identifier` 的旧连接，
-   * 除非它就是刚声明所有权的那个连接（token 相同）。
+   * Handles a cross-process takeover notice: disconnects the old connection for `identifier`
+   * in this process, unless it is the connection that just claimed ownership (same token).
    */
   private handleRemoteTakeover(identifier: TIdentifier): void {
     const client = this.clientIdentifierManager.getClient(identifier);
@@ -663,7 +666,7 @@ export class RedisManager extends Manager {
       targetClient.handlePublish(distributeData);
     };
 
-    // 非通配符主题
+    // Non-wildcard topic
     for (const [targetIdentifier, targetTopic] of this.topicManager.matchTopic(topic) ?? []) {
       publishData(targetIdentifier, targetTopic);
     }

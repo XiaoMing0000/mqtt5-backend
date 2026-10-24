@@ -255,7 +255,7 @@ export class TopicHashRegexManager {
   }
 
   *matchTopic(topic: TTopic, enableWildcard = true) {
-    // 精准匹配
+    // Exact match
     const idSet = this.exact.get(topic);
     if (idSet) {
       for (const id of idSet) {
@@ -263,7 +263,7 @@ export class TopicHashRegexManager {
       }
     }
 
-    // 通配符匹配
+    // Wildcard match
     if (enableWildcard) {
       for (const [wildcardTopic, data] of this.blur) {
         if (matchTopic(topic, wildcardTopic)) {
@@ -325,9 +325,9 @@ export class TopicTrieManager {
     remove(this.route, 0);
   }
 
-  /** 返回 [客户端 ID, 匹配的订阅过滤器] */
+  /** Yields `[client id, matching subscription filter]` tuples. */
 
-  /** 逐条返回 [客户端 ID, 匹配的订阅过滤器] */
+  /** Yields `[client id, matching subscription filter]` tuples one at a time. */
   *matchTopic(topic: TTopic): Generator<[TIdentifier, TTopic]> {
     const nodes = topic.split('/');
     const isSystemTopic = nodes[0].startsWith('$');
@@ -344,7 +344,7 @@ export class TopicTrieManager {
       const level = nodes[index];
       const isLast = index === nodes.length - 1;
 
-      // # 匹配零层或多层
+      // `#` matches zero or more levels.
       if (!(index === 0 && isSystemTopic)) {
         yield* collect(route['#']);
       }
@@ -356,7 +356,7 @@ export class TopicTrieManager {
         if (isLast) {
           yield* collect(node);
 
-          // sensor/# 也匹配 sensor
+          // `sensor/#` also matches `sensor` itself.
           if (key !== '#') {
             yield* collect(node.child?.['#']);
           }
@@ -367,7 +367,7 @@ export class TopicTrieManager {
 
       yield* descend(level);
 
-      // + 匹配一个层级，但根层不能匹配 $ 开头的主题
+      // `+` matches a single level, but the root level must not match topics starting with `$`.
       if (!(index === 0 && isSystemTopic)) {
         yield* descend('+');
       }
@@ -397,16 +397,16 @@ export class TopicManager {
     }
   }
 
-  /** 返回 [客户端 ID, 匹配的订阅过滤器] */
+  /** Yields `[client id, matching subscription filter]` tuples. */
 
-  /** 逐条返回 [客户端 ID, 匹配的订阅过滤器] */
+  /** Yields `[client id, matching subscription filter]` tuples one at a time. */
   *matchTopic(topic: TTopic, enableWildcard = true): Generator<[TIdentifier, TTopic]> {
     for (const [targetIdentifier, targetTopic] of this.topicIndex.matchTopic(topic, false) ?? []) {
       yield [targetIdentifier, targetTopic];
     }
 
     if (enableWildcard) {
-      // 通配符主题
+      // Wildcard topic
       for (const [targetIdentifier, targetTopic] of this.topicTrie.matchTopic(topic) ?? []) {
         yield [targetIdentifier, targetTopic];
       }
@@ -426,7 +426,7 @@ export class MemorySessionManager {
   private readonly clearSessionTimer: NodeJS.Timeout;
 
   constructor() {
-    // 定时清除
+    // Periodically clear expired sessions.
     this.clearSessionTimer = setInterval(() => {
       const now = Date.now();
       this.sessionStore.forEach((session, identifier) => {
@@ -437,7 +437,7 @@ export class MemorySessionManager {
     }, 1000);
   }
 
-  // 清除会话
+  // Clear the session.
   clear(identifier: TIdentifier) {
     this.sessionStore.delete(identifier);
   }
@@ -450,7 +450,7 @@ export class MemorySessionManager {
     return this.sessionStore.get(identifier);
   }
 
-  // 建立连接时初始化会话
+  // Initialize the session on connect.
   connect(identifier: TIdentifier, sessionExpiryInterval: number, clearOldSession = false) {
     if (clearOldSession) {
       this.clear(identifier);
@@ -470,22 +470,22 @@ export class MemorySessionManager {
     });
   }
 
-  // 添加订阅
+  // Add a subscription.
   subscribe(identifier: TIdentifier, topic: TTopic, data: TSubscribeData) {
     this.sessionStore.get(identifier)?.subscription.set(topic, data);
   }
 
-  // 取消订阅
+  // Remove a subscription.
   unsubscribe(identifier: TIdentifier, topic: TTopic) {
     this.sessionStore.get(identifier)?.subscription.delete(topic);
   }
 
-  // 查询是否订阅
+  // Look up whether the client is subscribed.
   isSubscribe(identifier: TIdentifier, topic: TTopic) {
     return this.sessionStore.get(identifier)?.subscription.get(topic);
   }
 
-  // 保留 sessionExpiryInterval 或清除 session
+  // Keep `sessionExpiryInterval`, or clear the session.
   disconnect(identifier: TIdentifier) {
     const session = this.sessionStore.get(identifier);
     if (session) {
