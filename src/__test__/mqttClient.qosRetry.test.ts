@@ -1,6 +1,6 @@
 import { vi } from 'vitest';
 import { IConnectData, IPublishData, PacketType, ProtocolVersion, QoSType, type IMqttOptions } from '../interface';
-import { ClientIdentifierManager, Manager, TSocket, TMqttClientEmitAsync, TSubscribeData } from '../manager/manager';
+import { Manager, TSocket, TMqttClientEmitAsync } from '../manager/manager';
 import { MqttClient } from '../mqttClient';
 
 /** Delay between resends, matching `QosRetry`. */
@@ -10,7 +10,6 @@ const RETRY_COUNT = 3;
 
 /** Minimal concrete Manager so {@link MqttClient} can be constructed. Records fan-out for assertions. */
 class TestManager extends Manager {
-  readonly clientIdentifierManager = new ClientIdentifierManager();
   /** Every publish handed to the manager, in delivery order. */
   readonly published: IPublishData[] = [];
 
@@ -18,29 +17,25 @@ class TestManager extends Manager {
     return false;
   }
   async connect(): Promise<void> {}
-  clearConnect(): void {}
+  disconnect(): void {}
   async hasSession(): Promise<boolean> {
     return false;
   }
-  async clearSubscribe(): Promise<void> {}
+  async clearSession(): Promise<void> {}
   async subscribe(): Promise<void> {}
   async unsubscribe(): Promise<void> {}
   async isSubscribe(): Promise<boolean> {
     return false;
   }
-  async getSubscription(): Promise<TSubscribeData | undefined> {
-    return undefined;
-  }
   publish(_clientIdentifier: string, _topic: string, pubData: IPublishData): void {
     this.published.push(pubData);
   }
-  async ping(): Promise<void> {}
   async addRetainMessage(): Promise<void> {}
   async deleteRetainMessage(): Promise<void> {}
   async getRetainMessage(): Promise<IPublishData | undefined> {
     return undefined;
   }
-  async forEachRetainMessage(): Promise<void> {}
+  async matchRetainMessage(): Promise<void> {}
 }
 
 /** `emitAsync` stub that accepts every packet. */
@@ -48,7 +43,7 @@ const acceptEmitAsync: TMqttClientEmitAsync = async () => true;
 
 function createClient(options?: Partial<IMqttOptions>) {
   const write = vi.fn();
-  const socket = { write, end: vi.fn() } as unknown as TSocket;
+  const socket = { write, end: vi.fn(), setTimeout: vi.fn(), on: vi.fn() } as unknown as TSocket;
   const manager = new TestManager();
   const mergedOptions = {
     packetIdentifierTTL: 60,
@@ -60,11 +55,11 @@ function createClient(options?: Partial<IMqttOptions>) {
   } as Required<IMqttOptions>;
   const client = new MqttClient(socket, manager, mergedOptions);
   client.packetIdentifierManager.receiveMaximum = mergedOptions.receiveMaximum;
-  // `handlePublish` refuses to write a frame whose Remaining Length exceeds the Remaining Length
-  // recorded on the CONNECT packet, so the fixture carries a realistic one.
+  // `handlePublish` drops a frame whose Remaining Length exceeds `connData.properties.receiveMaximum`
+  // (falling back to `options.maximumPacketSize`). The fixture leaves `receiveMaximum` unset, so
+  // frames are written by default; the size-limit suite below sets it explicitly.
   // TODO [MQTT-3.1.2-24] That guard should look at the Maximum Packet Size this client advertised
-  // in CONNECT (see the "Maximum Packet Size" suite below).
-  client.connData.header.remainingLength = 1 << 20;
+  // in CONNECT, not its Receive Maximum.
   return { client, write, manager };
 }
 
@@ -451,7 +446,7 @@ describe('QosRetry', () => {
 
     test('handlePublish sends a packet that fits the size limit carried by the CONNECT', async () => {
       const pubData = outboundPublish();
-      client.connData.header.remainingLength = 1 << 20;
+      client.connData.properties.receiveMaximum = 1 << 20;
 
       await client.handlePublish(pubData);
 
@@ -460,13 +455,13 @@ describe('QosRetry', () => {
     });
 
     test('handlePublish drops a packet larger than the size limit carried by the CONNECT', async () => {
-      client.connData.header.remainingLength = 4;
+      client.connData.properties.receiveMaximum = 4;
 
       await client.handlePublish(outboundPublish());
 
-      // TODO [MQTT-3.1.2-24] The limit compared here is the Remaining Length of the inbound
-      // CONNECT packet rather than the Maximum Packet Size this client advertised, so a normal
-      // QoS 1 publish is dropped whenever the CONNECT was smaller than it.
+      // TODO [MQTT-3.1.2-24] The limit compared here is the client's Receive Maximum rather than the
+      // Maximum Packet Size it advertised, so a normal QoS 1 publish is dropped whenever that value
+      // is smaller than the frame.
       expect(write).not.toHaveBeenCalled();
     });
 

@@ -1,39 +1,32 @@
 import { vi } from 'vitest';
-import { DisconnectReasonCode } from '../exception';
-import { IDisconnectData, IMqttOptions, IPublishData, PacketType, ProtocolVersion, QoSType } from '../interface';
+import { IMqttOptions, IPublishData, PacketType, ProtocolVersion, QoSType } from '../interface';
 import { MqttClient } from '../mqttClient';
-import { ClientIdentifierManager, ClientPacketIdentifierManager, Manager, TSocket, TSubscribeData } from '../manager/manager';
+import { ClientIdentifierManager, ClientPacketIdentifierManager, Manager, TSocket } from '../manager/manager';
 import { MemoryManager } from '../manager/memoryManager';
 
 /** Minimal concrete Manager for exercising shared base-class behavior. */
 class TestManager extends Manager {
-  readonly clientIdentifierManager = new ClientIdentifierManager();
-
   async isConnected(): Promise<boolean> {
     return false;
   }
   async connect(): Promise<void> {}
-  clearConnect(): void {}
+  disconnect(): void {}
   async hasSession(): Promise<boolean> {
     return false;
   }
-  async clearSubscribe(): Promise<void> {}
+  async clearSession(): Promise<void> {}
   async subscribe(): Promise<void> {}
   async unsubscribe(): Promise<void> {}
   async isSubscribe(): Promise<boolean> {
     return false;
   }
-  async getSubscription(): Promise<TSubscribeData | undefined> {
-    return undefined;
-  }
   publish(): void {}
-  async ping(): Promise<void> {}
   async addRetainMessage(): Promise<void> {}
   async deleteRetainMessage(): Promise<void> {}
   async getRetainMessage(): Promise<IPublishData | undefined> {
     return undefined;
   }
-  async forEachRetainMessage(): Promise<void> {}
+  async matchRetainMessage(): Promise<void> {}
 }
 
 function createMockClient(clientIdentifier = 'client-1'): MqttClient {
@@ -231,48 +224,13 @@ describe('ClientPacketIdentifierManager', () => {
 
 describe('Manager', () => {
   let manager: TestManager;
-  let client: MqttClient;
 
   beforeEach(() => {
     manager = new TestManager();
-    client = createMockClient('client-1');
   });
 
   afterEach(async () => {
     await manager.dispose();
-  });
-
-  describe('disconnect', () => {
-    test('ends socket when given a MqttClient', () => {
-      manager.disconnect(client);
-      expect(client.socket.end).toHaveBeenCalledWith(Buffer.from([]));
-    });
-
-    test('ends socket when given a registered client id', () => {
-      manager.clientIdentifierManager.set('client-1', client);
-      manager.disconnect('client-1');
-      expect(client.socket.end).toHaveBeenCalledTimes(1);
-    });
-
-    test('does nothing for unknown client id', () => {
-      manager.disconnect('missing');
-      expect(client.socket.end).not.toHaveBeenCalled();
-    });
-
-    test('encodes MQTT 5 DISCONNECT when data and protocol version are provided', () => {
-      const disconnectData: IDisconnectData = {
-        header: {
-          packetType: PacketType.DISCONNECT,
-          received: 0,
-          reasonCode: DisconnectReasonCode.NormalDisconnection,
-        },
-        properties: {},
-      };
-      manager.disconnect(client, disconnectData, ProtocolVersion.V5);
-      const buf = (client.socket.end as ReturnType<typeof vi.fn>).mock.calls[0][0] as Buffer;
-      expect(buf[0] >> 4).toBe(PacketType.DISCONNECT);
-      expect(buf.length).toBeGreaterThan(1);
-    });
   });
 
   describe('dispose', () => {

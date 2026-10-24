@@ -1,4 +1,4 @@
-import { IMqttOptions, PacketType, ProtocolVersion, QoSType, type IConnectData, type IPublishData } from '../interface';
+import { IMqttOptions, PacketType, ProtocolVersion, QoSType, type IPublishData } from '../interface';
 import { type TSocket, type TSubscribeData } from '../manager/manager';
 import { MemoryManager } from '../manager/memoryManager';
 import { MqttClient } from '../mqttClient';
@@ -55,21 +55,6 @@ function mockClient(id: string, writes: Buffer[], manager: MemoryManager): MqttC
   return client;
 }
 
-function connectData(id: string): IConnectData {
-  return {
-    header: {
-      packetType: PacketType.CONNECT,
-      packetFlags: 0,
-      protocolName: 'MQTT',
-      protocolVersion: ProtocolVersion.V5,
-      keepAlive: 60,
-    },
-    connectFlags: { cleanStart: true } as IConnectData['connectFlags'],
-    properties: {},
-    payload: { clientIdentifier: id },
-  };
-}
-
 function sub(id: number, extra: Partial<TSubscribeData> = {}): TSubscribeData {
   return {
     qos: QoSType.QoS0,
@@ -117,7 +102,7 @@ describe('MemoryManager wildcard publish', () => {
   test('a broader # filter does not hide a deeper # filter', async () => {
     const writes: Buffer[] = [];
     const client = mockClient('c1', writes, manager);
-    await manager.connect('c1', connectData('c1'), client);
+    await manager.connect('c1', client);
     await manager.subscribe('c1', '/xiaoming/#', sub(1));
     await manager.subscribe('c1', '/xiaoming/test/#', sub(2));
 
@@ -130,7 +115,7 @@ describe('MemoryManager wildcard publish', () => {
   test('terminal # under + still matches the parent topic', async () => {
     const writes: Buffer[] = [];
     const client = mockClient('c1', writes, manager);
-    await manager.connect('c1', connectData('c1'), client);
+    await manager.connect('c1', client);
     await manager.subscribe('c1', 'sport/+/#', sub(7));
 
     manager.publish('pub', 'sport/tennis', publishData('sport/tennis'));
