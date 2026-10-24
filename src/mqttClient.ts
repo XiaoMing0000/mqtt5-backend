@@ -40,6 +40,12 @@ import { generateClientIdentifier, generateConnectionToken } from './utils';
 type TQosRetryEntry = { packet: Buffer; attempts: number; timer?: NodeJS.Timeout };
 
 /**
+ * Upper bound on the Will Delay Interval (seconds) accepted from a client.
+ * Caps how long a disconnected connection is retained by its pending will timer.
+ */
+const MAX_WILL_DELAY_INTERVAL = 24 * 60 * 60;
+
+/**
  * Resends unacknowledged QoS 1/2 frames for a single connection.
  *
  * @remarks
@@ -224,6 +230,8 @@ export class MqttClient {
    * Cleared to `false` on a normal DISCONNECT (reason code 0); stays `true` for abnormal disconnects.
    */
   private errorDisconnect = true;
+  /** Timer for a delayed will message; kept so it can be `.unref()`'d and cleared. */
+  private willTimer?: NodeJS.Timeout;
   /**
    * @param socket - Underlying transport used to read and write MQTT frames.
    * @param clientManager - Broker-side registry for sessions, subscriptions, and identifiers.
@@ -243,6 +251,18 @@ export class MqttClient {
     } else if (this.connData.header.keepAlive) {
       this.expire = Date.now() + this.connData.header.keepAlive * 1.5 * 1000;
     }
+  }
+
+  /**
+   * Cancels all pending QoS 1/2 resend timers for this connection.
+   *
+   * @remarks
+   * Called when the connection is dropped so retry timers neither write to a closed
+   * socket nor keep the connection object alive after it has been removed.
+   */
+  public clearPendingRetries() {
+    this.publishQosRetry.clearPendingClient(this);
+    this.receiveQos2Retry.clearPendingClient(this);
   }
 
   /**
@@ -465,12 +485,14 @@ export class MqttClient {
         properties: this.connData.payload.willProperties ?? {},
         payload: willPayload ?? Buffer.alloc(0),
       };
-      const delayInterval = this.connData.payload.willProperties?.willDelayInterval ?? 0;
+      const delayInterval = Math.min(this.connData.payload.willProperties?.willDelayInterval ?? 0, MAX_WILL_DELAY_INTERVAL);
       const messageExpiry = this.connData.payload.willProperties?.messageExpiryInterval ?? 0;
       const disconnectedAt = Date.now();
       if (delayInterval > 0) {
         // Fire-and-forget so the will delay does not block the disconnect path.
-        setTimeout(() => {
+        // `.unref()` keeps a pending will from holding the process open after shutdown.
+        this.willTimer = setTimeout(() => {
+          this.willTimer = undefined;
           if (this.clientIdentifier && !this.clientManager.clientIdentifierManager.getClient(this.clientIdentifier)) {
             if (messageExpiry > 0 && Date.now() > disconnectedAt + messageExpiry * 1000) {
               return;
@@ -478,6 +500,7 @@ export class MqttClient {
             this.sendWillMessage(willData, emitAsync);
           }
         }, delayInterval * 1000);
+        this.willTimer.unref();
       } else {
         if (messageExpiry > 0 && Date.now() > disconnectedAt + messageExpiry * 1000) {
           return;

@@ -240,12 +240,13 @@ describe('MemoryManager retain messages', () => {
     expect(called).toBe(0);
   });
 
-  test('getRetainMessage returns undefined for a fresh message (expiry check inverted)', async () => {
-    // TODO [retain] `getRetainMessage` treats a non-expired message (`expireAt` in the future) as
-    // expired and deletes it, so retained messages can never be read back this way.
+  test('getRetainMessage returns a fresh retained message', async () => {
     await manager.addRetainMessage('a/b', publishData('a/b'));
 
-    expect(await manager.getRetainMessage('a/b')).toBeUndefined();
+    const data = await manager.getRetainMessage('a/b');
+    expect(data).toBeDefined();
+    expect(data?.header.topicName).toBe('a/b');
+    expect(data?.payload.toString()).toBe('hi');
   });
 });
 

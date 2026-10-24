@@ -15,7 +15,7 @@ class RetainStore {
     this.clearRetainTimer = setInterval(() => {
       const now = Date.now();
       this.retainStore.forEach((data, topic) => {
-        if (data.expireAt > now) {
+        if (data.expireAt <= now && data.expireAt !== 0) {
           this.retainStore.delete(topic);
         }
       });
@@ -93,6 +93,7 @@ export class MemoryManager extends Manager {
     const client = this.clientIdentifierManager.getClient(identifier);
     if (client && !client.isDisconnect) {
       client.isDisconnect = true;
+      client.clearPendingRetries();
       client.handleDisconnect(
         disconnectData ?? {
           header: {
@@ -151,7 +152,7 @@ export class MemoryManager extends Manager {
   public async getRetainMessage(topic: string): Promise<IPublishData | undefined> {
     const data = this.retainStore.get(topic);
     if (data) {
-      if (data.expireAt === 0 || data.expireAt < Date.now()) {
+      if (data.expireAt === 0 || data.expireAt > Date.now()) {
         return decodePacket(data.buffer, ProtocolVersion.V5) as IPublishData;
       } else {
         this.retainStore.delete(topic);
