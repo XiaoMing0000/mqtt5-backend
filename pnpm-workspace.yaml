@@ -1,5 +1,6 @@
 allowBuilds:
   '@parcel/watcher': false
   esbuild: false
+  protobufjs: false
   simple-git-hooks: true
   unrs-resolver: false

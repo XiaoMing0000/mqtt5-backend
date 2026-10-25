@@ -9,6 +9,11 @@ import {
   SubscribeAckReasonCode,
 } from './exception';
 
+/** MQTT topic filter or name (string). */
+export type TTopic = string;
+/** Stable client identifier string (MQTT Client ID). */
+export type TIdentifier = string;
+
 /**
  * Server-side MQTT options advertised to clients (CONNACK properties and related limits).
  */
@@ -45,6 +50,8 @@ export interface IMqttOptions {
   serverKeepAlive?: number;
   /** Max retry count when the server delivers QoS 1/QoS 2 messages to the client. */
   qosRetryCount?: number;
+  /** Time-to-live for packet identifiers. */
+  packetIdentifierTTL?: number;
 }
 
 /** MQTT control packet type (fixed header first nibble). */
@@ -146,41 +153,41 @@ export enum PropertyIdentifier {
 
 /** Property identifiers allowed in CONNACK. */
 export enum ConnAckPropertyIdentifier {
-  sessionExpiryInterval = 0x11,
-  assignedClientIdentifier = 0x12,
-  serverKeepAlive = 0x13,
-  authenticationMethod = 0x15,
-  authenticationData = 0x16,
-  responseInformation = 0x1a,
-  serverReference = 0x1c,
-  reasonString = 0x1f,
-  receiveMaximum = 0x21,
-  topicAliasMaximum = 0x22,
-  maximumQoS = 0x24,
-  retainAvailable = 0x25,
-  userProperty = 0x26,
-  maximumPacketSize = 0x27,
-  wildcardSubscriptionAvailable = 0x28,
-  subscriptionIdentifierAvailable = 0x29,
-  sharedSubscriptionAvailable = 0x2a,
+  sessionExpiryInterval = PropertyIdentifier.sessionExpiryInterval,
+  assignedClientIdentifier = PropertyIdentifier.assignedClientIdentifier,
+  serverKeepAlive = PropertyIdentifier.serverKeepAlive,
+  authenticationMethod = PropertyIdentifier.authenticationMethod,
+  authenticationData = PropertyIdentifier.authenticationData,
+  responseInformation = PropertyIdentifier.responseInformation,
+  serverReference = PropertyIdentifier.serverReference,
+  reasonString = PropertyIdentifier.reasonString,
+  receiveMaximum = PropertyIdentifier.receiveMaximum,
+  topicAliasMaximum = PropertyIdentifier.topicAliasMaximum,
+  maximumQoS = PropertyIdentifier.maximumQoS,
+  retainAvailable = PropertyIdentifier.retainAvailable,
+  userProperty = PropertyIdentifier.userProperty,
+  maximumPacketSize = PropertyIdentifier.maximumPacketSize,
+  wildcardSubscriptionAvailable = PropertyIdentifier.wildcardSubscriptionAvailable,
+  subscriptionIdentifierAvailable = PropertyIdentifier.subscriptionIdentifierAvailable,
+  sharedSubscriptionAvailable = PropertyIdentifier.sharedSubscriptionAvailable,
 }
 
 /** Property identifiers allowed in PUBCOMP. */
 export enum PubCompPropertyIdentifier {
-  reasonString = 0x1f,
-  userProperty = 0x26,
+  reasonString = PropertyIdentifier.reasonString,
+  userProperty = PropertyIdentifier.userProperty,
 }
 
 /** Property identifiers allowed in PUBACK. */
 export enum PubAckPropertyIdentifier {
-  reasonString = 0x1f,
-  userProperty = 0x26,
+  reasonString = PropertyIdentifier.reasonString,
+  userProperty = PropertyIdentifier.userProperty,
 }
 
 /** Property identifiers allowed in SUBACK. */
 export enum SubAckPropertyIdentifier {
-  reasonString = 0x1f,
-  userProperty = 0x26,
+  reasonString = PropertyIdentifier.reasonString,
+  userProperty = PropertyIdentifier.userProperty,
 }
 
 /** Ordered list of user property key/value pairs (MQTT 5 user properties). */
@@ -209,7 +216,7 @@ export interface IProperties {
   messageExpiryInterval?: number;
   contentType?: string;
   responseTopic?: string;
-  correlationData?: string | Buffer;
+  correlationData?: Buffer;
   sessionExpiryInterval?: number;
   receiveMaximum?: number;
   maximumPacketSize?: number;
@@ -217,14 +224,14 @@ export interface IProperties {
   assignedClientIdentifier?: string;
   requestResponseInformation?: boolean;
   requestProblemInformation?: boolean;
-  userProperty?: { [key: string]: any };
+  userProperty?: { [key: string]: string | string[] };
   authenticationMethod?: string;
   authenticationData?: string;
   willDelayInterval?: number;
   maximumQoS?: boolean;
   retainAvailable?: boolean;
   reasonString?: string;
-  subscriptionIdentifier?: number | Array<number>;
+  subscriptionIdentifier?: Array<number>;
   serverKeepAlive?: number;
   responseInformation?: string;
   serverReference?: string;
@@ -254,7 +261,7 @@ export interface IConnectWillProperties {
   messageExpiryInterval?: number;
   contentType?: string;
   responseTopic?: string;
-  correlationData?: string | Buffer;
+  correlationData?: Buffer;
   userProperty?: { [key: string]: any };
 }
 
@@ -286,7 +293,7 @@ export interface IPublishProperties {
   messageExpiryTimestamp?: number;
   contentType?: string;
   responseTopic?: string;
-  correlationData?: string | Buffer;
+  correlationData?: Buffer;
   subscriptionIdentifier?: Array<number>;
   topicAliasMaximum?: number;
   userProperty?: { [key: string]: any };
@@ -303,7 +310,7 @@ export interface IDisconnectProperties {
 
 /** Properties on SUBSCRIBE. */
 export interface ISubscribeProperties {
-  subscriptionIdentifier?: number;
+  subscriptionIdentifier?: Array<number>;
   userProperty?: { [key: string]: any };
 }
 
@@ -443,7 +450,7 @@ export interface IPublishData {
     topicName: string;
   };
   properties: IPublishProperties;
-  payload: string;
+  payload: Buffer;
 }
 
 /** Decoded SUBSCRIBE packet. */

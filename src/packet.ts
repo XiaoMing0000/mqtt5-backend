@@ -1,0 +1,852 @@
+import {
+  decodeBinaryData,
+  decodeOneByteInteger,
+  decodeTwoByteInteger,
+  decodeUtf8String,
+  decodeVariableByteInteger,
+  encodeTwoByteInteger,
+  encodeUTF8String,
+  encodeVariableByteInteger,
+} from './dataRepresentations';
+import {
+  PubAckReasonCode,
+  PubAckException,
+  PubRecReasonCode,
+  PubRelReasonCode,
+  PubCompReasonCode,
+  DisconnectException,
+  DisconnectReasonCode,
+} from './exception';
+import {
+  IAuthData,
+  IConnAckData,
+  IConnectData,
+  IDisconnectData,
+  IPingData,
+  IPubAckData,
+  IPubCompData,
+  IPublishData,
+  IPubRecData,
+  IPubRelData,
+  ISubAckData,
+  ISubscribeData,
+  IUnsubscribeData,
+  PacketType,
+  PacketTypeData,
+  ProtocolVersion,
+  QoSType,
+} from './interface';
+import {
+  EncoderProperties,
+  parseAuthProperties,
+  parseConnectProperties,
+  parseConnectWillProperties,
+  parseDisconnectProperties,
+  parsePubAckProperties,
+  parsePubCompProperties,
+  parsePublishProperties,
+  parsePubRecProperties,
+  parsePubRelProperties,
+  parseSubscribeProperties,
+} from './property';
+
+// TODO: Packet parsing — only server-relevant packet types are implemented.
+
+/**
+ * Dispatches a single complete MQTT packet buffer to the appropriate parser by fixed header type (high nibble).
+ * @param buffer - One full MQTT packet (fixed header + remaining length + payload).
+ * @param protocolVersion - Used for MQTT 5 property sections where applicable.
+ * @returns Parsed packet-specific data union.
+ * @throws {@link DisconnectException} For unknown packet types or protocol errors from sub-parsers.
+ */
+export function decodePacket(buffer: Buffer, protocolVersion: ProtocolVersion): PacketTypeData {
+  const packetType = (buffer[0] >> 4) as PacketType;
+
+  switch (packetType) {
+    case PacketType.PINGREQ: {
+      const data: IPingData = { header: { packetType: PacketType.PINGREQ } };
+      return data;
+    }
+    case PacketType.CONNECT: {
+      return decodeConnect(buffer);
+    }
+    case PacketType.PUBLISH: {
+      return decodePublish(buffer, protocolVersion);
+    }
+    case PacketType.PUBACK: {
+      return decodePubAck(buffer, protocolVersion);
+    }
+    case PacketType.PUBREC: {
+      return decodePubRec(buffer, protocolVersion);
+    }
+    case PacketType.PUBREL: {
+      return decodePubRel(buffer, protocolVersion);
+    }
+    case PacketType.PUBCOMP: {
+      return decodePubComp(buffer, protocolVersion);
+    }
+    case PacketType.SUBSCRIBE: {
+      return decodeSubscribe(buffer, protocolVersion);
+    }
+    case PacketType.UNSUBSCRIBE: {
+      return decodeUnsubscribe(buffer, protocolVersion);
+    }
+    case PacketType.DISCONNECT: {
+      return decodeDisconnect(buffer, protocolVersion);
+    }
+    case PacketType.AUTH: {
+      return decodeAuth(buffer, protocolVersion);
+    }
+    default:
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, '未能解析的报文类型');
+  }
+}
+
+/**
+ * Parses an MQTT CONNECT packet into structured connect data (flags, properties, will, credentials).
+ * @param buffer - Full CONNECT packet.
+ * @returns Parsed {@link IConnectData}.
+ * @throws {@link DisconnectException} On malformed flags or reserved bit violations per MQTT 5 rules.
+ */
+function decodeConnect(buffer: Buffer): IConnectData {
+  const connData: IConnectData = {
+    header: {
+      packetType: PacketType.RESERVED,
+      packetFlags: 0,
+      remainingLength: 0,
+      protocolName: '',
+      protocolVersion: ProtocolVersion.V5,
+      keepAlive: 0,
+    },
+    connectFlags: {} as any,
+    properties: {},
+    payload: {
+      clientIdentifier: '',
+    },
+  };
+  connData.header.packetType = (buffer[0] >> 4) as PacketType;
+  connData.header.packetFlags = buffer[0] & 0xf;
+
+  const data = { buffer, index: 1 };
+  connData.header.remainingLength = decodeVariableByteInteger(data);
+
+  connData.header.protocolName = decodeUtf8String(data);
+  connData.header.protocolVersion = decodeOneByteInteger(data);
+  const connectFlagsValue = decodeOneByteInteger(data);
+  connData.connectFlags = {
+    username: !!((connectFlagsValue >> 7) & 1),
+    password: !!((connectFlagsValue >> 6) & 1),
+    willRetain: !!((connectFlagsValue >> 5) & 1),
+    willQoS: ((connectFlagsValue >> 3) & 3) as QoSType,
+    willFlag: !!((connectFlagsValue >> 2) & 1),
+    cleanStart: !!((connectFlagsValue >> 1) & 1),
+    reserved: !!(connectFlagsValue & 1),
+  };
+  if (
+    connData.connectFlags.reserved ||
+    connData.connectFlags.willQoS >= 0x03 ||
+    (!connData.connectFlags.willFlag && connData.connectFlags.willRetain)
+  ) {
+    throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'If the reserved flag is not 0 it is a Malformed Packet.');
+  }
+  connData.header.keepAlive = decodeTwoByteInteger(data);
+
+  if (connData.header.protocolVersion === ProtocolVersion.V5) {
+    const propertyLength = decodeVariableByteInteger(data);
+    const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+    connData.properties = parseConnectProperties(propertiesBuffer);
+  }
+
+  // Connect payload: Client Identifier first
+  connData.payload.clientIdentifier = decodeUtf8String(data);
+
+  if (connData.connectFlags.willFlag) {
+    if (connData.header.protocolVersion === ProtocolVersion.V5) {
+      const willPropertiesLength = decodeVariableByteInteger(data);
+      const willPropertiesBuffer = data.buffer.slice(data.index, (data.index += willPropertiesLength));
+      connData.payload.willProperties = parseConnectWillProperties(willPropertiesBuffer);
+    }
+
+    connData.payload.willTopic = decodeUtf8String(data);
+    connData.payload.willPayload = decodeBinaryData(data);
+  }
+
+  if (connData.connectFlags.username) {
+    connData.payload.username = decodeUtf8String(data);
+  }
+  if (connData.connectFlags.password) {
+    connData.payload.password = decodeBinaryData(data);
+  }
+
+  return connData;
+}
+
+/**
+ * Fills `pubData` by parsing a PUBLISH packet (topic, QoS, optional packet id, properties, payload).
+ * @param buffer - Full PUBLISH packet.
+ * @param pubData - Output object; header fields are overwritten from the wire.
+ * @param protocolVersion - MQTT 5 properties are read only when this is {@link ProtocolVersion.V5}.
+ * @returns The same `pubData` reference for chaining.
+ * @throws {@link PubAckException} When the topic filter contains wildcards where forbidden for this server.
+ */
+function decodePublish(buffer: Buffer, protocolVersion: ProtocolVersion) {
+  const pubData: IPublishData = {
+    header: {
+      packetType: PacketType.RESERVED,
+      dupFlag: false,
+      qosLevel: 0,
+      retain: false,
+      remainingLength: 0,
+      topicName: '',
+    },
+    properties: {},
+    payload: Buffer.alloc(0),
+  };
+  pubData.header.packetType = (buffer[0] >> 4) as PacketType;
+  pubData.header.dupFlag = !!(buffer[0] & 0x8);
+  pubData.header.qosLevel = (buffer[0] >> 1) & 0x3;
+  pubData.header.retain = !!(buffer[0] & 0x1);
+
+  const data = { buffer, index: 1 };
+  pubData.header.remainingLength = decodeVariableByteInteger(data);
+
+  pubData.header.topicName = decodeUtf8String(data);
+  // [MQTT-3.3.2-2] The Topic Name in the PUBLISH packet MUST NOT contain wildcard characters.
+  if (/[#+]/.test(pubData.header.topicName)) {
+    throw new PubAckException(PubAckReasonCode.TopicNameInvalid, 'The Will Topic Name is not malformed, but is not accepted by this Server.');
+  }
+
+  if (pubData.header.qosLevel > 0) {
+    pubData.header.packetIdentifier = decodeTwoByteInteger(data);
+  }
+
+  if (protocolVersion === ProtocolVersion.V5) {
+    const propertyLength = decodeVariableByteInteger(data);
+    const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+    pubData.properties = parsePublishProperties(propertiesBuffer);
+  }
+  if (!pubData.header.topicName.length && (protocolVersion !== ProtocolVersion.V5 || !pubData.properties.topicAlias)) {
+    throw new DisconnectException(
+      DisconnectReasonCode.ProtocolError,
+      'It is a Protocol Error if the Topic Name is zero length and there is no Topic Alias.',
+    );
+  }
+  pubData.payload = data.buffer.subarray(data.index);
+
+  return pubData;
+}
+
+/**
+ * Parses PUBACK into `pubAckData` (packet id, reason code, optional MQTT 5 properties).
+ * @param buffer - Full PUBACK packet.
+ * @param pubAckData - Output structure to populate.
+ * @param protocolVersion - Property block only for MQTT 5.
+ */
+function decodePubAck(buffer: Buffer, protocolVersion: ProtocolVersion): IPubAckData {
+  const pubAckData: IPubAckData = {
+    header: {
+      packetType: PacketType.PUBACK,
+      received: 0x00,
+      remainingLength: 0,
+      packetIdentifier: 0,
+      reasonCode: 0x00,
+    },
+    properties: {},
+  };
+  pubAckData.header.packetType = (buffer[0] >> 4) as PacketType;
+  pubAckData.header.received = buffer[0] & 0xf;
+
+  const data = { buffer, index: 1 };
+  pubAckData.header.remainingLength = decodeVariableByteInteger(data);
+  pubAckData.header.packetIdentifier = decodeTwoByteInteger(data);
+
+  if (pubAckData.header.remainingLength <= 2) {
+    pubAckData.header.reasonCode = PubAckReasonCode.Success;
+    return pubAckData;
+  }
+
+  pubAckData.header.reasonCode = decodeOneByteInteger(data) ?? PubAckReasonCode.Success;
+
+  if (data.index >= data.buffer.length) {
+    return pubAckData;
+  }
+
+  if (protocolVersion === ProtocolVersion.V5) {
+    const propertyLength = decodeVariableByteInteger(data);
+    if (propertyLength > 0) {
+      const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+      pubAckData.properties = parsePubAckProperties(propertiesBuffer);
+    }
+  }
+  return pubAckData;
+}
+
+/**
+ * Parses PUBREL into `pubRelData` (QoS 2 release step).
+ * @param buffer - Full PUBREL packet.
+ * @param pubRelData - Output structure to populate.
+ * @param protocolVersion - Property block only for MQTT 5.
+ */
+function decodePubRel(buffer: Buffer, protocolVersion: ProtocolVersion): IPubRelData {
+  const pubRelData: IPubRelData = {
+    header: {
+      packetType: PacketType.PUBREL,
+      received: 0x02,
+      remainingLength: 0,
+      packetIdentifier: 0,
+      reasonCode: 0x00,
+    },
+    properties: {},
+  };
+  pubRelData.header.packetType = (buffer[0] >> 4) as PacketType;
+  pubRelData.header.received = buffer[0] & 0xf;
+
+  const data = { buffer, index: 1 };
+  pubRelData.header.remainingLength = decodeVariableByteInteger(data);
+  pubRelData.header.packetIdentifier = decodeTwoByteInteger(data);
+
+  if (pubRelData.header.remainingLength <= 2) {
+    pubRelData.header.reasonCode = PubRelReasonCode.Success;
+    return pubRelData;
+  }
+
+  pubRelData.header.reasonCode = decodeOneByteInteger(data) ?? PubRelReasonCode.Success;
+
+  if (data.index >= data.buffer.length) {
+    return pubRelData;
+  }
+
+  if (protocolVersion === ProtocolVersion.V5) {
+    const propertyLength = decodeVariableByteInteger(data);
+    if (propertyLength > 0) {
+      const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+      pubRelData.properties = parsePubRelProperties(propertiesBuffer);
+    }
+  }
+  return pubRelData;
+}
+
+/**
+ * Parses PUBREC into `pubRecData` (QoS 2 received step).
+ * @param buffer - Full PUBREC packet.
+ * @param pubRecData - Output structure to populate.
+ * @param protocolVersion - Property block only for MQTT 5.
+ */
+function decodePubRec(buffer: Buffer, protocolVersion: ProtocolVersion): IPubRecData {
+  const pubRecData: IPubRecData = {
+    header: {
+      packetType: PacketType.PUBREC,
+      received: 0x00,
+      remainingLength: 0,
+      packetIdentifier: 0,
+      reasonCode: 0x00,
+    },
+    properties: {},
+  };
+  pubRecData.header.packetType = (buffer[0] >> 4) as PacketType;
+  pubRecData.header.received = buffer[0] & 0xf;
+
+  const data = { buffer, index: 1 };
+  pubRecData.header.remainingLength = decodeVariableByteInteger(data);
+  pubRecData.header.packetIdentifier = decodeTwoByteInteger(data);
+
+  if (pubRecData.header.remainingLength <= 2) {
+    pubRecData.header.reasonCode = PubRecReasonCode.Success;
+    return pubRecData;
+  }
+
+  pubRecData.header.reasonCode = decodeOneByteInteger(data) ?? PubRecReasonCode.Success;
+
+  if (data.index >= data.buffer.length) {
+    return pubRecData;
+  }
+
+  if (protocolVersion === ProtocolVersion.V5) {
+    const propertyLength = decodeVariableByteInteger(data);
+    if (propertyLength > 0) {
+      const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+      pubRecData.properties = parsePubRecProperties(propertiesBuffer);
+    }
+  }
+  return pubRecData;
+}
+
+/**
+ * Parses PUBCOMP into `pubCompData` (QoS 2 complete step).
+ * @param buffer - Full PUBCOMP packet.
+ * @param pubCompData - Output structure to populate.
+ * @param protocolVersion - Property block only for MQTT 5.
+ */
+function decodePubComp(buffer: Buffer, protocolVersion: ProtocolVersion): IPubCompData {
+  const pubCompData: IPubCompData = {
+    header: {
+      packetType: PacketType.PUBCOMP,
+      received: 0x00,
+      remainingLength: 0,
+      packetIdentifier: 0,
+      reasonCode: 0x00,
+    },
+    properties: {},
+  };
+  pubCompData.header.packetType = (buffer[0] >> 4) as PacketType;
+  pubCompData.header.received = buffer[0] & 0xf;
+
+  const data = { buffer, index: 1 };
+  pubCompData.header.remainingLength = decodeVariableByteInteger(data);
+  pubCompData.header.packetIdentifier = decodeTwoByteInteger(data);
+
+  if (pubCompData.header.remainingLength <= 2) {
+    pubCompData.header.reasonCode = PubCompReasonCode.Success;
+    return pubCompData;
+  }
+
+  pubCompData.header.reasonCode = decodeOneByteInteger(data) ?? PubCompReasonCode.Success;
+
+  if (data.index >= data.buffer.length) {
+    return pubCompData;
+  }
+
+  if (protocolVersion === ProtocolVersion.V5) {
+    const propertyLength = decodeVariableByteInteger(data);
+    if (propertyLength > 0) {
+      const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+      pubCompData.properties = parsePubCompProperties(propertiesBuffer);
+    }
+  }
+  return pubCompData;
+}
+
+/**
+ * Parses SUBSCRIBE: validates fixed-header reserved bits, then topic filters and subscription options.
+ * @param buffer - Full SUBSCRIBE packet.
+ * @param subData - Output structure; `payload`/`options` mirror the first subscription for convenience.
+ * @param protocolVersion - Property block only for MQTT 5.
+ * @throws {@link DisconnectException} On invalid QoS, retain handling, or empty payload.
+ */
+function decodeSubscribe(buffer: Buffer, protocolVersion: ProtocolVersion): ISubscribeData {
+  const subData: ISubscribeData = {
+    header: {
+      packetType: PacketType.RESERVED,
+      received: 0x02,
+      remainingLength: 0,
+      packetIdentifier: 0,
+    },
+    properties: {},
+    payload: '',
+    options: {
+      qos: QoSType.QoS0,
+      noLocal: false,
+      retainAsPublished: false,
+      retainHandling: 0,
+      retain: 0,
+    },
+  };
+  subData.header.packetType = (buffer[0] >> 4) as PacketType;
+  subData.header.received = buffer[0] & 0xf;
+
+  if (subData.header.received !== 0x02) {
+    throw new DisconnectException(
+      DisconnectReasonCode.ProtocolError,
+      'Bits 3,2,1 and 0 of the Fixed Header of the SUBSCRIBE packet are reserved and MUST be set to 0,0,1 and 0 respectively.',
+    );
+  }
+
+  const data = { buffer, index: 1 };
+  subData.header.remainingLength = decodeVariableByteInteger(data);
+  subData.header.packetIdentifier = decodeTwoByteInteger(data);
+  if (protocolVersion === ProtocolVersion.V5) {
+    const propertyLength = decodeVariableByteInteger(data);
+    const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+    subData.properties = parseSubscribeProperties(propertiesBuffer);
+  }
+
+  subData.payloads = [];
+  while (data.index < data.buffer.length) {
+    const topicFilter = decodeUtf8String(data);
+    const subscriptionOptions = decodeOneByteInteger(data);
+    const options = {
+      qos: subscriptionOptions & 0x3,
+      noLocal: !!((subscriptionOptions >> 2) & 0x01),
+      retainAsPublished: !!(subscriptionOptions & 0x4),
+      retainHandling: (subscriptionOptions >> 4) & 0x03,
+      retain: (subscriptionOptions >> 6) & 0x03,
+    };
+    if (options.qos > QoSType.QoS2) {
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'It is a Protocol Error if the Maximum QoS field has the value 3.');
+    }
+    if (options.retainHandling > 0x02) {
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'It is a Protocol Error to send a Retain Handling value of 3.');
+    }
+    if (options.retain !== 0) {
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'Sending a Retain value that is not equal to 0 is a protocol error.');
+    }
+    subData.payloads.push({ topicFilter, options });
+  }
+  if (!subData.payloads.length) {
+    throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'The SUBSCRIBE packet payload must contain at least one Topic Filter.');
+  }
+  subData.payload = subData.payloads[0].topicFilter;
+  subData.options = subData.payloads[0].options;
+  return subData;
+}
+
+/**
+ * Parses UNSUBSCRIBE: topic filters only (no subscription options).
+ * @param buffer - Full UNSUBSCRIBE packet.
+ * @param unsubscribeData - Output structure to populate.
+ * @param protocolVersion - Property block only for MQTT 5 (reuses subscribe property parser).
+ * @throws {@link DisconnectException} When fixed-header reserved bits are wrong or when the payload has no topic filters.
+ */
+function decodeUnsubscribe(buffer: Buffer, protocolVersion: ProtocolVersion): IUnsubscribeData {
+  const unsubscribeData: IUnsubscribeData = {
+    header: {
+      packetType: PacketType.RESERVED,
+      received: 0x02,
+      remainingLength: 0,
+      packetIdentifier: 0,
+    },
+    properties: {},
+    payload: '',
+  };
+  unsubscribeData.header.packetType = (buffer[0] >> 4) as PacketType;
+  unsubscribeData.header.received = buffer[0] & 0xf;
+
+  if (unsubscribeData.header.received !== 0x02) {
+    throw new DisconnectException(
+      DisconnectReasonCode.MalformedPacket,
+      'Bits 3,2,1 and 0 of the Fixed Header of the UNSUBSCRIBE packet are reserved and MUST be set to 0,0,1 and 0 respectively.',
+    );
+  }
+
+  const data = { buffer, index: 1 };
+  unsubscribeData.header.remainingLength = decodeVariableByteInteger(data);
+  unsubscribeData.header.packetIdentifier = decodeTwoByteInteger(data);
+  if (protocolVersion === ProtocolVersion.V5) {
+    const propertyLength = decodeVariableByteInteger(data);
+    const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+    unsubscribeData.properties = parseSubscribeProperties(propertiesBuffer);
+  }
+
+  unsubscribeData.payloads = [];
+  while (data.index < data.buffer.length) {
+    unsubscribeData.payloads.push(decodeUtf8String(data));
+  }
+  if (!unsubscribeData.payloads.length) {
+    throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'The UNSUBSCRIBE packet payload must contain at least one Topic Filter.');
+  }
+  unsubscribeData.payload = unsubscribeData.payloads[0];
+  return unsubscribeData;
+}
+
+/**
+ * Parses DISCONNECT (reason code and optional MQTT 5 properties).
+ * @param buffer - Full DISCONNECT packet.
+ * @param disconnectData - Output structure to populate.
+ * @param protocolVersion - Property block only for MQTT 5.
+ */
+function decodeDisconnect(buffer: Buffer, protocolVersion: ProtocolVersion): IDisconnectData {
+  const disconnectData: IDisconnectData = {
+    header: {
+      packetType: PacketType.DISCONNECT,
+      received: 0,
+      remainingLength: 0,
+      reasonCode: 0x00,
+    },
+    properties: {},
+  };
+  disconnectData.header.packetType = buffer[0] >> 4;
+  disconnectData.header.received = buffer[0] & 0xf;
+
+  const data = { buffer, index: 1 };
+  disconnectData.header.remainingLength = decodeVariableByteInteger(data);
+
+  if (disconnectData.header.remainingLength === 0) {
+    disconnectData.header.reasonCode = 0x00;
+    return disconnectData;
+  }
+
+  disconnectData.header.reasonCode = decodeOneByteInteger(data);
+
+  if (data.index >= data.buffer.length) {
+    return disconnectData;
+  }
+
+  if (protocolVersion === ProtocolVersion.V5) {
+    const propertyLength = decodeVariableByteInteger(data);
+    if (propertyLength > 0) {
+      const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+      disconnectData.properties = parseDisconnectProperties(propertiesBuffer);
+    }
+  }
+
+  return disconnectData;
+}
+
+/**
+ * Parses AUTH (enhanced authentication exchange).
+ * @param buffer - Full AUTH packet.
+ * @param authData - Output structure to populate.
+ * @param protocolVersion - Property block only for MQTT 5.
+ */
+function decodeAuth(buffer: Buffer, protocolVersion: ProtocolVersion): IAuthData {
+  const authData: IAuthData = {
+    header: {
+      packetType: PacketType.AUTH,
+      received: 0,
+      remainingLength: 0,
+      reasonCode: 0x00,
+    },
+    properties: {},
+  };
+  authData.header.packetType = buffer[0] >> 4;
+  authData.header.received = buffer[0] & 0xf;
+
+  const data = { buffer, index: 1 };
+  authData.header.remainingLength = decodeVariableByteInteger(data);
+
+  if (authData.header.remainingLength === 0) {
+    authData.header.reasonCode = 0x00;
+    return authData;
+  }
+
+  authData.header.reasonCode = decodeOneByteInteger(data);
+
+  if (data.index >= data.buffer.length) {
+    return authData;
+  }
+
+  if (protocolVersion === ProtocolVersion.V5) {
+    const propertyLength = decodeVariableByteInteger(data);
+    if (propertyLength > 0) {
+      const propertiesBuffer = data.buffer.slice(data.index, (data.index += propertyLength));
+      authData.properties = parseAuthProperties(propertiesBuffer);
+    }
+  }
+  return authData;
+}
+
+export function encodePacket(data: PacketTypeData, protocolVersion: ProtocolVersion): Buffer {
+  const packetType = data.header.packetType as PacketType;
+
+  switch (packetType) {
+    case PacketType.CONNACK: {
+      return encodeConnAck(data as IConnAckData, protocolVersion);
+    }
+    case PacketType.DISCONNECT: {
+      return encodeDisconnect(data as IDisconnectData, protocolVersion);
+    }
+    case PacketType.PUBLISH: {
+      return encodePublishPacket(data as IPublishData, protocolVersion);
+    }
+    case PacketType.PUBACK: {
+      return encodePubControlPacket(data as IPubAckData, protocolVersion);
+    }
+    case PacketType.PUBREC: {
+      return encodePubControlPacket(data as IPubRecData, protocolVersion);
+    }
+    case PacketType.PUBCOMP: {
+      return encodePubControlPacket(data as IPubCompData, protocolVersion);
+    }
+    case PacketType.SUBACK: {
+      return encodeSubAckPacket(data as ISubAckData, protocolVersion);
+    }
+    default:
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, '未能解析的报文类型');
+  }
+}
+
+/**
+ * Builds a binary CONNACK packet (session present, reason code, optional MQTT 5 properties).
+ * @param connAckData - Logical CONNACK content.
+ * @param protocolVersion - When not MQTT 5, properties are omitted from the wire.
+ * @returns Complete packet buffer.
+ */
+function encodeConnAck(connAckData: IConnAckData, protocolVersion: ProtocolVersion) {
+  const properties = new EncoderProperties();
+  properties.push(connAckData.properties);
+  return Buffer.from([
+    (connAckData.header.packetType << 4) | connAckData.header.reserved,
+    ...encodeVariableByteInteger(2 + (protocolVersion === ProtocolVersion.V5 ? properties.length : 0)),
+    connAckData.acknowledgeFlags.SessionPresent ? 1 : 0,
+    connAckData.header.reasonCode,
+    ...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
+  ]);
+}
+
+/**
+ * Builds a binary DISCONNECT packet (reason code + MQTT 5 properties).
+ * @param disconnectData - Logical DISCONNECT content.
+ * @returns Complete packet buffer.
+ */
+function encodeDisconnect(disconnectData: IDisconnectData, protocolVersion?: ProtocolVersion) {
+  if (protocolVersion === ProtocolVersion.V3_1_1 || protocolVersion === ProtocolVersion.V3_1 || !disconnectData) {
+    return Buffer.from([PacketType.DISCONNECT << 4]);
+  }
+  const fixedHeader = (disconnectData.header.packetType << 4) | disconnectData.header.received;
+  const properties = new EncoderProperties();
+  protocolVersion === ProtocolVersion.V5 && properties.push(disconnectData.properties);
+
+  const remainingBuffer = [disconnectData.header.reasonCode, ...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : [])];
+  return Buffer.from([fixedHeader, ...encodeVariableByteInteger(remainingBuffer.length), ...remainingBuffer]);
+}
+
+/**
+ * Serializes a PUBLISH packet from structured data (fixed header flags, topic, QoS id, properties, payload).
+ * @param pubData - Publish header, properties, and payload string.
+ * @param protocolVersion - MQTT 5 includes the property block; older versions omit it here.
+ * @returns Complete PUBLISH buffer.
+ */
+function encodePublishPacket(pubData: IPublishData, protocolVersion: ProtocolVersion) {
+  const fixedHeader =
+    (pubData.header.packetType << 4) | ((pubData.header.dupFlag ? 1 : 0) << 3) | (pubData.header.qosLevel << 1) | (pubData.header.retain ? 1 : 0);
+
+  const topicNameBuffer = encodeUTF8String(pubData.header.topicName);
+
+  let packetIdentifierBuffer: Buffer = Buffer.alloc(0);
+  if (pubData.header.qosLevel > 0 && pubData.header.packetIdentifier !== undefined) {
+    packetIdentifierBuffer = Buffer.from(encodeTwoByteInteger(pubData.header.packetIdentifier));
+  }
+
+  let propertiesBuffer: Buffer | undefined;
+  if (protocolVersion === ProtocolVersion.V5) {
+    const properties = new EncoderProperties();
+    properties.push(pubData.properties);
+    propertiesBuffer = properties.buffer;
+  }
+
+  const remainingLength =
+    topicNameBuffer.length + packetIdentifierBuffer.length + (propertiesBuffer ? propertiesBuffer.length : 0) + pubData.payload.length;
+  return Buffer.concat([
+    Buffer.from([fixedHeader]),
+    Buffer.from(encodeVariableByteInteger(remainingLength)),
+    topicNameBuffer,
+    Buffer.from(packetIdentifierBuffer),
+    propertiesBuffer ? propertiesBuffer : Buffer.alloc(0),
+    pubData.payload,
+  ]);
+}
+
+/**
+ * Builds PUBACK, PUBREC, or PUBCOMP control packets (packet id, success reason `0x00`, optional properties).
+ * @param data - Shared shape for these acknowledgement types in this codebase.
+ * @param protocolVersion - MQTT 5 appends the property section when enabled.
+ * @returns Complete packet buffer.
+ */
+function encodePubControlPacket(data: IPubAckData | IPubRecData | IPubCompData, protocolVersion: ProtocolVersion) {
+  const properties = new EncoderProperties();
+  properties.push(data.properties);
+  return Buffer.from([
+    (data.header.packetType << 4) | data.header.received,
+    ...encodeVariableByteInteger(3 + (protocolVersion === ProtocolVersion.V5 ? properties.length : 0)),
+    ...encodeTwoByteInteger(data.header.packetIdentifier),
+    0x00,
+    ...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
+  ]);
+}
+
+/**
+ * Builds a SUBACK packet (packet identifier, optional MQTT 5 properties, per-subscription reason codes).
+ * @param subAckData - Subscription acknowledgement data; uses `reasonCodes` when present else a single `reasonCode`.
+ * @param protocolVersion - Property length is included in remaining length only for MQTT 5.
+ * @returns Complete SUBACK buffer.
+ */
+function encodeSubAckPacket(subAckData: ISubAckData, protocolVersion: ProtocolVersion) {
+  const properties = new EncoderProperties();
+  const reasonCodes = subAckData.reasonCodes?.length ? subAckData.reasonCodes : [subAckData.reasonCode];
+  return Buffer.from([
+    PacketType.SUBACK << 4,
+    ...encodeVariableByteInteger(2 + (protocolVersion === ProtocolVersion.V5 ? properties.length : 0) + reasonCodes.length),
+    ...encodeTwoByteInteger(subAckData.header.packetIdentifier),
+    ...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
+    ...reasonCodes,
+  ]);
+}
+
+/**
+ * Computes the total byte length of the first MQTT frame in `buf` (first octet + Variable Byte Integer remaining length + payload).
+ * @param buf - Bytes starting at a fixed header; must be at least two bytes to attempt a read.
+ * @returns Total frame length in bytes, or `null` if `buf` does not yet contain a full remaining-length prefix or full frame.
+ * @throws {@link DisconnectException} When the remaining-length encoding is malformed (more than four continuation bytes or invalid pattern).
+ */
+export function probeFrameLength(buf: Buffer): number | null {
+  if (buf.length < 2) return null;
+  let pos = 1;
+  let multiplier = 1;
+  let value = 0;
+
+  for (let round = 0; round < 4; round++) {
+    if (pos >= buf.length) return null;
+    const encodedByte = buf[pos];
+    value += (encodedByte & 0x7f) * multiplier;
+    pos++;
+    if ((encodedByte & 0x80) === 0) {
+      return pos + value;
+    }
+    multiplier <<= 7;
+  }
+
+  throw new DisconnectException(DisconnectReasonCode.MalformedPacket, 'Malformed Remaining Length.');
+}
+
+/**
+ * Buffers a TCP byte stream and splits it into complete MQTT packets (handles coalescing and partial frames).
+ *
+ * @remarks TCP delivers arbitrary byte chunks; this class keeps a remainder and parses full frames on each {@link StreamFramer.push}.
+ */
+export class StreamFramer {
+  private remainBuffer: Buffer = Buffer.alloc(0);
+
+  /**
+   * Appends incoming bytes, parses as many complete MQTT packets as possible, and returns them.
+   * @param chunk - New data from the socket (may be partial or multiple packets).
+   * @param protocolVersion - Passed through to {@link decodePacket}.
+   * @returns Parsed packet objects for every complete frame found; may be empty if more bytes are needed.
+   */
+  push(chunk: Buffer, protocolVersion: ProtocolVersion): PacketTypeData[] {
+    this.remainBuffer = this.remainBuffer.length === 0 ? chunk : Buffer.concat([this.remainBuffer, chunk]);
+    const packets: PacketTypeData[] = [];
+
+    while (this.remainBuffer.length >= 2) {
+      const frameLength = probeFrameLength(this.remainBuffer);
+      if (frameLength === null) break;
+      if (this.remainBuffer.length < frameLength) break;
+
+      const frame = this.remainBuffer.subarray(0, frameLength);
+      this.remainBuffer = this.remainBuffer.subarray(frameLength);
+      packets.push(decodePacket(Buffer.from(frame), protocolVersion));
+    }
+
+    return packets;
+  }
+
+  /**
+   * Like {@link StreamFramer.push} but returns raw frame buffers without calling {@link decodePacket} (for WebSocket or other adapters that parse later).
+   * @param chunk - New data to append to the internal buffer.
+   * @returns Zero or more complete MQTT frames as independent `Buffer` copies.
+   */
+  extractFrames(chunk: Buffer): Buffer[] {
+    this.remainBuffer = this.remainBuffer.length === 0 ? chunk : Buffer.concat([this.remainBuffer, chunk]);
+    const frames: Buffer[] = [];
+
+    while (this.remainBuffer.length >= 2) {
+      const frameLength = probeFrameLength(this.remainBuffer);
+      if (frameLength === null) break;
+      if (this.remainBuffer.length < frameLength) break;
+
+      frames.push(Buffer.from(this.remainBuffer.subarray(0, frameLength)));
+      this.remainBuffer = this.remainBuffer.subarray(frameLength);
+    }
+
+    return frames;
+  }
+
+  /** Clears any buffered partial data (e.g. after disconnect). */
+  reset() {
+    this.remainBuffer = Buffer.alloc(0);
+  }
+
+  /** Number of bytes currently held waiting for a complete frame. */
+  get bufferedBytes() {
+    return this.remainBuffer.length;
+  }
+}

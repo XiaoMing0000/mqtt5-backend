@@ -151,6 +151,15 @@ const clientManager = new Redis2Manager({
 
 ## 📋 API Documentation
 
+### Core Types
+
+| Type                      | Role                                                                                     |
+| ------------------------- | ---------------------------------------------------------------------------------------- |
+| `TSocket`                 | Transport socket (TCP / WebSocket adapter) with typed MQTT `on` / `once`                 |
+| `MqttClient`              | Per-connection MQTT session and packet handlers (renamed from `MqttManager`)             |
+| `Manager`                 | Abstract session/subscription backend (`MemoryManager`, `RedisManager`, `Redis2Manager`) |
+| `ClientIdentifierManager` | Maps MQTT client id → live `MqttClient`; `getClient(id)`, `geTSocket(id)`                |
+
 ### MqttServer
 
 #### Constructor
@@ -162,46 +171,45 @@ new MqttServer(clientManager: Manager, options?: IMqttOptions)
 #### Event Listeners
 
 ```typescript
-// Connection event - triggered when client connects
-server.onConnect(listener: (data: IConnectData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// Transport accepted - attach per-socket listeners here
+server.onConnection(listener: (socket: TSocket) => Promise<void>)
 
-// Disconnect event - triggered when client disconnects
-server.onDisconnect(listener: (data: IDisconnectData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// CONNECT — client is MqttClient (session / protocol handle)
+server.onConnect(listener: (data: IConnectData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
 
-// Publish event - triggered when client publishes message
-server.onPublish(listener: (data: IPublishData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// DISCONNECT
+server.onDisconnect(listener: (data: IDisconnectData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
 
-// Publish acknowledgment event - triggered for QoS 1 message acknowledgment
-server.onPubAck(listener: (data: IPubAckData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// PUBLISH
+server.onPublish(listener: (data: IPublishData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
 
-// Publish receive event - triggered for QoS 2 message receive
-server.onPubRec(listener: (data: IPubRecData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// PUBACK (QoS 1)
+server.onPubAck(listener: (data: IPubAckData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
 
-// Publish release event - triggered for QoS 2 message release
-server.onPubRel(listener: (data: IPubRelData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// PUBREC / PUBREL / PUBCOMP (QoS 2)
+server.onPubRec(listener: (data: IPubRecData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
+server.onPubRel(listener: (data: IPubRelData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
+server.onPubComp(listener: (data: IPubCompData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
 
-// Publish complete event - triggered for QoS 2 message completion
-server.onPubComp(listener: (data: IPubCompData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// SUBSCRIBE / UNSUBSCRIBE
+server.onSubscribe(listener: (data: ISubscribeData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
+server.onUnsubscribe(listener: (data: IUnsubscribeData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
 
-// Subscribe event - triggered when client subscribes to topic
-server.onSubscribe(listener: (data: ISubscribeData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// PINGREQ — receives the transport socket (no packet payload)
+server.onPing(listener: (socket: TSocket, clientManager: Manager) => Promise<boolean | void>)
 
-// Unsubscribe event - triggered when client unsubscribes
-server.onUnsubscribe(listener: (data: IUnsubscribeData, client: TClient, clientManager: Manager) => Promise<boolean>)
-
-// Ping event - triggered when client sends heartbeat
-server.onPing(listener: (client: TClient, clientManager: Manager) => Promise<boolean>)
-
-// Authentication event - triggered when client authenticates
-server.onAuth(listener: (data: IAuthData, client: TClient, clientManager: Manager) => Promise<boolean>)
+// AUTH (MQTT v5)
+server.onAuth(listener: (data: IAuthData, client: MqttClient, clientManager: Manager) => Promise<boolean | void>)
 ```
 
 **Event Listener Notes**:
 
-- All event listeners return `Promise<boolean | void>`
-- Return `true` or `void` (no return value) to allow the operation to continue
-- Return `false` or throw an exception to reject the operation
-- Can throw appropriate exceptions to return error codes and error messages
+- `TSocket` is the TCP/WebSocket transport; `MqttClient` is the per-connection MQTT session (replaces the former `MqttManager`)
+- Packet hooks (`onConnect`, `onPublish`, …) receive `MqttClient`; use `client.clientIdentifier` for the MQTT client id
+- `onConnection` / `onPing` receive `TSocket`
+- You can also attach the same MQTT events on a socket inside `onConnection` via `socket.on('connect' | 'publish' | …)`
+- Return `true` or `void` to allow the operation; return `false` or throw to reject
+- Throwing typed exceptions returns the corresponding MQTT reason codes
 
 #### Server Methods
 
@@ -238,9 +246,11 @@ interface IMqttOptions {
   subscriptionIdentifierAvailable?: boolean; // Subscription identifier available, default true (MQTT v5.0 only)
   sharedSubscriptionAvailable?: boolean; // Shared subscription available, default false (MQTT v5.0 only)
   sessionExpiryInterval?: number; // Session expiry interval (seconds), default 0 (MQTT v5.0 only)
-  sendReasonMessage?: boolean; // Whether to send reason messages (MQTT v5.0 only)
-  receiveMaximum?: number; // Receive maximum, controls the number of PUBLISH QoS 1 and QoS 2 packets accepted, default 65535 (MQTT v5.0 only)
+  sendReasonMessage?: boolean; // Whether to send reason strings/messages, default true (MQTT v5.0 only)
+  receiveMaximum?: number; // Receive maximum for QoS 1/2 PUBLISH, default 65535 (MQTT v5.0 only)
   serverKeepAlive?: number; // Server keep alive time (seconds), default 0 (MQTT v5.0 only)
+  qosRetryCount?: number; // Max server→client QoS 1/2 retry rounds, default 3
+  packetIdentifierTTL?: number; // Packet identifier TTL (seconds), default 1800
 }
 ```
 
@@ -345,8 +355,7 @@ server.onConnect(async (data, client, clientManager) => {
 ```typescript
 // QoS 1 message publish acknowledgment handling
 server.onPubAck(async (data, client, clientManager) => {
-  const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
-  console.log(`Client ${clientId} acknowledged QoS 1 message, packet ID: ${data.header.packetIdentifier}`);
+  console.log(`Client ${client.clientIdentifier} acknowledged QoS 1 message, packet ID: ${data.header.packetIdentifier}`);
   return true;
 });
 
@@ -413,12 +422,12 @@ server.onAuth(async (data, client, clientManager) => {
 
 ```typescript
 server.onSubscribe(async (data, client, clientManager) => {
-  const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
+  const clientId = client.clientIdentifier;
 
   // Check subscription permissions
-  for (const subscription of data.subscriptions) {
+  for (const subscription of data.payloads ?? []) {
     const topic = subscription.topicFilter;
-    const qos = subscription.qos;
+    const qos = subscription.options.qos;
 
     // Validate topic permissions
     if (!hasSubscribePermission(clientId, topic)) {
@@ -437,10 +446,10 @@ server.onSubscribe(async (data, client, clientManager) => {
 });
 
 server.onUnsubscribe(async (data, client, clientManager) => {
-  const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
+  const clientId = client.clientIdentifier;
 
   // Log unsubscription
-  for (const topicFilter of data.topicFilters) {
+  for (const topicFilter of data.payloads ?? []) {
     console.log(`Client ${clientId} unsubscribed from topic ${topicFilter}`);
   }
 
@@ -453,8 +462,9 @@ server.onUnsubscribe(async (data, client, clientManager) => {
 ```typescript
 server.onPublish(async (data, client, clientManager) => {
   // Check topic permissions
-  const clientId = clientManager.clientIdentifierManager.getClient(client)?.identifier;
-  if (!hasTopicPermission(clientId, data.topic)) {
+  const clientId = client.clientIdentifier;
+  const topic = data.header.topicName;
+  if (!hasTopicPermission(clientId, topic)) {
     throw new PubAckException(PubAckReasonCode.NOT_AUTHORIZED);
   }
 
@@ -464,7 +474,7 @@ server.onPublish(async (data, client, clientManager) => {
   }
 
   // Log message
-  console.log(`Client ${clientId} published message to topic ${data.topic}`);
+  console.log(`Client ${clientId} published message to topic ${topic}`);
 
   return true;
 });
@@ -508,7 +518,7 @@ server.onPublish(async (data, client, clientManager) => {
 
 // Subscribe exception handling
 server.onSubscribe(async (data, client, clientManager) => {
-  for (const subscription of data.subscriptions) {
+  for (const subscription of data.payloads ?? []) {
     if (!isValidTopic(subscription.topicFilter)) {
       throw new SubscribeAckException(SubscribeAckReasonCode.TOPIC_FILTER_INVALID);
     }
@@ -524,9 +534,15 @@ server.onSubscribe(async (data, client, clientManager) => {
 await clientManager.addRetainMessage(
   'sensor/temperature',
   {
-    header: {/* ... */},
-    topic: 'sensor/temperature',
-    payload: Buffer.from('25.5'),
+    header: {
+      packetType: PacketType.PUBLISH,
+      dupFlag: false,
+      qosLevel: QoSType.QoS0,
+      retain: true,
+      topicName: 'sensor/temperature',
+    },
+    properties: {},
+    payload: '25.5',
   },
   3600,
 ); // TTL: 1 hour

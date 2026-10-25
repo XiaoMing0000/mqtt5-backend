@@ -7,5 +7,25 @@
   "editor.codeActionsOnSave": {
     "source.organizeImports": "never" // let oxfmt handle import organization
   },
-  "cSpell.words": ["esbuild", "mqtts", "oxfmt", "oxlint", "xiaoming"]
+  "cSpell.words": [
+    "CONNACK",
+    "esbuild",
+    "mqtts",
+    "oxfmt",
+    "oxlint",
+    "PINGREQ",
+    "PINGRESP",
+    "pmessage",
+    "PSUBSCRIBE",
+    "PUBACK",
+    "PUBCOMP",
+    "PUBREC",
+    "PUBREL",
+    "PUNSUBSCRIBE",
+    "Resends",
+    "SUBACK",
+    "UNSUBACK",
+    "UNSUBSCRIBE",
+    "xiaoming"
+  ]
 }

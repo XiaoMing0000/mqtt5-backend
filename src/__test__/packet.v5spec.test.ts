@@ -2,29 +2,10 @@
  * Comprehensive MQTT v5.0 specification compliance tests for parse.ts
  * Based on https://docs.oasis-open.org/mqtt/mqtt/v5.0/mqtt-v5.0.html
  */
-import {
-  parseConnect,
-  parsePublish,
-  parsePubAck,
-  parsePubRel,
-  parsePubRec,
-  parsePubComp,
-  parseSubscribe,
-  parseUnsubscribe,
-  parseDisconnect,
-  parseAuth,
-  parsePacket,
-  encodeConnAck,
-  encodePublishPacket,
-  encodePubControlPacket,
-  encodeDisconnect,
-  encodeSubAckPacket,
-  encodeVariableByteInteger,
-  encodeUTF8String,
-  encodeBinaryData,
-} from '../parse';
+import { encodeVariableByteInteger, encodeUTF8String, encodeBinaryData } from '../dataRepresentations';
 import { PacketType, ProtocolVersion, QoSType, PropertyIdentifier } from '../interface';
 import type {
+  IConnectData,
   IPublishData,
   IPubAckData,
   IPubRecData,
@@ -35,8 +16,10 @@ import type {
   IUnsubscribeData,
   IConnAckData,
   ISubAckData,
+  IPubCompData,
 } from '../interface';
-import { DisconnectException, PubAckException, SubscribeAckException } from '../exception';
+import { DisconnectException, DisconnectReasonCode, PubAckException } from '../exception';
+import { decodePacket, encodePacket } from '../packet';
 
 // ─── helpers ────────────────────────────────────────────────────────────
 
@@ -65,7 +48,7 @@ function emptyPubData(): IPublishData {
   return {
     header: { packetType: PacketType.RESERVED, dupFlag: false, qosLevel: 0, retain: false, remainingLength: 0, topicName: '' },
     properties: {},
-    payload: '',
+    payload: Buffer.alloc(0),
   };
 }
 
@@ -108,7 +91,7 @@ function emptyUnsubData(): IUnsubscribeData {
 
 // ─── §3.1 CONNECT ───────────────────────────────────────────────────────
 
-describe('parseConnect (§3.1 CONNECT)', () => {
+describe('decodeConnect (§3.1 CONNECT via decodePacket)', () => {
   test('parses CONNECT with Will QoS 1 and will retain (§3.1.2.5–7)', () => {
     const willTopic = encodeUTF8String('will/topic');
     const willPayload = encodeBinaryData(Buffer.from('will-msg'));
@@ -118,7 +101,7 @@ describe('parseConnect (§3.1 CONNECT)', () => {
       properties: [0x00],
       payload: [0x00, 0x00, 0x00, ...willTopic, ...willPayload],
     });
-    const result = parseConnect(buf);
+    const result = decodePacket(buf, ProtocolVersion.V5) as IConnectData;
     expect(result.connectFlags.willFlag).toBe(true);
     expect(result.connectFlags.willQoS).toBe(1);
     expect(result.connectFlags.willRetain).toBe(true);
@@ -135,7 +118,7 @@ describe('parseConnect (§3.1 CONNECT)', () => {
       properties: [0x00],
       payload: [0x00, 0x00, 0x00, ...willTopic, ...willPayload],
     });
-    const result = parseConnect(buf);
+    const result = decodePacket(buf, ProtocolVersion.V5) as IConnectData;
     expect(result.connectFlags.willQoS).toBe(2);
   });
 
@@ -151,7 +134,7 @@ describe('parseConnect (§3.1 CONNECT)', () => {
       properties: [0x00],
       payload: [0x00, 0x00, ...willPropsVBI, ...willProps, ...willTopic, ...willPayload],
     });
-    const result = parseConnect(buf);
+    const result = decodePacket(buf, ProtocolVersion.V5) as IConnectData;
     expect(result.payload.willProperties?.willDelayInterval).toBe(60);
     expect(result.payload.willTopic).toBe('w/t');
   });
@@ -161,7 +144,7 @@ describe('parseConnect (§3.1 CONNECT)', () => {
     const clientId = encodeUTF8String('v4client');
     const body = [...nameBytes, 4, 0x02, 0x00, 0x3c, ...clientId];
     const buf = Buffer.from([0x10, ...encodeVariableByteInteger(body.length), ...body]);
-    const result = parseConnect(buf);
+    const result = decodePacket(buf, ProtocolVersion.V5) as IConnectData;
     expect(result.header.protocolVersion).toBe(ProtocolVersion.V3_1_1);
     expect(result.header.keepAlive).toBe(60);
     expect(result.payload.clientIdentifier).toBe('v4client');
@@ -170,13 +153,13 @@ describe('parseConnect (§3.1 CONNECT)', () => {
 
   test('parses CONNECT with cleanStart=false (§3.1.2.4)', () => {
     const buf = buildConnectPacket({ flags: 0x00, payload: [...encodeUTF8String('c1')] });
-    const result = parseConnect(buf);
+    const result = decodePacket(buf, ProtocolVersion.V5) as IConnectData;
     expect(result.connectFlags.cleanStart).toBe(false);
   });
 
   test('parses CONNECT keepAlive=300 (§3.1.2.10)', () => {
     const buf = buildConnectPacket({ keepAlive: 300 });
-    const result = parseConnect(buf);
+    const result = decodePacket(buf, ProtocolVersion.V5) as IConnectData;
     expect(result.header.keepAlive).toBe(300);
   });
 
@@ -184,28 +167,28 @@ describe('parseConnect (§3.1 CONNECT)', () => {
     const props = [PropertyIdentifier.sessionExpiryInterval, 0x00, 0x00, 0x01, 0x2c];
     const propsVBI = encodeVariableByteInteger(props.length);
     const buf = buildConnectPacket({ properties: [...propsVBI, ...props] });
-    const result = parseConnect(buf);
+    const result = decodePacket(buf, ProtocolVersion.V5) as IConnectData;
     expect(result.properties.sessionExpiryInterval).toBe(300);
   });
 
   test('rejects willRetain=1 when willFlag=0 (§3.1.2.7)', () => {
     // flags: willRetain=1 willFlag=0 cleanStart=1 => 0b_0_0_1_00_0_1_0 = 0x22
-    expect(() => buildConnectPacket({ flags: 0x22 }).length && parseConnect(buildConnectPacket({ flags: 0x22 }))).toThrow(DisconnectException);
+    expect(() => decodePacket(buildConnectPacket({ flags: 0x22 }), ProtocolVersion.V5)).toThrow(DisconnectException);
   });
 
   test('rejects willQoS=3 (§3.1.2.6)', () => {
     // flags: willQoS=3 willFlag=1 cleanStart=1 => 0b_0_0_0_11_1_1_0 = 0x1E
-    expect(() => parseConnect(buildConnectPacket({ flags: 0x1e }))).toThrow(DisconnectException);
+    expect(() => decodePacket(buildConnectPacket({ flags: 0x1e }), ProtocolVersion.V5)).toThrow(DisconnectException);
   });
 
   test('rejects reserved bit set (§3.1.2.3)', () => {
-    expect(() => parseConnect(buildConnectPacket({ flags: 0x03 }))).toThrow(DisconnectException);
+    expect(() => decodePacket(buildConnectPacket({ flags: 0x03 }), ProtocolVersion.V5)).toThrow(DisconnectException);
   });
 });
 
 // ─── §3.3 PUBLISH ───────────────────────────────────────────────────────
 
-describe('parsePublish (§3.3 PUBLISH)', () => {
+describe('decodePublish (§3.3 PUBLISH via decodePacket)', () => {
   test('parses QoS 2 PUBLISH with packet identifier (§3.3.2.2)', () => {
     const topic = encodeUTF8String('qos2/topic');
     const payload = Buffer.from('data');
@@ -213,7 +196,7 @@ describe('parsePublish (§3.3 PUBLISH)', () => {
     const fixedHeader = (PacketType.PUBLISH << 4) | 0x04; // QoS 2
     const buf = Buffer.from([fixedHeader, ...encodeVariableByteInteger(body.length), ...body]);
     const pubData = emptyPubData();
-    parsePublish(buf, pubData, ProtocolVersion.V5);
+    Object.assign(pubData, decodePacket(buf, ProtocolVersion.V5));
     expect(pubData.header.qosLevel).toBe(QoSType.QoS2);
     expect(pubData.header.packetIdentifier).toBe(42);
   });
@@ -224,7 +207,7 @@ describe('parsePublish (§3.3 PUBLISH)', () => {
     const fixedHeader = (PacketType.PUBLISH << 4) | 0x0a; // DUP=1, QoS=1
     const buf = Buffer.from([fixedHeader, ...encodeVariableByteInteger(body.length), ...body]);
     const pubData = emptyPubData();
-    parsePublish(buf, pubData, ProtocolVersion.V5);
+    Object.assign(pubData, decodePacket(buf, ProtocolVersion.V5));
     expect(pubData.header.dupFlag).toBe(true);
     expect(pubData.header.qosLevel).toBe(QoSType.QoS1);
   });
@@ -235,7 +218,7 @@ describe('parsePublish (§3.3 PUBLISH)', () => {
     const fixedHeader = (PacketType.PUBLISH << 4) | 0x01; // retain=1
     const buf = Buffer.from([fixedHeader, ...encodeVariableByteInteger(body.length), ...body]);
     const pubData = emptyPubData();
-    parsePublish(buf, pubData, ProtocolVersion.V5);
+    Object.assign(pubData, decodePacket(buf, ProtocolVersion.V5));
     expect(pubData.header.retain).toBe(true);
   });
 
@@ -244,7 +227,7 @@ describe('parsePublish (§3.3 PUBLISH)', () => {
     const body = [...topic, 0x00, ...Buffer.from('ok')];
     const buf = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(body.length), ...body]);
     const pubData = emptyPubData();
-    parsePublish(buf, pubData, ProtocolVersion.V5);
+    Object.assign(pubData, decodePacket(buf, ProtocolVersion.V5));
     expect(pubData.header.topicName).toBe('$SYS/info');
   });
 
@@ -253,8 +236,8 @@ describe('parsePublish (§3.3 PUBLISH)', () => {
     const body = [...topic, 0x00];
     const buf = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(body.length), ...body]);
     const pubData = emptyPubData();
-    parsePublish(buf, pubData, ProtocolVersion.V5);
-    expect(pubData.payload).toBe('');
+    Object.assign(pubData, decodePacket(buf, ProtocolVersion.V5));
+    expect(pubData.payload).toEqual(Buffer.alloc(0));
   });
 
   test('parses v3.1.1 PUBLISH without properties block', () => {
@@ -263,29 +246,63 @@ describe('parsePublish (§3.3 PUBLISH)', () => {
     const body = [...topic, ...payload];
     const buf = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(body.length), ...body]);
     const pubData = emptyPubData();
-    parsePublish(buf, pubData, ProtocolVersion.V3_1_1);
+    Object.assign(pubData, decodePacket(buf, ProtocolVersion.V3_1_1));
     expect(pubData.header.topicName).toBe('v4/t');
-    expect(pubData.payload).toBe('v4data');
+    expect(pubData.payload).toEqual(Buffer.from('v4data'));
   });
 
   test('rejects topic with # wildcard (§3.3.2.1)', () => {
     const topic = encodeUTF8String('bad/#');
     const buf = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(topic.length), ...topic]);
-    const pubData = emptyPubData();
-    expect(() => parsePublish(buf, pubData, ProtocolVersion.V5)).toThrow(PubAckException);
+    expect(() => decodePacket(buf, ProtocolVersion.V5)).toThrow(PubAckException);
   });
 
   test('rejects topic with + wildcard (§3.3.2.1)', () => {
     const topic = encodeUTF8String('bad/+/x');
     const buf = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(topic.length), ...topic]);
-    const pubData = emptyPubData();
-    expect(() => parsePublish(buf, pubData, ProtocolVersion.V5)).toThrow(PubAckException);
+    expect(() => decodePacket(buf, ProtocolVersion.V5)).toThrow(PubAckException);
+  });
+
+  test('throws ProtocolError on zero-length topic name without topic alias in v5 (§3.3.2.1)', () => {
+    const topic = encodeUTF8String('');
+    const body = [...topic, 0x00];
+    const buf = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(body.length), ...body]);
+    expect(() => decodePacket(buf, ProtocolVersion.V5)).toThrow(DisconnectException);
+    try {
+      decodePacket(buf, ProtocolVersion.V5);
+    } catch (err) {
+      expect((err as DisconnectException).code).toBe(DisconnectReasonCode.ProtocolError);
+    }
+  });
+
+  test('parses zero-length topic name with topic alias in v5 (§3.3.2.1)', () => {
+    const topic = encodeUTF8String('');
+    const props = [PropertyIdentifier.topicAlias, 0x00, 0x07];
+    const propsVBI = encodeVariableByteInteger(props.length);
+    const body = [...topic, ...propsVBI, ...props, ...Buffer.from('msg')];
+    const buf = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(body.length), ...body]);
+    const pubData = decodePacket(buf, ProtocolVersion.V5) as IPublishData;
+    expect(pubData.header.topicName).toBe('');
+    expect(pubData.properties.topicAlias).toBe(7);
+    expect(pubData.payload).toEqual(Buffer.from('msg'));
+  });
+
+  test('throws ProtocolError on zero-length topic name in v3.1.1 (§3.3.2.1)', () => {
+    const topic = encodeUTF8String('');
+    const body = [...topic, ...Buffer.from('v311')];
+    const buf = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(body.length), ...body]);
+    expect(() => decodePacket(buf, ProtocolVersion.V3_1_1)).toThrow(DisconnectException);
+    try {
+      decodePacket(buf, ProtocolVersion.V3_1_1);
+    } catch (err) {
+      expect((err as DisconnectException).code).toBe(DisconnectReasonCode.ProtocolError);
+    }
   });
 });
 
 // ─── §3.4–3.7 PUBACK/PUBREC/PUBREL/PUBCOMP ─────────────────────────────
 
-describe('parsePubAck (§3.4)', () => {
+describe('decodePubAck (§3.4 via decodePacket)', () => {
   test('parses v5 PUBACK with Reason String property (§3.4.2.2)', () => {
     const reasonStr = encodeUTF8String('quota exceeded');
     const props = [PropertyIdentifier.reasonString, ...reasonStr];
@@ -293,7 +310,7 @@ describe('parsePubAck (§3.4)', () => {
     const body = [0x00, 0x0a, 0x97, ...propsVBI, ...props];
     const buf = Buffer.from([PacketType.PUBACK << 4, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptyPubAckData();
-    parsePubAck(buf, data, ProtocolVersion.V5);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.header.packetIdentifier).toBe(10);
     expect(data.header.reasonCode).toBe(0x97);
     expect(data.properties.reasonString).toBe('quota exceeded');
@@ -302,13 +319,20 @@ describe('parsePubAck (§3.4)', () => {
   test('parses PUBACK with non-zero reason code and no properties', () => {
     const buf = Buffer.from([PacketType.PUBACK << 4, 0x03, 0x00, 0x01, 0x10]);
     const data = emptyPubAckData();
-    parsePubAck(buf, data, ProtocolVersion.V3_1_1);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V3_1_1));
     expect(data.header.packetIdentifier).toBe(1);
     expect(data.header.reasonCode).toBe(0x10);
   });
+
+  test('parses minimal PUBACK (remaining=2, success implied, §3.4.2.1)', () => {
+    const buf = Buffer.from([PacketType.PUBACK << 4, 0x02, 0x00, 0x0c]);
+    const data = decodePacket(buf, ProtocolVersion.V5) as IPubAckData;
+    expect(data.header.packetIdentifier).toBe(12);
+    expect(data.header.reasonCode).toBe(0x00);
+  });
 });
 
-describe('parsePubRec (§3.5)', () => {
+describe('decodePubRec (§3.5 via decodePacket)', () => {
   test('parses v5 PUBREC with properties', () => {
     const reasonStr = encodeUTF8String('not authorized');
     const props = [PropertyIdentifier.reasonString, ...reasonStr];
@@ -316,7 +340,7 @@ describe('parsePubRec (§3.5)', () => {
     const body = [0x00, 0x05, 0x87, ...propsVBI, ...props];
     const buf = Buffer.from([PacketType.PUBREC << 4, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptyPubRecData();
-    parsePubRec(buf, data, ProtocolVersion.V5);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.header.packetIdentifier).toBe(5);
     expect(data.header.reasonCode).toBe(0x87);
     expect(data.properties.reasonString).toBe('not authorized');
@@ -325,13 +349,13 @@ describe('parsePubRec (§3.5)', () => {
   test('parses minimal PUBREC (remaining=2, success implied, §3.5.2.1)', () => {
     const buf = Buffer.from([PacketType.PUBREC << 4, 0x02, 0x00, 0x03]);
     const data = emptyPubRecData();
-    parsePubRec(buf, data, ProtocolVersion.V5);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.header.packetIdentifier).toBe(3);
     expect(data.header.reasonCode).toBe(0x00);
   });
 });
 
-describe('parsePubRel (§3.6)', () => {
+describe('decodePubRel (§3.6 via decodePacket)', () => {
   test('parses v5 PUBREL with properties', () => {
     const reasonStr = encodeUTF8String('id not found');
     const props = [PropertyIdentifier.reasonString, ...reasonStr];
@@ -339,7 +363,7 @@ describe('parsePubRel (§3.6)', () => {
     const body = [0x00, 0x07, 0x92, ...propsVBI, ...props];
     const buf = Buffer.from([(PacketType.PUBREL << 4) | 0x02, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptyPubRelData();
-    parsePubRel(buf, data, ProtocolVersion.V5);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.header.packetIdentifier).toBe(7);
     expect(data.header.reasonCode).toBe(0x92);
     expect(data.properties.reasonString).toBe('id not found');
@@ -348,35 +372,41 @@ describe('parsePubRel (§3.6)', () => {
   test('parses minimal PUBREL (remaining=2, §3.6.2.1)', () => {
     const buf = Buffer.from([(PacketType.PUBREL << 4) | 0x02, 0x02, 0x00, 0x09]);
     const data = emptyPubRelData();
-    parsePubRel(buf, data, ProtocolVersion.V5);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.header.packetIdentifier).toBe(9);
     expect(data.header.reasonCode).toBe(0x00);
   });
 });
 
-describe('parsePubComp (§3.7)', () => {
+describe('decodePubComp (§3.7 via decodePacket)', () => {
   test('parses v5 PUBCOMP with Reason String property', () => {
     const reasonStr = encodeUTF8String('completed');
     const props = [PropertyIdentifier.reasonString, ...reasonStr];
     const propsVBI = encodeVariableByteInteger(props.length);
     const body = [0x00, 0x0b, 0x00, ...propsVBI, ...props];
     const buf = Buffer.from([PacketType.PUBCOMP << 4, ...encodeVariableByteInteger(body.length), ...body]);
-    const data = emptyPubRecData();
-    parsePubComp(buf, data, ProtocolVersion.V5);
+    const data = decodePacket(buf, ProtocolVersion.V5) as IPubCompData;
     expect(data.header.packetIdentifier).toBe(11);
     expect(data.properties.reasonString).toBe('completed');
+  });
+
+  test('parses minimal PUBCOMP (remaining=2, success implied, §3.7.2.1)', () => {
+    const buf = Buffer.from([PacketType.PUBCOMP << 4, 0x02, 0x00, 0x0b]);
+    const data = decodePacket(buf, ProtocolVersion.V5) as IPubCompData;
+    expect(data.header.packetIdentifier).toBe(11);
+    expect(data.header.reasonCode).toBe(0x00);
   });
 });
 
 // ─── §3.8 SUBSCRIBE ─────────────────────────────────────────────────────
 
-describe('parseSubscribe (§3.8)', () => {
+describe('decodeSubscribe (§3.8 via decodePacket)', () => {
   test('parses subscription with QoS 2 (§3.8.3.1)', () => {
     const topic = encodeUTF8String('q2/sub');
     const body = [0x00, 0x01, 0x00, ...topic, 0x02];
     const buf = Buffer.from([(PacketType.SUBSCRIBE << 4) | 0x02, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptySubData();
-    parseSubscribe(buf, data, ProtocolVersion.V5);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.payloads![0].options.qos).toBe(QoSType.QoS2);
   });
 
@@ -385,7 +415,7 @@ describe('parseSubscribe (§3.8)', () => {
     const body = [0x00, 0x01, 0x00, ...topic, 0x04]; // noLocal bit
     const buf = Buffer.from([(PacketType.SUBSCRIBE << 4) | 0x02, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptySubData();
-    parseSubscribe(buf, data, ProtocolVersion.V5);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.payloads![0].options.noLocal).toBe(true);
   });
 
@@ -394,7 +424,7 @@ describe('parseSubscribe (§3.8)', () => {
     const body = [0x00, 0x01, 0x00, ...topic, 0x04]; // retainAsPublished is bit 2 in our implementation
     const buf = Buffer.from([(PacketType.SUBSCRIBE << 4) | 0x02, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptySubData();
-    parseSubscribe(buf, data, ProtocolVersion.V5);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.payloads![0].options.retainAsPublished).toBe(true);
   });
 
@@ -403,7 +433,7 @@ describe('parseSubscribe (§3.8)', () => {
     const body = [0x00, 0x01, 0x00, ...topic, 0x10]; // retainHandling=1 at bits 5-4
     const buf = Buffer.from([(PacketType.SUBSCRIBE << 4) | 0x02, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptySubData();
-    parseSubscribe(buf, data, ProtocolVersion.V5);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.payloads![0].options.retainHandling).toBe(1);
   });
 
@@ -412,7 +442,7 @@ describe('parseSubscribe (§3.8)', () => {
     const body = [0x00, 0x01, 0x00, ...topic, 0x20]; // retainHandling=2
     const buf = Buffer.from([(PacketType.SUBSCRIBE << 4) | 0x02, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptySubData();
-    parseSubscribe(buf, data, ProtocolVersion.V5);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.payloads![0].options.retainHandling).toBe(2);
   });
 
@@ -423,8 +453,8 @@ describe('parseSubscribe (§3.8)', () => {
     const body = [0x00, 0x01, ...propsVBI, ...subIdProp, ...topic, 0x00];
     const buf = Buffer.from([(PacketType.SUBSCRIBE << 4) | 0x02, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptySubData();
-    parseSubscribe(buf, data, ProtocolVersion.V5);
-    expect(data.properties.subscriptionIdentifier).toBe(42);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
+    expect(data.properties.subscriptionIdentifier?.[0]).toBe(42);
   });
 
   test('throws when QoS > 2 (§3.8.3.1)', () => {
@@ -432,7 +462,7 @@ describe('parseSubscribe (§3.8)', () => {
     const body = [0x00, 0x01, 0x00, ...topic, 0x03]; // QoS=3
     const buf = Buffer.from([(PacketType.SUBSCRIBE << 4) | 0x02, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptySubData();
-    expect(() => parseSubscribe(buf, data, ProtocolVersion.V5)).toThrow(DisconnectException);
+    expect(() => Object.assign(data, decodePacket(buf, ProtocolVersion.V5))).toThrow(DisconnectException);
   });
 
   test('throws when retainHandling > 2 (§3.8.3.1)', () => {
@@ -440,7 +470,7 @@ describe('parseSubscribe (§3.8)', () => {
     const body = [0x00, 0x01, 0x00, ...topic, 0x30]; // retainHandling=3
     const buf = Buffer.from([(PacketType.SUBSCRIBE << 4) | 0x02, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptySubData();
-    expect(() => parseSubscribe(buf, data, ProtocolVersion.V5)).toThrow(DisconnectException);
+    expect(() => Object.assign(data, decodePacket(buf, ProtocolVersion.V5))).toThrow(DisconnectException);
   });
 
   test('throws when fixed header reserved bits wrong (§3.8.1)', () => {
@@ -449,34 +479,34 @@ describe('parseSubscribe (§3.8)', () => {
     const buf = Buffer.from([(PacketType.SUBSCRIBE << 4) | 0x00, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptySubData();
     data.header.received = 0x00;
-    expect(() => parseSubscribe(buf, data, ProtocolVersion.V5)).toThrow(DisconnectException);
+    expect(() => Object.assign(data, decodePacket(buf, ProtocolVersion.V5))).toThrow(DisconnectException);
   });
 
   test('throws on empty payload (§3.8.3)', () => {
     const body = [0x00, 0x01, 0x00];
     const buf = Buffer.from([(PacketType.SUBSCRIBE << 4) | 0x02, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptySubData();
-    expect(() => parseSubscribe(buf, data, ProtocolVersion.V5)).toThrow(DisconnectException);
+    expect(() => Object.assign(data, decodePacket(buf, ProtocolVersion.V5))).toThrow(DisconnectException);
   });
 });
 
 // ─── §3.10 UNSUBSCRIBE ──────────────────────────────────────────────────
 
-describe('parseUnsubscribe (§3.10)', () => {
+describe('decodeUnsubscribe (§3.10 via decodePacket)', () => {
   test('throws when fixed header reserved bits wrong (§3.10.1)', () => {
     const topic = encodeUTF8String('t');
     const body = [0x00, 0x01, 0x00, ...topic];
     const buf = Buffer.from([(PacketType.UNSUBSCRIBE << 4) | 0x00, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptyUnsubData();
     data.header.received = 0x00;
-    expect(() => parseUnsubscribe(buf, data, ProtocolVersion.V5)).toThrow(SubscribeAckException);
+    expect(() => Object.assign(data, decodePacket(buf, ProtocolVersion.V5))).toThrow(DisconnectException);
   });
 
   test('throws on empty payload (§3.10.3)', () => {
     const body = [0x00, 0x01, 0x00];
     const buf = Buffer.from([(PacketType.UNSUBSCRIBE << 4) | 0x02, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptyUnsubData();
-    expect(() => parseUnsubscribe(buf, data, ProtocolVersion.V5)).toThrow(DisconnectException);
+    expect(() => Object.assign(data, decodePacket(buf, ProtocolVersion.V5))).toThrow(DisconnectException);
   });
 
   test('parses three topic filters (§3.10.3)', () => {
@@ -486,21 +516,21 @@ describe('parseUnsubscribe (§3.10)', () => {
     const body = [0x00, 0x01, 0x00, ...t1, ...t2, ...t3];
     const buf = Buffer.from([(PacketType.UNSUBSCRIBE << 4) | 0x02, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptyUnsubData();
-    parseUnsubscribe(buf, data, ProtocolVersion.V5);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.payloads).toEqual(['a/1', 'b/2', 'c/3']);
   });
 });
 
 // ─── §3.13 DISCONNECT ───────────────────────────────────────────────────
 
-describe('parseDisconnect (§3.13)', () => {
+describe('decodeDisconnect (§3.13 via decodePacket)', () => {
   test('parses DISCONNECT with Session Expiry Interval property (§3.14.2.2.2)', () => {
     const props = [PropertyIdentifier.sessionExpiryInterval, 0x00, 0x00, 0x00, 0x78]; // 120
     const propsVBI = encodeVariableByteInteger(props.length);
     const body = [0x00, ...propsVBI, ...props];
     const buf = Buffer.from([PacketType.DISCONNECT << 4, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptyDisconnectData();
-    parseDisconnect(buf, data, ProtocolVersion.V5);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.properties.sessionExpiryInterval).toBe(120);
   });
 
@@ -511,7 +541,7 @@ describe('parseDisconnect (§3.13)', () => {
     const body = [0x8b, ...propsVBI, ...props];
     const buf = Buffer.from([PacketType.DISCONNECT << 4, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptyDisconnectData();
-    parseDisconnect(buf, data, ProtocolVersion.V5);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.header.reasonCode).toBe(0x8b);
     expect(data.properties.reasonString).toBe('server shutting down');
   });
@@ -524,25 +554,32 @@ describe('parseDisconnect (§3.13)', () => {
   ])('parses reason code 0x%s (%s)', (code) => {
     const buf = Buffer.from([PacketType.DISCONNECT << 4, 0x01, code]);
     const data = emptyDisconnectData();
-    parseDisconnect(buf, data, ProtocolVersion.V5);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.header.reasonCode).toBe(code);
+  });
+
+  test('parses DISCONNECT with 0 remaining length (§3.14.2.1)', () => {
+    const buf = Buffer.from([PacketType.DISCONNECT << 4, 0x00]);
+    const data = decodePacket(buf, ProtocolVersion.V5) as IDisconnectData;
+    expect(data.header.packetType).toBe(PacketType.DISCONNECT);
+    expect(data.header.reasonCode).toBe(0x00);
   });
 });
 
 // ─── §3.14 AUTH ──────────────────────────────────────────────────────────
 
-describe('parseAuth (§3.15 AUTH)', () => {
+describe('decodeAuth (§3.15 AUTH via decodePacket)', () => {
   test('parses Continue Authentication reason code (§3.15.2.1)', () => {
     const buf = Buffer.from([PacketType.AUTH << 4, 0x02, 0x18, 0x00]);
     const data = emptyAuthData();
-    parseAuth(buf, data, ProtocolVersion.V5);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.header.reasonCode).toBe(0x18);
   });
 
   test('parses Re-authentication reason code', () => {
     const buf = Buffer.from([PacketType.AUTH << 4, 0x02, 0x19, 0x00]);
     const data = emptyAuthData();
-    parseAuth(buf, data, ProtocolVersion.V5);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.header.reasonCode).toBe(0x19);
   });
 
@@ -554,9 +591,16 @@ describe('parseAuth (§3.15 AUTH)', () => {
     const body = [0x18, ...propsVBI, ...props];
     const buf = Buffer.from([PacketType.AUTH << 4, ...encodeVariableByteInteger(body.length), ...body]);
     const data = emptyAuthData();
-    parseAuth(buf, data, ProtocolVersion.V5);
+    Object.assign(data, decodePacket(buf, ProtocolVersion.V5));
     expect(data.properties.authenticationMethod).toBe('SCRAM-SHA-256');
     expect(data.properties.authenticationData).toBe('challenge-data');
+  });
+
+  test('parses AUTH with 0 remaining length (§3.15.2.1)', () => {
+    const buf = Buffer.from([PacketType.AUTH << 4, 0x00]);
+    const data = decodePacket(buf, ProtocolVersion.V5) as IAuthData;
+    expect(data.header.packetType).toBe(PacketType.AUTH);
+    expect(data.header.reasonCode).toBe(0x00);
   });
 });
 
@@ -569,7 +613,7 @@ describe('encodeConnAck (§3.2)', () => {
       acknowledgeFlags: { SessionPresent: true },
       properties: {},
     };
-    const buf = encodeConnAck(connAckData, ProtocolVersion.V5);
+    const buf = encodePacket(connAckData, ProtocolVersion.V5);
     expect(buf[2]).toBe(0x01); // Session Present flag
   });
 
@@ -579,7 +623,7 @@ describe('encodeConnAck (§3.2)', () => {
       acknowledgeFlags: { SessionPresent: false },
       properties: {},
     };
-    const buf = encodeConnAck(connAckData, ProtocolVersion.V5);
+    const buf = encodePacket(connAckData, ProtocolVersion.V5);
     expect(buf[2]).toBe(0x00);
   });
 
@@ -589,7 +633,7 @@ describe('encodeConnAck (§3.2)', () => {
       acknowledgeFlags: { SessionPresent: false },
       properties: {},
     };
-    const buf = encodeConnAck(connAckData, ProtocolVersion.V5);
+    const buf = encodePacket(connAckData, ProtocolVersion.V5);
     expect(buf[3]).toBe(0x86);
   });
 
@@ -599,7 +643,7 @@ describe('encodeConnAck (§3.2)', () => {
       acknowledgeFlags: { SessionPresent: false },
       properties: {},
     };
-    const buf = encodeConnAck(connAckData, ProtocolVersion.V3_1_1);
+    const buf = encodePacket(connAckData, ProtocolVersion.V3_1_1);
     expect(buf[1]).toBe(2); // remaining length = 2 (no properties)
   });
 });
@@ -611,13 +655,13 @@ describe('encode/decode roundtrip', () => {
     const original: IPublishData = {
       header: { packetType: PacketType.PUBLISH, dupFlag: false, qosLevel: QoSType.QoS0, retain: false, topicName: 'round/trip' },
       properties: {},
-      payload: 'roundtrip-data',
+      payload: Buffer.from('roundtrip-data'),
     };
-    const encoded = encodePublishPacket(original, ProtocolVersion.V5);
+    const encoded = encodePacket(original, ProtocolVersion.V5);
     const parsed = emptyPubData();
-    parsePublish(encoded, parsed, ProtocolVersion.V5);
+    Object.assign(parsed, decodePacket(encoded, ProtocolVersion.V5));
     expect(parsed.header.topicName).toBe('round/trip');
-    expect(parsed.payload).toBe('roundtrip-data');
+    expect(parsed.payload).toEqual(Buffer.from('roundtrip-data'));
     expect(parsed.header.qosLevel).toBe(QoSType.QoS0);
     expect(parsed.header.dupFlag).toBe(false);
     expect(parsed.header.retain).toBe(false);
@@ -627,31 +671,55 @@ describe('encode/decode roundtrip', () => {
     const original: IPublishData = {
       header: { packetType: PacketType.PUBLISH, dupFlag: true, qosLevel: QoSType.QoS1, retain: true, topicName: 'rt/q1', packetIdentifier: 0xabcd },
       properties: {},
-      payload: 'q1-payload',
+      payload: Buffer.from('q1-payload'),
     };
-    const encoded = encodePublishPacket(original, ProtocolVersion.V5);
+    const encoded = encodePacket(original, ProtocolVersion.V5);
     const parsed = emptyPubData();
-    parsePublish(encoded, parsed, ProtocolVersion.V5);
+    Object.assign(parsed, decodePacket(encoded, ProtocolVersion.V5));
     expect(parsed.header.topicName).toBe('rt/q1');
     expect(parsed.header.packetIdentifier).toBe(0xabcd);
     expect(parsed.header.qosLevel).toBe(QoSType.QoS1);
     expect(parsed.header.dupFlag).toBe(true);
     expect(parsed.header.retain).toBe(true);
-    expect(parsed.payload).toBe('q1-payload');
+    expect(parsed.payload).toEqual(Buffer.from('q1-payload'));
   });
 
   test('encodePublishPacket → parsePublish yields identical fields (QoS 2)', () => {
     const original: IPublishData = {
       header: { packetType: PacketType.PUBLISH, dupFlag: false, qosLevel: QoSType.QoS2, retain: false, topicName: 'rt/q2', packetIdentifier: 42 },
       properties: {},
-      payload: 'q2-payload',
+      payload: Buffer.from('q2-payload'),
     };
-    const encoded = encodePublishPacket(original, ProtocolVersion.V5);
+    const encoded = encodePacket(original, ProtocolVersion.V5);
     const parsed = emptyPubData();
-    parsePublish(encoded, parsed, ProtocolVersion.V5);
+    Object.assign(parsed, decodePacket(encoded, ProtocolVersion.V5));
     expect(parsed.header.packetIdentifier).toBe(42);
     expect(parsed.header.qosLevel).toBe(QoSType.QoS2);
-    expect(parsed.payload).toBe('q2-payload');
+    expect(parsed.payload).toEqual(Buffer.from('q2-payload'));
+  });
+
+  test('encodePublishPacket → parsePublish preserves a binary payload byte-for-byte', () => {
+    const binaryPayload = Buffer.from([0x00, 0xff, 0xfe, 0x80, 0x01, 0xc3, 0x28]);
+    const original: IPublishData = {
+      header: { packetType: PacketType.PUBLISH, dupFlag: false, qosLevel: QoSType.QoS0, retain: false, topicName: 'rt/bin' },
+      properties: {},
+      payload: binaryPayload,
+    };
+    const encoded = encodePacket(original, ProtocolVersion.V5);
+    const parsed = emptyPubData();
+    Object.assign(parsed, decodePacket(encoded, ProtocolVersion.V5));
+    expect(parsed.payload).toEqual(binaryPayload);
+  });
+
+  test('decodePublish keeps a binary payload as raw bytes', () => {
+    const topic = encodeUTF8String('bin/t');
+    const payload = Buffer.from([0xff, 0x00, 0x80]);
+    const body = [...topic, 0x00, ...payload];
+    const buf = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(body.length), ...body]);
+    const pubData = emptyPubData();
+    Object.assign(pubData, decodePacket(buf, ProtocolVersion.V5));
+    expect(Buffer.isBuffer(pubData.payload)).toBe(true);
+    expect(pubData.payload).toEqual(payload);
   });
 
   test('encodePubControlPacket → parsePubAck roundtrip', () => {
@@ -659,9 +727,9 @@ describe('encode/decode roundtrip', () => {
       header: { packetType: PacketType.PUBACK, received: 0, remainingLength: 0, packetIdentifier: 0x1234, reasonCode: 0x00 },
       properties: {},
     };
-    const encoded = encodePubControlPacket(original, ProtocolVersion.V5);
+    const encoded = encodePacket(original, ProtocolVersion.V5);
     const parsed = emptyPubAckData();
-    parsePubAck(encoded, parsed, ProtocolVersion.V5);
+    Object.assign(parsed, decodePacket(encoded, ProtocolVersion.V5));
     expect(parsed.header.packetIdentifier).toBe(0x1234);
     expect(parsed.header.reasonCode).toBe(0x00);
   });
@@ -671,9 +739,9 @@ describe('encode/decode roundtrip', () => {
       header: { packetType: PacketType.DISCONNECT, received: 0, remainingLength: 0, reasonCode: 0x8b },
       properties: { reasonString: 'shutdown' },
     };
-    const encoded = encodeDisconnect(original, ProtocolVersion.V5);
+    const encoded = encodePacket(original, ProtocolVersion.V5);
     const parsed = emptyDisconnectData();
-    parseDisconnect(encoded, parsed, ProtocolVersion.V5);
+    Object.assign(parsed, decodePacket(encoded, ProtocolVersion.V5));
     expect(parsed.header.reasonCode).toBe(0x8b);
     expect(parsed.properties.reasonString).toBe('shutdown');
   });
@@ -685,7 +753,7 @@ describe('encode/decode roundtrip', () => {
       reasonCode: 0x00,
       reasonCodes: [0x00, 0x01, 0x02, 0x80],
     };
-    const buf = encodeSubAckPacket(subAckData, ProtocolVersion.V5);
+    const buf = encodePacket(subAckData, ProtocolVersion.V5);
     expect(buf[0] >> 4).toBe(PacketType.SUBACK);
     const tail = buf.subarray(buf.length - 4);
     expect([...tail]).toEqual([0x00, 0x01, 0x02, 0x80]);
@@ -694,10 +762,10 @@ describe('encode/decode roundtrip', () => {
 
 // ─── parsePacket dispatch ─────────────────────────────────────────────────
 
-describe('parsePacket dispatch', () => {
+describe('decodePacket dispatch', () => {
   test('dispatches CONNECT correctly', () => {
     const buf = buildConnectPacket({});
-    const result = parsePacket(buf, ProtocolVersion.V5);
+    const result = decodePacket(buf, ProtocolVersion.V5);
     expect(result.header.packetType).toBe(PacketType.CONNECT);
   });
 
@@ -705,7 +773,7 @@ describe('parsePacket dispatch', () => {
     const topic = encodeUTF8String('t');
     const body = [...topic, 0x00];
     const buf = Buffer.from([PacketType.PUBLISH << 4, ...encodeVariableByteInteger(body.length), ...body]);
-    const result = parsePacket(buf, ProtocolVersion.V5);
+    const result = decodePacket(buf, ProtocolVersion.V5);
     expect(result.header.packetType).toBe(PacketType.PUBLISH);
   });
 
@@ -713,24 +781,24 @@ describe('parsePacket dispatch', () => {
     const topic = encodeUTF8String('s/t');
     const body = [0x00, 0x01, 0x00, ...topic, 0x00];
     const buf = Buffer.from([(PacketType.SUBSCRIBE << 4) | 0x02, ...encodeVariableByteInteger(body.length), ...body]);
-    const result = parsePacket(buf, ProtocolVersion.V5);
+    const result = decodePacket(buf, ProtocolVersion.V5);
     expect(result.header.packetType).toBe(PacketType.SUBSCRIBE);
   });
 
   test('dispatches DISCONNECT correctly', () => {
     const buf = Buffer.from([PacketType.DISCONNECT << 4, 0x00]);
-    const result = parsePacket(buf, ProtocolVersion.V5);
+    const result = decodePacket(buf, ProtocolVersion.V5);
     expect(result.header.packetType).toBe(PacketType.DISCONNECT);
   });
 
   test('dispatches AUTH correctly', () => {
     const buf = Buffer.from([PacketType.AUTH << 4, 0x00]);
-    const result = parsePacket(buf, ProtocolVersion.V5);
+    const result = decodePacket(buf, ProtocolVersion.V5);
     expect(result.header.packetType).toBe(PacketType.AUTH);
   });
 
   test('throws on RESERVED packet type (0x00)', () => {
     const buf = Buffer.from([0x00, 0x00]);
-    expect(() => parsePacket(buf, ProtocolVersion.V5)).toThrow(DisconnectException);
+    expect(() => decodePacket(buf, ProtocolVersion.V5)).toThrow(DisconnectException);
   });
 });

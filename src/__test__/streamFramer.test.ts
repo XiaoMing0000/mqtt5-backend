@@ -1,11 +1,12 @@
-import { StreamFramer, probeFrameLength, encodeVariableByteInteger, encodePublishPacket } from '../parse';
+import { StreamFramer, encodePacket, probeFrameLength } from '../packet';
 import { IPublishData, PacketType, ProtocolVersion, QoSType } from '../interface';
+import { encodeUTF8String, encodeVariableByteInteger } from '../dataRepresentations';
 
 function makePingReqPacket(): Buffer {
   return Buffer.from([PacketType.PINGREQ << 4, 0x00]);
 }
 
-function makePublishPacket(topic: string, payload: string, qos: QoSType = QoSType.QoS0, packetId?: number): Buffer {
+function makePublishPacket(topic: string, payload: Buffer, qos: QoSType = QoSType.QoS0, packetId?: number): Buffer {
   const pubData: IPublishData = {
     header: {
       packetType: PacketType.PUBLISH,
@@ -18,7 +19,7 @@ function makePublishPacket(topic: string, payload: string, qos: QoSType = QoSTyp
     properties: {},
     payload,
   };
-  return encodePublishPacket(pubData, ProtocolVersion.V5);
+  return encodePacket(pubData, ProtocolVersion.V5);
 }
 
 function makeDisconnectPacket(): Buffer {
@@ -95,7 +96,7 @@ describe('StreamFramer', () => {
 
     it('handles a packet split across two chunks (半包)', () => {
       const framer = new StreamFramer();
-      const pub = makePublishPacket('test/topic', 'hello');
+      const pub = makePublishPacket('test/topic', Buffer.from('hello'));
       const mid = Math.floor(pub.length / 2);
       const chunk1 = pub.subarray(0, mid);
       const chunk2 = pub.subarray(mid);
@@ -107,13 +108,13 @@ describe('StreamFramer', () => {
       const packets2 = framer.push(chunk2, ProtocolVersion.V5);
       expect(packets2).toHaveLength(1);
       expect((packets2[0] as IPublishData).header.topicName).toBe('test/topic');
-      expect((packets2[0] as IPublishData).payload).toBe('hello');
+      expect((packets2[0] as IPublishData).payload).toEqual(Buffer.from('hello'));
       expect(framer.bufferedBytes).toBe(0);
     });
 
     it('handles a packet split across three chunks (多次半包拼接)', () => {
       const framer = new StreamFramer();
-      const pub = makePublishPacket('a/b', 'payload-data');
+      const pub = makePublishPacket('a/b', Buffer.from('payload-data'));
       const part1 = pub.subarray(0, 1);
       const part2 = pub.subarray(1, 5);
       const part3 = pub.subarray(5);
@@ -122,30 +123,33 @@ describe('StreamFramer', () => {
       expect(framer.push(part2, ProtocolVersion.V5)).toHaveLength(0);
       const packets = framer.push(part3, ProtocolVersion.V5);
       expect(packets).toHaveLength(1);
-      expect((packets[0] as IPublishData).payload).toBe('payload-data');
+      expect((packets[0] as IPublishData).payload).toEqual(Buffer.from('payload-data'));
       expect(framer.bufferedBytes).toBe(0);
     });
 
     it('handles incomplete VBI across chunks (variable byte integer 跨 chunk)', () => {
       const framer = new StreamFramer();
-      const remaining = 200;
-      const vbi = encodeVariableByteInteger(remaining);
+      const topic = encodeUTF8String('test/topic');
+      const payload = Buffer.alloc(180);
+      const body = [...topic, 0x00, ...payload];
+      const vbi = encodeVariableByteInteger(body.length);
       expect(vbi.length).toBe(2);
 
-      const fullPacket = Buffer.concat([Buffer.from([0x30, ...vbi]), Buffer.alloc(remaining)]);
+      const fullPacket = Buffer.from([0x30, ...vbi, ...body]);
 
       const chunk1 = fullPacket.subarray(0, 2);
       expect(framer.push(chunk1, ProtocolVersion.V5)).toHaveLength(0);
 
       const packets = framer.push(fullPacket.subarray(2), ProtocolVersion.V5);
       expect(packets).toHaveLength(1);
+      expect((packets[0] as IPublishData).header.topicName).toBe('test/topic');
       expect(framer.bufferedBytes).toBe(0);
     });
 
     it('handles 粘包 + 半包 combined: complete packet followed by partial', () => {
       const framer = new StreamFramer();
       const ping = makePingReqPacket();
-      const pub = makePublishPacket('x', 'y');
+      const pub = makePublishPacket('x', Buffer.from('y'));
       const mid = Math.floor(pub.length / 2);
 
       const chunk1 = Buffer.concat([ping, pub.subarray(0, mid)]);
@@ -162,7 +166,7 @@ describe('StreamFramer', () => {
 
     it('handles only the fixed header byte arriving (1-byte chunk)', () => {
       const framer = new StreamFramer();
-      const pub = makePublishPacket('t', 'p');
+      const pub = makePublishPacket('t', Buffer.from('p'));
       expect(framer.push(pub.subarray(0, 1), ProtocolVersion.V5)).toHaveLength(0);
       expect(framer.bufferedBytes).toBe(1);
 
@@ -173,7 +177,7 @@ describe('StreamFramer', () => {
 
     it('reset clears buffered state', () => {
       const framer = new StreamFramer();
-      const pub = makePublishPacket('topic', 'data');
+      const pub = makePublishPacket('topic', Buffer.from('data'));
       framer.push(pub.subarray(0, 3), ProtocolVersion.V5);
       expect(framer.bufferedBytes).toBe(3);
       framer.reset();
@@ -196,7 +200,7 @@ describe('StreamFramer', () => {
 
     it('buffers incomplete frame and completes on next call', () => {
       const framer = new StreamFramer();
-      const pub = makePublishPacket('topic', 'payload');
+      const pub = makePublishPacket('topic', Buffer.from('payload'));
       const mid = 4;
 
       const frames1 = framer.extractFrames(pub.subarray(0, mid));
@@ -208,10 +212,17 @@ describe('StreamFramer', () => {
       expect(framer.bufferedBytes).toBe(0);
     });
 
+    it('waits when remaining-length VBI is incomplete (probeFrameLength returns null)', () => {
+      const framer = new StreamFramer();
+      const frames = framer.extractFrames(Buffer.from([0x30, 0x80]));
+      expect(frames).toHaveLength(0);
+      expect(framer.bufferedBytes).toBe(2);
+    });
+
     it('extracts multiple frames from interleaved complete + partial chunks', () => {
       const framer = new StreamFramer();
       const ping = makePingReqPacket();
-      const pub = makePublishPacket('a', 'b');
+      const pub = makePublishPacket('a', Buffer.from('b'));
 
       const chunk = Buffer.concat([ping, pub.subarray(0, 3)]);
       const frames1 = framer.extractFrames(chunk);

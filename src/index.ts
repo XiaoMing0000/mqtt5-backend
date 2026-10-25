@@ -40,21 +40,21 @@ import {
   ProtocolVersion,
   QoSType,
 } from './interface';
-import { StreamFramer } from './parse';
-import { Manager, TClient } from './manager/manager';
-import { MqttManager } from './mqttManager';
+import { StreamFramer } from './packet';
+import { Manager, TMqttSocketEventMap, TMqttSocketListener, TSocket } from './manager/manager';
+import { MqttClient } from './mqttClient';
 
 /**
  * Default MQTT server feature flags and limits merged with user-supplied {@link IMqttOptions}.
  */
-const mqttDefaultOptions: IMqttOptions = {
+export const mqttDefaultOptions: Required<IMqttOptions> = {
   protocolName: 'MQTT',
   protocolVersions: [3, 4, 5],
   automaticallyAssignedClientIdentifier: true,
   maximumQoS: QoSType.QoS2,
   retainAvailable: true,
   retainTTL: 30 * 60,
-  maximumPacketSize: 1 << 20,
+  maximumPacketSize: 0xffffffff,
   topicAliasMaximum: 0xffff,
   wildcardSubscriptionAvailable: true,
   subscriptionIdentifierAvailable: true,
@@ -63,14 +63,19 @@ const mqttDefaultOptions: IMqttOptions = {
   receiveMaximum: 0xffff,
   serverKeepAlive: 0,
   qosRetryCount: 3,
+  packetIdentifierTTL: 30 * 60,
+  sendReasonMessage: true,
 };
+
+Object.freeze(mqttDefaultOptions);
+
 /**
- * Bridges a low-level transport {@link net.Server} (or compatible) to MQTT sessions via {@link MqttManager}.
- * Exposes Node-style server APIs and registers per-client MQTT lifecycle hooks.
+ * Bridges a low-level transport {@link net.Server} (or compatible) to MQTT sessions via {@link MqttClient}.
+ * Exposes Node-style server APIs and registers per-socket MQTT lifecycle hooks.
  */
 class MqttEvent {
   options: IMqttOptions;
-  private eventListeners: Array<{ event: string; listener: (...args: any[]) => Promise<boolean | void> }> = [];
+  private eventListeners: Array<{ [E in keyof TMqttSocketEventMap]: { event: E; listener: TMqttSocketListener<E> } }[keyof TMqttSocketEventMap]> = [];
 
   /**
    * @param server - Underlying TCP/TLS/WebSocket server instance.
@@ -83,7 +88,6 @@ class MqttEvent {
     options: IMqttOptions = {},
   ) {
     this.options = Object.assign({}, mqttDefaultOptions, options);
-    this.clientManager.setQoSRetryCount(this.options.qosRetryCount);
     this.mqttConnection = this.mqttConnection.bind(this);
   }
 
@@ -116,7 +120,7 @@ class MqttEvent {
   close(callback?: (err?: Error) => void): this {
     this.server.close(callback);
     this.clientManager.dispose().catch((err) => {
-      console.error('dispose client manager error:', err);
+      console.error('dispose socket manager error:', err);
     });
     return this;
   }
@@ -269,27 +273,27 @@ class MqttEvent {
   }
 
   /**
-   * Registers a hook invoked for each new MQTT client when that event is emitted on the client.
+   * Registers a hook invoked for each new MQTT socket when that event is emitted on the socket.
    *
    * @param event - Client event name (e.g. `connect`, `publish`).
    * @param listener - Async handler; return `false` to abort default handling where applicable.
    * @returns This instance for chaining.
    */
-  addClientEventListener(event: string, listener: (...args: any[]) => Promise<boolean | void>): this {
-    this.eventListeners.push({ event, listener });
+  addClientEventListener<E extends keyof TMqttSocketEventMap>(event: E, listener: TMqttSocketListener<E>): this {
+    this.eventListeners.push({ event, listener } as (typeof this.eventListeners)[number]);
     return this;
   }
 
   /**
-   * Runs all listeners for `event` on `client` in order; stops if any returns `false`.
+   * Runs all listeners for `event` on `socket` in order; stops if any returns `false`.
    *
-   * @param client - MQTT client emitting the event.
+   * @param socket - MQTT socket emitting the event.
    * @param event - Client event name.
    * @param args - Arguments passed to each listener.
    * @returns `false` if a listener returned `false`; otherwise `true`.
    */
-  async clientEmitAsync(client: TClient, event: string, ...args: any[]) {
-    for (const listener of client.listeners(event)) {
+  async clientEmitAsync<E extends keyof TMqttSocketEventMap>(socket: TSocket, event: E, ...args: TMqttSocketEventMap[E]['args']) {
+    for (const listener of socket.listeners(event)) {
       if (!((await listener(...args)) !== false)) {
         return false;
       }
@@ -298,23 +302,23 @@ class MqttEvent {
   }
 
   /**
-   * Attaches all {@link addClientEventListener} hooks to the given client.
+   * Attaches all {@link addClientEventListener} hooks to the given socket.
    *
-   * @param client - Connected MQTT client.
+   * @param socket - Connected MQTT socket.
    * @returns This instance for chaining.
    */
-  private onClientEventListener(client: TClient) {
+  private onClientEventListener(socket: TSocket) {
     this.eventListeners.forEach((eventListener) => {
-      client.on(eventListener.event, eventListener.listener);
+      socket.on(eventListener.event, eventListener.listener);
     });
     return this;
   }
 
   /**
-   * @param listener - Invoked once per new MQTT client after the socket is accepted.
+   * @param listener - Invoked once per new MQTT socket after the socket is accepted.
    * @returns This instance for chaining.
    */
-  onConnection(listener: (client: TClient) => Promise<void>): this {
+  onConnection(listener: TMqttSocketListener<'connection'>): this {
     return this.addClientEventListener('connection', listener);
   }
 
@@ -322,7 +326,7 @@ class MqttEvent {
    * @param listener - Invoked for the CONNECT packet; return `false` to reject.
    * @returns This instance for chaining.
    */
-  onConnect(listener: (data: IConnectData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
+  onConnect(listener: TMqttSocketListener<'connect'>): this {
     return this.addClientEventListener('connect', listener);
   }
 
@@ -330,7 +334,7 @@ class MqttEvent {
    * @param listener - Invoked for DISCONNECT packets; return `false` to abort default handling.
    * @returns This instance for chaining.
    */
-  onDisconnect(listener: (data: IDisconnectData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
+  onDisconnect(listener: TMqttSocketListener<'disconnect'>): this {
     return this.addClientEventListener('disconnect', listener);
   }
 
@@ -338,7 +342,7 @@ class MqttEvent {
    * @param listener - Invoked for PINGREQ; return `false` to skip default PINGRESP.
    * @returns This instance for chaining.
    */
-  onPing(listener: (client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
+  onPing(listener: TMqttSocketListener<'ping'>): this {
     return this.addClientEventListener('ping', listener);
   }
 
@@ -346,7 +350,7 @@ class MqttEvent {
    * @param listener - Invoked for PUBLISH; return `false` to abort handling.
    * @returns This instance for chaining.
    */
-  onPublish(listener: (data: IPublishData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
+  onPublish(listener: TMqttSocketListener<'publish'>): this {
     return this.addClientEventListener('publish', listener);
   }
 
@@ -354,7 +358,7 @@ class MqttEvent {
    * @param listener - Invoked for PUBREL (QoS 2).
    * @returns This instance for chaining.
    */
-  onPubRel(listener: (data: IPubRelData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
+  onPubRel(listener: TMqttSocketListener<'pubRel'>): this {
     return this.addClientEventListener('pubRel', listener);
   }
 
@@ -362,7 +366,7 @@ class MqttEvent {
    * @param listener - Invoked for PUBREC (QoS 2).
    * @returns This instance for chaining.
    */
-  onPubRec(listener: (data: IPubRecData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
+  onPubRec(listener: TMqttSocketListener<'pubRec'>): this {
     return this.addClientEventListener('pubRec', listener);
   }
 
@@ -370,7 +374,7 @@ class MqttEvent {
    * @param listener - Invoked for PUBCOMP (QoS 2 completion).
    * @returns This instance for chaining.
    */
-  onPubComp(listener: (data: IPubRecData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
+  onPubComp(listener: TMqttSocketListener<'pubComp'>): this {
     return this.addClientEventListener('pubComp', listener);
   }
 
@@ -378,7 +382,7 @@ class MqttEvent {
    * @param listener - Invoked for SUBSCRIBE; return `false` to skip default SUBACK.
    * @returns This instance for chaining.
    */
-  onSubscribe(listener: (data: ISubscribeData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
+  onSubscribe(listener: TMqttSocketListener<'subscribe'>): this {
     return this.addClientEventListener('subscribe', listener);
   }
 
@@ -386,7 +390,7 @@ class MqttEvent {
    * @param listener - Invoked for UNSUBSCRIBE.
    * @returns This instance for chaining.
    */
-  onUnsubscribe(listener: (data: IUnsubscribeData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
+  onUnsubscribe(listener: TMqttSocketListener<'unsubscribe'>): this {
     return this.addClientEventListener('unsubscribe', listener);
   }
 
@@ -394,84 +398,82 @@ class MqttEvent {
    * @param listener - Invoked for MQTT 5 AUTH packets.
    * @returns This instance for chaining.
    */
-  onAuth(listener: (data: IAuthData, client: TClient, clientManager: Manager) => Promise<boolean | void>): this {
+  onAuth(listener: TMqttSocketListener<'auth'>): this {
     return this.addClientEventListener('auth', listener);
   }
 
   /**
-   * Binds packet parsing, {@link MqttManager} dispatch, and user hooks for one MQTT client transport.
+   * Binds packet parsing, {@link MqttClient} dispatch, and user hooks for one MQTT socket transport.
    *
-   * @param client - Socket-like client (TCP or {@link WebSocketAdapter}).
+   * @param socket - Socket-like transport (TCP or {@link WebSocketAdapter}).
    */
-  public async mqttConnection(client: TClient) {
-    const mqttManager = new MqttManager(client, this.clientManager, this.options);
-    this.onClientEventListener(client);
+  public async mqttConnection(socket: TSocket) {
+    const client = new MqttClient(socket, this.clientManager, this.options as Required<IMqttOptions>);
+    this.onClientEventListener(socket);
 
-    await this.clientEmitAsync(client, 'connection', client);
+    await this.clientEmitAsync(socket, 'connection', socket);
     let protocolVersion = ProtocolVersion.V5;
     const framer = new StreamFramer();
-    client.on('data', async (buffer) => {
+    socket.on('data', async (buffer) => {
       try {
+        client.updateExpire();
         const allPacketData = framer.push(buffer, protocolVersion);
-
         for (const data of allPacketData) {
           try {
-            await mqttManager.commonHandle(data);
-            if (!(data.header.packetType === PacketType.PINGREQ || data.header.packetType === PacketType.PINGRESP)) {
-              await mqttManager.updateKeepaliveTime();
-            }
+            await client.commonHandle(data);
             switch (data.header.packetType) {
               case PacketType.CONNECT:
                 protocolVersion = (data as IConnectData).header.protocolVersion;
-                await mqttManager.connectHandle(data as IConnectData, this.clientEmitAsync);
+                await client.connectHandle(data as IConnectData, this.clientEmitAsync);
                 break;
               case PacketType.PUBLISH: {
-                await mqttManager.publishHandle(data as IPublishData, this.clientEmitAsync);
+                await client.publishHandle(data as IPublishData, this.clientEmitAsync);
                 break;
               }
               case PacketType.PUBACK:
-                (await this.clientEmitAsync(client, 'pubAck', data, client, this.clientManager)) &&
-                  (await mqttManager.pubAckHandle(data as IPubAckData));
+                (await this.clientEmitAsync(socket, 'pubAck', data as IPubAckData, client, this.clientManager)) &&
+                  (await client.pubAckHandle(data as IPubAckData));
                 break;
               case PacketType.PUBREC:
-                (await this.clientEmitAsync(client, 'pubRec', data, client, this.clientManager)) &&
-                  (await mqttManager.pubRecHandle(data as IPubRecData));
+                (await this.clientEmitAsync(socket, 'pubRec', data as IPubRecData, client, this.clientManager)) &&
+                  (await client.pubRecHandle(data as IPubRecData));
                 break;
               case PacketType.PUBREL:
-                (await this.clientEmitAsync(client, 'pubRel', data, client, this.clientManager)) &&
-                  (await mqttManager.pubRelHandle(data as IPubRelData));
+                (await this.clientEmitAsync(socket, 'pubRel', data as IPubRelData, client, this.clientManager)) &&
+                  (await client.pubRelHandle(data as IPubRelData));
                 break;
               case PacketType.PUBCOMP:
-                (await this.clientEmitAsync(client, 'pubComp', data, client, this.clientManager)) &&
-                  (await mqttManager.pubCompHandle(data as IPubRecData));
+                (await this.clientEmitAsync(socket, 'pubComp', data as IPubCompData, client, this.clientManager)) &&
+                  (await client.pubCompHandle(data as IPubCompData));
                 break;
               case PacketType.SUBSCRIBE:
-                (await this.clientEmitAsync(client, 'subscribe', data, client, this.clientManager)) &&
-                  (await mqttManager.subscribeHandle(data as ISubscribeData));
+                (await this.clientEmitAsync(socket, 'subscribe', data as ISubscribeData, client, this.clientManager)) &&
+                  (await client.subscribeHandle(data as ISubscribeData));
                 break;
               case PacketType.UNSUBSCRIBE:
-                (await this.clientEmitAsync(client, 'unsubscribe', data, client, this.clientManager)) &&
-                  (await mqttManager.unsubscribeHandle(data as IUnsubscribeData));
+                (await this.clientEmitAsync(socket, 'unsubscribe', data as IUnsubscribeData, client, this.clientManager)) &&
+                  (await client.unsubscribeHandle(data as IUnsubscribeData));
                 break;
               case PacketType.PINGREQ:
-                (await this.clientEmitAsync(client, 'ping', client, this.clientManager)) && (await mqttManager.pingReqHandle());
+                (await this.clientEmitAsync(socket, 'ping', socket, this.clientManager)) && (await client.pingReqHandle());
                 break;
               case PacketType.DISCONNECT:
-                (await this.clientEmitAsync(client, 'disconnect', data, client, this.clientManager)) &&
-                  (await mqttManager.disconnectHandle(data as IDisconnectData));
+                (await this.clientEmitAsync(socket, 'disconnect', data as IDisconnectData, client, this.clientManager)) &&
+                  (await client.disconnectHandle(data as IDisconnectData));
                 break;
               case PacketType.AUTH:
-                (await this.clientEmitAsync(client, 'auth', data, client, this.clientManager)) && (await mqttManager.authHandle(data as IAuthData));
+                (await this.clientEmitAsync(socket, 'auth', data as IAuthData, client, this.clientManager)) &&
+                  (await client.authHandle(data as IAuthData));
                 break;
               default:
                 console.log('Unhandled packet type:', data);
             }
-          } catch (error) {
+          } catch (error: any) {
             if (!this.options.sendReasonMessage) {
               delete (error as any).msg;
             }
-            await catchMqttError(error, mqttManager, data);
-            console.error('Capture Event Error:', error);
+            await catchMqttError(error, client, data);
+            console.error('Capture Event Error:', (error.message ?? error.msg ?? error._msg) || 'Unknown error');
             break;
           }
         }
@@ -481,31 +483,44 @@ class MqttEvent {
           if (!this.options.sendReasonMessage) {
             delete (error as any).msg;
           }
-          await catchMqttError(error, mqttManager, undefined);
+          await catchMqttError(error, client, undefined);
         } catch (unknownError) {
           console.log(unknownError);
         }
       }
     });
 
-    client.on('end', () => {
+    socket.on('end', () => {
       // console.log('Client disconnected');
     });
 
-    client.on('error', (err) => {
-      mqttManager.handleDisconnect(DisconnectReasonCode.UnspecifiedError, { reasonString: err.message });
-      console.error('Client error:', err);
+    socket.on('error', (err) => {
+      client.handleDisconnect({
+        header: {
+          packetType: PacketType.DISCONNECT,
+          received: 0,
+          remainingLength: 0,
+          reasonCode: DisconnectReasonCode.UnspecifiedError,
+        },
+        properties: { reasonString: err.message },
+      });
+      console.error('Client error:', err.message);
     });
 
-    client.on('close', (hadError: boolean) => {
-      // Clear client state synchronously so the close path stays non-blocking.
-      this.clientManager.clearConnect(client);
+    socket.on('close', (hadError: boolean) => {
+      // Clear socket state synchronously so the close path stays non-blocking.
+      if (!client.isDisconnect) {
+        this.clientManager.disconnect(client.clientIdentifier);
+      }
       // Defer will message publish so it does not block the close handler.
-      setImmediate(() => {
-        mqttManager.publishWillMessage().catch((err) => {
-          console.error('Error publishing will message:', err);
+      if (!this.clientManager.clientIdentifierManager.has(client.clientIdentifier)) {
+        setImmediate(() => {
+          client.publishWillMessage(this.clientEmitAsync).catch((err) => {
+            console.error('Error publishing will message:', err.message);
+          });
         });
-      });
+      }
+
       if (hadError) {
         console.error('Connection closed due to error!');
       }
@@ -514,17 +529,25 @@ class MqttEvent {
 }
 
 /**
- * Maps structured MQTT exceptions from handlers into wire-level responses via {@link MqttManager}.
+ * Maps structured MQTT exceptions from handlers into wire-level responses via {@link MqttClient}.
  *
  * @param error - Thrown exception subclass from `./exception`.
- * @param mqttManager - Session manager for the active client.
+ * @param client - Active connection session for the socket.
  * @param data - Parsed packet associated with the error, when applicable.
  */
-async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: PacketTypeData) {
+async function catchMqttError(error: unknown, client: MqttClient, data?: PacketTypeData) {
   if (error instanceof DisconnectException) {
-    await mqttManager.handleDisconnect(error.code as DisconnectReasonCode, { reasonString: error.msg });
+    await client.handleDisconnect({
+      header: {
+        packetType: PacketType.DISCONNECT,
+        received: 0,
+        remainingLength: 0,
+        reasonCode: error.code as DisconnectReasonCode,
+      },
+      properties: { reasonString: error.msg },
+    });
   } else if (error instanceof ConnectAckException) {
-    await mqttManager.handleConnAck(data as IConnectData, error.code as ConnectAckReasonCode, error.msg);
+    await client.handleConnAck(data as IConnectData, error.code as ConnectAckReasonCode, error.msg);
   } else if (error instanceof SubscribeAckException && data) {
     const subAckData: ISubAckData = {
       header: {
@@ -537,7 +560,7 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
       },
       reasonCode: error.code as SubscribeAckReasonCode,
     };
-    await mqttManager.handleSubAck(subAckData);
+    await client.handleSubAck(subAckData);
   } else if (error instanceof PubAckException && data) {
     if ((data as IPublishData).header.qosLevel === QoSType.QoS0) {
       return;
@@ -553,7 +576,7 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
         reasonString: error.msg,
       },
     };
-    await mqttManager.handlePubAck(pubAckData);
+    await client.handlePubAck(pubAckData);
   } else if (error instanceof PubRecException && data) {
     const pubRecData: IPubRecData = {
       header: {
@@ -566,7 +589,7 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
         reasonString: error.msg,
       },
     };
-    await mqttManager.handlePubRec(pubRecData);
+    await client.handlePubRec(pubRecData);
   } else if (error instanceof PubRelException && data) {
     const pubRelData: IPubRelData = {
       header: {
@@ -579,7 +602,7 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
         reasonString: error.msg,
       },
     };
-    await mqttManager.pubRelHandle(pubRelData);
+    await client.pubRelHandle(pubRelData);
   } else if (error instanceof PubCompException && data) {
     const pubCompData: IPubCompData = {
       header: {
@@ -592,7 +615,7 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
         reasonString: error.msg,
       },
     };
-    await mqttManager.handlePubComp(pubCompData);
+    await client.handlePubComp(pubCompData);
   } else if (error instanceof AuthenticateException) {
     const authData: IAuthData = {
       header: {
@@ -604,7 +627,7 @@ async function catchMqttError(error: unknown, mqttManager: MqttManager, data?: P
         reasonString: error.msg,
       },
     };
-    await mqttManager.authHandle(authData);
+    await client.authHandle(authData);
   } else {
     throw error;
   }
@@ -744,9 +767,9 @@ export * from './interface';
 export * from './manager/manager';
 export * from './manager/memoryManager';
 export * from './manager/redisManager';
-export * from './manager/redis2Manager';
-export * from './parse';
+export * from './packet';
+export * from './dataRepresentations';
 export * from './property';
-export * from './mqttManager';
+export * from './mqttClient';
 export * from './utils';
 export * from './topicFilters';

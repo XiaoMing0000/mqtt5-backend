@@ -10,34 +10,34 @@ describe('utils', () => {
     test('should generate a client identifier with correct format', () => {
       const identifier = generateClientIdentifier();
 
-      // 应该以 'mqtt_' 开头
+      // Should start with 'mqtt_'
       expect(identifier).toMatch(/^mqtt_/);
 
-      // 应该包含32个十六进制字符（UUID去掉连字符后）
+      // Should contain 32 hexadecimal characters (the UUID without hyphens)
       const hexPart = identifier.replace('mqtt_', '');
       expect(hexPart).toMatch(/^[0-9a-f]{32}$/);
 
-      // 总长度应该是 37 (mqtt_ + 32个字符)
+      // Total length should be 37 (mqtt_ + 32 characters)
       expect(identifier.length).toBe(37);
     });
 
     test('should generate unique identifiers on each call', () => {
       const identifiers = new Set<string>();
 
-      // 生成100个标识符，确保它们都是唯一的
+      // Generate 100 identifiers and ensure they are all unique
       for (let i = 0; i < 100; i++) {
         const identifier = generateClientIdentifier();
         identifiers.add(identifier);
       }
 
-      // 所有标识符应该是唯一的
+      // All identifiers should be unique
       expect(identifiers.size).toBe(100);
     });
 
     test('should not contain hyphens', () => {
       const identifier = generateClientIdentifier();
 
-      // UUID 格式中的连字符应该被移除
+      // Hyphens from the UUID should be removed
       expect(identifier).not.toContain('-');
     });
 
@@ -45,14 +45,14 @@ describe('utils', () => {
       const identifier = generateClientIdentifier();
       const hexPart = identifier.replace('mqtt_', '');
 
-      // 只包含十六进制字符 (0-9, a-f)
+      // Contains only hexadecimal characters (0-9, a-f)
       expect(hexPart).toMatch(/^[0-9a-f]+$/);
     });
 
     test('should have consistent format across multiple calls', () => {
       const identifiers = Array.from({ length: 10 }, () => generateClientIdentifier());
 
-      // 所有标识符应该遵循相同的格式
+      // All identifiers should follow the same format
       identifiers.forEach((identifier) => {
         expect(identifier).toMatch(/^mqtt_[0-9a-f]{32}$/);
       });

@@ -1,0 +1,949 @@
+import { mqttDefaultOptions } from '.';
+import { decodeVariableByteInteger, encodeTwoByteInteger, encodeVariableByteInteger } from './dataRepresentations';
+import {
+  AuthenticateException,
+  AuthenticateReasonCode,
+  DisconnectException,
+  DisconnectReasonCode,
+  ConnectAckReasonCode,
+  PubAckException,
+  PubCompReasonCode,
+  SubscribeAckReasonCode,
+  UnsubscribeAckReasonCode,
+  ConnectAckException,
+  PubRecException,
+} from './exception';
+import {
+  IConnectData,
+  PacketType,
+  IMqttOptions,
+  PacketTypeData,
+  IConnAckData,
+  IDisconnectData,
+  IPublishData,
+  QoSType,
+  IPubAckData,
+  IPubRecData,
+  IPubRelData,
+  ISubscribeData,
+  ISubAckData,
+  IUnsubscribeData,
+  IAuthData,
+  IPubCompData,
+  ProtocolVersion,
+} from './interface';
+import { TSocket, Manager, TMqttClientEmitAsync, ClientPacketIdentifierManager } from './manager/manager';
+import { encodePacket } from './packet';
+import { EncoderProperties } from './property';
+import { verifyTopic, isWildcardTopic } from './topicFilters';
+import { generateClientIdentifier, generateConnectionToken } from './utils';
+type TQosRetryEntry = { packet: Buffer; attempts: number; timer?: NodeJS.Timeout };
+
+/**
+ * Upper bound on the Will Delay Interval (seconds) accepted from a client.
+ * Caps how long a disconnected connection is retained by its pending will timer.
+ */
+const MAX_WILL_DELAY_INTERVAL = 24 * 60 * 60;
+
+/**
+ * Resends unacknowledged QoS 1/2 frames for a single connection.
+ *
+ * @remarks
+ * A connection holds two instances: `publishQosRetry` for outbound PUBLISH frames, and
+ * `receiveQos2Retry` for the PUBREC sent during an inbound QoS 2 handshake.
+ *
+ * Each entry keeps the encoded frame and a timer that writes those same bytes every 5000 ms,
+ * as long as the socket has not ended. After {@link QosRetry.qosRetryCount} resends the entry
+ * is dropped one interval later. The packet identifier is released only when the caller passed
+ * `releaseIdentifier: true`, which the ack handlers ({@link MqttClient.pubAckHandle},
+ * {@link MqttClient.pubCompHandle}) do and {@link QosRetry.clearPendingClient} does not.
+ *
+ * Retry state is per connection and is never carried across reconnects.
+ */
+class QosRetry {
+  /** Delay between resends, in milliseconds. */
+  private readonly qosRetryIntervalMs = 5000;
+  /** Number of resends before the pending frame is abandoned. The original send is not counted. */
+  private readonly qosRetryCount = 3;
+  /** Packet identifier → encoded frame, resend count, and the timer for the next resend. */
+  private readonly qosRetryMap = new Map<number, TQosRetryEntry>();
+
+  constructor() {}
+
+  /**
+   * Cancels every pending resend.
+   *
+   * @param client - Connection owning the frames to forget. Passed through to
+   * {@link QosRetry.clearPendingPacket}, which means the packet identifiers stay allocated.
+   */
+  public clearPendingClient(client: MqttClient) {
+    this.qosRetryMap.forEach((_entry, id) => {
+      this.clearPendingPacket(client, id);
+    });
+  }
+
+  /**
+   * Cancels the resend for `id`, drops the stored frame, and optionally releases the packet identifier.
+   * The identifier is still released when no retry entry exists and `releaseIdentifier` is true.
+   *
+   * @param client - Connection that owns the packet identifier.
+   * @param id - Outbound packet identifier to forget.
+   * @param releaseIdentifier - Whether to release the packet identifier immediately (defaults to false).
+   */
+  public clearPendingPacket(client: MqttClient, id: number, releaseIdentifier = false) {
+    const entry = this.qosRetryMap.get(id);
+    if (entry) {
+      clearTimeout(entry.timer);
+      this.qosRetryMap.delete(id);
+    }
+    if (releaseIdentifier) {
+      client.packetIdentifierManager.delete(id);
+    }
+  }
+
+  /**
+   * Arms the next resend of the frame stored for `id`, creating an entry from `packet` when the
+   * identifier has no stored frame yet.
+   *
+   * @param client - Connection to write the frame to.
+   * @param id - Packet identifier used as the retry key. The allocator is not consulted, so inbound
+   * identifiers that never went through {@link MqttClient.packetIdentifierManager} work too.
+   * @param packet - Frame used when no entry exists for `id`.
+   * @param releaseIdentifier - Passed back to {@link QosRetry.clearPendingPacket} once the retry
+   * budget is spent, so the identifier is released only if the caller opted in.
+   */
+  public scheduleRetry(client: MqttClient, id: number, packet: Buffer, releaseIdentifier = false): TQosRetryEntry | void {
+    const entry: TQosRetryEntry = this.qosRetryMap.get(id) ?? { packet, attempts: 0, timer: undefined };
+    const timer = setTimeout(() => {
+      entry.attempts++;
+
+      if (entry.attempts <= this.qosRetryCount) {
+        if (entry.packet[0] & 0x30) {
+          entry.packet[0] = entry.packet[0] | 0x08;
+        }
+        if (!client.socket.writableEnded) {
+          client.socket.write(entry.packet);
+        }
+        this.scheduleRetry(client, id, entry.packet, releaseIdentifier);
+      } else {
+        this.clearPendingPacket(client, id, releaseIdentifier);
+      }
+
+      clearTimeout(timer);
+    }, this.qosRetryIntervalMs);
+
+    entry.timer = timer;
+    return entry;
+  }
+
+  /**
+   * Stores `packet` under `id` and arms the first resend.
+   *
+   * @param client - Connection that will receive the resend.
+   * @param id - Retry key for this frame: an outbound packet identifier, or the inbound identifier
+   * of a QoS 2 PUBLISH while its PUBREC leg is outstanding.
+   * @param packet - Encoded frame written again on each resend.
+   * @param releaseIdentifier - Release the identifier when the retry budget is spent. Required for
+   * outbound identifiers, since nothing else frees an abandoned frame; left `false` for inbound
+   * identifiers, which belong to the client's identifier space.
+   */
+  public registerPendingPacket(client: MqttClient, id: number, packet: Buffer, releaseIdentifier = false) {
+    const entry = this.scheduleRetry(client, id, packet, releaseIdentifier);
+    entry && this.qosRetryMap.set(id, entry);
+  }
+
+  /**
+   * Replaces the stored frame for `id`, so later resends carry the next leg of the handshake
+   * (PUBLISH → PUBREL) instead of a frame the client has already acknowledged.
+   *
+   * @param id - Packet identifier whose entry should be updated.
+   * @param packet - Replacement frame. Ignored when `id` has no entry.
+   */
+  public updatePacket(id: number, packet: Buffer) {
+    const entry = this.qosRetryMap.get(id);
+    if (entry?.packet) {
+      entry.packet = packet;
+    }
+  }
+}
+
+/**
+ * Per-connection MQTT control-plane logic: validates inbound packets, emits application events,
+ * and encodes outbound packets for one client.
+ *
+ * @remarks
+ * **Handler naming**
+ * - Server receives from client: `{packetType}Handle` (e.g. {@link MqttClient.connectHandle}, {@link MqttClient.publishHandle}).
+ * - Server sends to client: `handle{PacketType}` (e.g. {@link MqttClient.handleConnAck}, {@link MqttClient.handleDisconnect}, {@link MqttClient.handlePublish}).
+ *
+ * **QoS 1/2 recovery**
+ * Retry state lives on the connection: `publishQosRetry` resends outbound PUBLISH frames the
+ * client has not acknowledged, and `receiveQos2Retry` resends the PUBREC of an inbound QoS 2
+ * handshake until PUBREL arrives. Nothing is persisted, so an unacknowledged outbound message is
+ * not replayed after a reconnect — only resends on the still-open connection are covered.
+ */
+export class MqttClient {
+  /** Topic Alias id → topic name mapping for inbound PUBLISH (MQTT 5 Topic Alias). */
+  topicAliasNameMap: { [key: number]: string } = {};
+  /** Count of outstanding inbound QoS 1/2 publishes toward {@link IMqttOptions.receiveMaximum}. */
+  receiveCounter = 0;
+  /** MQTT Client Identifier assigned after CONNECT (or generated by the server). */
+  clientIdentifier = '';
+
+  /** Unique token per connection instance, used to distinguish old and new connections during cross-process session takeover. */
+  readonly connectionToken: string;
+
+  isDisconnect = false;
+  /** Whether enhanced authentication (AUTH exchange) is required for this connection. */
+  isAuth = false;
+  /** Authentication Method from CONNECT/AUTH properties when enhanced auth is in use. */
+  private authMethod?: string;
+  /** `false` while an AUTH challenge/response is still in progress; otherwise `true`. */
+  private authDone = true;
+  /** Parsed CONNECT packet for this session (flags, properties, will, keep-alive, etc.). */
+  public connData: IConnectData = {
+    header: {
+      packetType: PacketType.RESERVED,
+      packetFlags: 0,
+      remainingLength: 0,
+      protocolName: '',
+      protocolVersion: ProtocolVersion.V5,
+      keepAlive: 0,
+    },
+    connectFlags: {} as any,
+    properties: {},
+    payload: {
+      clientIdentifier: '',
+    },
+  };
+  /** Allocator for outbound server→client packet identifiers (PUBLISH / PUBREL), with TTL. */
+  packetIdentifierManager: ClientPacketIdentifierManager;
+  /** Resends unacknowledged outbound QoS 1/2 frames until ack, release, or the retry limit. */
+  readonly publishQosRetry: QosRetry = new QosRetry();
+  /** Resends the PUBREC of an inbound QoS 2 handshake until the client answers with PUBREL. */
+  readonly receiveQos2Retry: QosRetry = new QosRetry();
+  /** Keep-alive deadline as Unix seconds; refreshed on client activity (see Manager.ping). */
+  expire: number = 0;
+
+  /**
+   * Whether the Will Message should be published on close.
+   * Cleared to `false` on a normal DISCONNECT (reason code 0); stays `true` for abnormal disconnects.
+   */
+  private errorDisconnect = true;
+  /** Timer for a delayed will message; kept so it can be `.unref()`'d and cleared. */
+  private willTimer?: NodeJS.Timeout;
+  /**
+   * @param socket - Underlying transport used to read and write MQTT frames.
+   * @param clientManager - Broker-side registry for sessions, subscriptions, and identifiers.
+   * @param options - Feature flags and limits advertised in CONNACK and enforced on publish/subscribe.
+   */
+  constructor(
+    readonly socket: TSocket,
+    private readonly clientManager: Manager,
+    private readonly options: Required<IMqttOptions>,
+  ) {
+    this.packetIdentifierManager = new ClientPacketIdentifierManager(this.options.packetIdentifierTTL);
+    this.connectionToken = generateConnectionToken();
+  }
+  updateExpire(keepAlive?: number) {
+    if (keepAlive) {
+      this.expire = Date.now() + keepAlive * 1.5 * 1000;
+    } else if (this.connData.header.keepAlive) {
+      this.expire = Date.now() + this.connData.header.keepAlive * 1.5 * 1000;
+    }
+  }
+
+  /**
+   * Cancels all pending QoS 1/2 resend timers for this connection.
+   *
+   * @remarks
+   * Called when the connection is dropped so retry timers neither write to a closed
+   * socket nor keep the connection object alive after it has been removed.
+   */
+  public clearPendingRetries() {
+    this.publishQosRetry.clearPendingClient(this);
+    this.receiveQos2Retry.clearPendingClient(this);
+  }
+
+  /**
+   * Enforces that non-AUTH packets are rejected while an authentication exchange is in progress.
+   *
+   * @param data - Decoded packet header and payload envelope.
+   * @throws {@link DisconnectException} When AUTH is required but another packet type arrives.
+   */
+  public async commonHandle(data: PacketTypeData) {
+    if (!this.authDone && data.header.packetType !== PacketType.AUTH) {
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'AUTH exchange in progress.');
+    }
+  }
+  /**
+   * Sends a CONNACK to the client with negotiated limits and session presence.
+   *
+   * @param connData - CONNECT payload used for assigned client id and session flags.
+   * @param reasonCode - CONNACK reason code; defaults to success.
+   * @param reasonString - Optional MQTT 5 reason string.
+   * @remarks
+   * If `requestProblemInformation` is 0, user-facing properties must be omitted per spec (not fully applied here).
+   */
+  public async handleConnAck(connData: IConnectData, reasonCode?: ConnectAckReasonCode, reasonString?: string) {
+    const connAckData: IConnAckData = {
+      header: {
+        packetType: PacketType.CONNACK,
+        reserved: 0x00,
+        reasonCode: reasonCode ?? 0x00,
+      },
+      acknowledgeFlags: {
+        SessionPresent: false,
+      },
+      properties: {},
+    };
+
+    reasonString && (connAckData.properties.reasonString = reasonString);
+
+    if (this.connData.connectFlags.cleanStart) {
+      connAckData.acknowledgeFlags.SessionPresent = false;
+    } else {
+      // TODO [MQTT-3.2.2-2] If the Server accepts a connection with Clean Start set to 1, the Server MUST set Session Present to 0 in the CONNACK packet in addition to setting a 0x00 (Success) Reason Code in the CONNACK packet.
+      connAckData.acknowledgeFlags.SessionPresent = await this.clientManager.hasSession(this.connData.payload.clientIdentifier);
+    }
+
+    // TODO [MQTT-3.1.2-23] The Client and Server MUST store the Session State after the Network Connection is closed if the Session Expiry Interval is greater than 0.
+    connAckData.properties.sessionExpiryInterval = 0;
+
+    this.options.receiveMaximum !== mqttDefaultOptions.receiveMaximum && (connAckData.properties.receiveMaximum = this.options.receiveMaximum);
+    this.options.maximumQoS !== mqttDefaultOptions.maximumQoS && (connAckData.properties.maximumQoS = !!this.options.maximumQoS);
+    !this.options.retainAvailable && (connAckData.properties.retainAvailable = false);
+    this.options.maximumPacketSize !== mqttDefaultOptions.maximumPacketSize &&
+      (connAckData.properties.maximumPacketSize = this.options.maximumPacketSize);
+
+    // Server-assigned id when the client sent none (or it was generated in connectHandle).
+    !connData.payload.clientIdentifier && (connAckData.properties.assignedClientIdentifier = this.clientIdentifier);
+    this.options.topicAliasMaximum !== mqttDefaultOptions.topicAliasMaximum &&
+      (connAckData.properties.topicAliasMaximum = this.options.topicAliasMaximum);
+
+    !this.options.wildcardSubscriptionAvailable && (connAckData.properties.wildcardSubscriptionAvailable = false);
+    !this.options.subscriptionIdentifierAvailable && (connAckData.properties.subscriptionIdentifierAvailable = false);
+
+    // TODO [MQTT-4.8.2] Shared Subscriptions
+    // !this.options.sharedSubscriptionAvailable && (connAckData.properties.sharedSubscriptionAvailable = false);
+    connAckData.properties.sharedSubscriptionAvailable = false;
+
+    this.options.serverKeepAlive && (connAckData.properties.serverKeepAlive = this.options.serverKeepAlive);
+
+    if (!this.connData.properties.requestProblemInformation) {
+      // MQTT 5: only when Request Problem Information is 0 may user-facing properties be omitted (§3.1.2.11.7).
+    }
+
+    const connPacket = encodePacket(connAckData, this.connData.header.protocolVersion);
+    this.socket.write(connPacket);
+    if (reasonCode === ConnectAckReasonCode.UnsupportedProtocolVersion) {
+      this.socket.end();
+    }
+  }
+  /**
+   * Handles an inbound CONNECT: validates options, may start AUTH, registers the client, and sends CONNACK.
+   *
+   * @param connData - Parsed CONNECT packet.
+   * @param emitAsync - Optional hook to await application `connect` handler; failure aborts with disconnect.
+   * @throws {@link ConnectAckException} When client id is invalid and auto-assignment is disabled.
+   * @throws {@link DisconnectException} On unsupported protocol version or failed `emitAsync`.
+   */
+  public async connectHandle(connData: IConnectData, emitAsync?: TMqttClientEmitAsync) {
+    this.connData = connData;
+    // [MQTT-3.1.3-6] A Server MAY allow a Client to supply a ClientID that has a length of zero bytes, however if it does so the Server MUST treat this as a special case and assign a unique ClientID to that Client.
+    if (!connData.payload.clientIdentifier) {
+      if (this.options.automaticallyAssignedClientIdentifier !== false) {
+        this.clientIdentifier = generateClientIdentifier();
+      } else {
+        throw new ConnectAckException(ConnectAckReasonCode.ClientIdentifierNotValid, 'Client Identifier not valid');
+      }
+    } else {
+      this.clientIdentifier = connData.payload.clientIdentifier;
+    }
+    // check if protocol version is supported
+    if (!this.options.protocolVersions?.includes(connData.header.protocolVersion)) {
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'Unsupported Protocol Version.');
+    }
+
+    if (
+      this.connData.properties.authenticationMethod &&
+      !['none', 'null', 'undefined', '0', 'off', 'disable', 'no', 'n/a', 'anonymous', 'basic', 'empty', 'noauth', 'skip'].includes(
+        this.connData.properties.authenticationMethod,
+      )
+    ) {
+      this.isAuth = true;
+      this.authDone = false;
+      this.authMethod = this.connData.properties.authenticationMethod;
+    }
+
+    this.packetIdentifierManager.receiveMaximum = Math.min(
+      this.connData.properties.receiveMaximum ?? this.options.receiveMaximum,
+      this.options.receiveMaximum,
+    );
+    if (emitAsync && !(await emitAsync(this.socket, 'connect', this.connData, this, this.clientManager))) {
+      throw new DisconnectException(DisconnectReasonCode.UnspecifiedError, 'Client connection failed.');
+    }
+
+    // [MQTT-3.1.2.4] clear subscribe data if clean start is true
+    if (this.connData.connectFlags.cleanStart) {
+      await this.clientManager.clearSession(this.clientIdentifier);
+      this.receiveCounter = 0;
+    }
+
+    // [MQTT-3.1.4-3] If the ClientID represents a Client already connected to the Server, the Server sends a DISCONNECT packet to the existing Client with Reason Code of 0x8E (Session taken over) as described in section 4.13 and MUST close the Network Connection of the existing Client [MQTT-3.1.4-3].
+    const existingClient = this.clientManager.clientIdentifierManager.getClient(this.clientIdentifier);
+    if (existingClient && existingClient !== this && existingClient.clientIdentifier === this.clientIdentifier) {
+      this.clientManager.disconnect(existingClient.clientIdentifier, {
+        header: {
+          packetType: PacketType.DISCONNECT,
+          received: 0,
+          reasonCode: DisconnectReasonCode.SessionTakenOver,
+        },
+        properties: {},
+      });
+    }
+    if (this.connData.header.keepAlive) {
+      this.socket.setTimeout(this.connData.header.keepAlive * 1000);
+      this.socket.on('timeout', () => {
+        if (Date.now() > this.expire) {
+          this.handleDisconnect({
+            header: {
+              packetType: PacketType.DISCONNECT,
+              received: 0,
+              remainingLength: 0,
+              reasonCode: DisconnectReasonCode.NormalDisconnection,
+            },
+            properties: {},
+          });
+        } else {
+          this.socket.setTimeout(this.connData.header.keepAlive * 1000);
+        }
+      });
+    }
+    await this.clientManager.connect(this.clientIdentifier, this);
+    await this.handleConnAck(this.connData);
+    // TODO [MQTT-4.1.0] Session resume on Clean Start 0: re-send unacknowledged QoS 1/2 messages
+    // and finish any outstanding PUBREL. The replay call was dropped with the session-recovery
+    // refactor, so this branch is currently empty.
+    if (!this.connData.connectFlags.cleanStart) {
+    }
+    if (this.isAuth && !this.authDone) {
+      await this.handleAuthPacket(AuthenticateReasonCode.ContinueAuthentication, this.authMethod, this.connData.properties.authenticationData);
+    }
+  }
+  /**
+   * Handles an inbound DISCONNECT from the client and closes the transport.
+   *
+   * @param disconnectData - Parsed DISCONNECT packet.
+   */
+  public async disconnectHandle(disconnectData: IDisconnectData) {
+    if (disconnectData.header.reasonCode === 0) {
+      this.errorDisconnect = false;
+    }
+    this.socket.end();
+  }
+  /**
+   * Sends a server-initiated DISCONNECT and closes the connection.
+   *
+   * @param reasonCode - DISCONNECT reason code.
+   * @param properties - MQTT 5 disconnect properties.
+   */
+  public async handleDisconnect(disconnectData: IDisconnectData) {
+    const disconnectPacket = encodePacket(disconnectData, this.connData.header.protocolVersion);
+    this.socket.end(Buffer.from(disconnectPacket));
+  }
+  /**
+   * Responds to PINGREQ with PINGRESP and refreshes liveness in the manager.
+   */
+  public async pingReqHandle() {
+    this.updateExpire(this.connData.header.keepAlive);
+    this.handlePingResp();
+  }
+
+  public async handlePingResp() {
+    this.socket.write(Buffer.from([PacketType.PINGRESP << 4, 0]));
+  }
+
+  /**
+   * Schedules or sends the will message after an abnormal disconnect (subject to will delay and expiry).
+   *
+   * @remarks
+   * TODO: Full retained-will lifecycle (store when no subscribers, expiry, distinction vs ordinary retain) is not implemented here.
+   */
+  public async publishWillMessage(emitAsync: TMqttClientEmitAsync) {
+    if (this.connData.connectFlags.willFlag && this.errorDisconnect) {
+      const willPayload = this.connData.payload.willPayload;
+      const willData: IPublishData = {
+        header: {
+          packetType: PacketType.PUBLISH,
+          dupFlag: false,
+          qosLevel: this.connData.connectFlags.willQoS,
+          retain: this.connData.connectFlags.willRetain,
+          remainingLength: 0,
+          topicName: this.connData.payload.willTopic || '',
+        },
+        properties: this.connData.payload.willProperties ?? {},
+        payload: willPayload ?? Buffer.alloc(0),
+      };
+      const delayInterval = Math.min(this.connData.payload.willProperties?.willDelayInterval ?? 0, MAX_WILL_DELAY_INTERVAL);
+      const messageExpiry = this.connData.payload.willProperties?.messageExpiryInterval ?? 0;
+      const disconnectedAt = Date.now();
+      if (delayInterval > 0) {
+        // Fire-and-forget so the will delay does not block the disconnect path.
+        // `.unref()` keeps a pending will from holding the process open after shutdown.
+        this.willTimer = setTimeout(() => {
+          this.willTimer = undefined;
+          if (this.clientIdentifier && !this.clientManager.clientIdentifierManager.getClient(this.clientIdentifier)) {
+            if (messageExpiry > 0 && Date.now() > disconnectedAt + messageExpiry * 1000) {
+              return;
+            }
+            this.sendWillMessage(willData, emitAsync);
+          }
+        }, delayInterval * 1000);
+        this.willTimer.unref();
+      } else {
+        if (messageExpiry > 0 && Date.now() > disconnectedAt + messageExpiry * 1000) {
+          return;
+        }
+        this.sendWillMessage(willData, emitAsync);
+      }
+    }
+  }
+  /**
+   * Publishes the will through the broker with a new packet identifier when QoS is not QoS0.
+   *
+   * @param willData - Will as a normal outbound publish.
+   */
+  private sendWillMessage(willData: IPublishData, emitAsync: TMqttClientEmitAsync) {
+    if (this.connData.connectFlags.willQoS > QoSType.QoS0) {
+      willData.header.packetIdentifier = this.packetIdentifierManager.newPacketIdentifier();
+      if (willData.header.packetIdentifier === 0) {
+        willData.header.qosLevel = QoSType.QoS0;
+      }
+    }
+    this.publishHandle(willData, emitAsync);
+  }
+  /**
+   * Validates and forwards an inbound PUBLISH from the client; sends PUBACK/PUBREC as required.
+   *
+   * @param pubData - Parsed PUBLISH from the client.
+   * @param emitAsync - Application hook for `publish`; if it returns false, processing stops before fan-out.
+   * @returns `false` when `emitAsync` rejects delivery; otherwise void.
+   * @throws {@link DisconnectException} On policy violations (QoS, receive max, packet size, topic alias, retain).
+   * @throws {@link PubAckException} / {@link PubRecException} When mapped from application errors for QoS 1/2.
+   */
+  public async publishHandle(pubData: IPublishData, emitAsync: TMqttClientEmitAsync) {
+    try {
+      // [MQTT-3.1.2-4] If the Remaining Length is greater than the Maximum Packet Size, the Server MUST disconnect the Client with a Disconnect packet and Reason Code 0x15 (Packet Too Large)
+      if ((pubData.header.remainingLength ?? 0) > this.options.maximumPacketSize) {
+        throw new DisconnectException(
+          DisconnectReasonCode.PacketTooLarge,
+          'The Server has received a Control Packet during the current Connection that contains more data than it was willing to process.',
+        );
+      }
+
+      if (pubData.properties.topicAlias && pubData.properties.topicAlias > (this.options.topicAliasMaximum ?? 0xffff)) {
+        throw new DisconnectException(
+          DisconnectReasonCode.TopicAliasInvalid,
+          'A Client MUST accept all Topic Alias values greater than 0 and less than or equal to the Topic Alias Maximum value that it sent in the CONNECT packet.',
+        );
+      }
+
+      if (pubData.header.qosLevel > (this.options.maximumQoS ?? QoSType.QoS0)) {
+        throw new DisconnectException(
+          DisconnectReasonCode.QoSNotSupported,
+          'The Client specified a QoS greater than the QoS specified in a Maximum QoS in the CONNACK.',
+        );
+      }
+
+      if (pubData.header.qosLevel > QoSType.QoS0) {
+        this.receiveCounter++;
+        if (this.receiveCounter > (this.connData.properties.receiveMaximum ?? 0xffff)) {
+          throw new DisconnectException(
+            DisconnectReasonCode.ReceiveMaximumExceeded,
+            'The Client MUST NOT send more than Receive Maximum QoS 1 and QoS 2 PUBLISH packets for which it has not received PUBACK, PUBCOMP, or PUBREC with a Reason Code of 128 or greater from the Server.',
+          );
+        }
+      }
+
+      if (pubData.properties.topicAlias) {
+        if (this.options.topicAliasMaximum && pubData.properties.topicAlias > (this.options.topicAliasMaximum ?? 0xffff)) {
+          throw new DisconnectException(
+            DisconnectReasonCode.TopicAliasInvalid,
+            'The Client or Server has received a PUBLISH packet containing a Topic Alias which is greater than the Maximum Topic Alias it sent in the CONNECT or CONNACK packet.',
+          );
+        }
+        if (pubData.header.topicName) {
+          this.topicAliasNameMap[pubData.properties.topicAlias] = pubData.header.topicName;
+        } else {
+          pubData.header.topicName = this.topicAliasNameMap[pubData.properties.topicAlias];
+        }
+      }
+
+      if (!(await emitAsync(this.socket, 'publish', pubData, this, this.clientManager))) {
+        return false;
+      }
+      if (pubData.properties.messageExpiryInterval && pubData.properties.messageExpiryInterval > 0) {
+        pubData.properties.messageExpiryTimestamp = Date.now() / 1000 + pubData.properties.messageExpiryInterval;
+      }
+
+      // [MQTT-3.3.1-5] If the RETAIN flag is set to 1 in a PUBLISH packet sent by a Client to a Server, the Server MUST replace any existing retained message for this topic and store the Application Message.
+      if (pubData.header.retain) {
+        if (this.options.retainAvailable === false) {
+          throw new DisconnectException(
+            DisconnectReasonCode.RetainNotSupported,
+            'The Server does not support retained messages, and Will Retain was set to 1.',
+          );
+        }
+        if (pubData.payload) {
+          this.clientManager.addRetainMessage(pubData.header.topicName, pubData, this.options.retainTTL);
+        } else {
+          // [MQTT-3.3.1-6]  If the Payload contains zero bytes it is processed normally by the Server but any retained message with the same topic name MUST be removed and any future subscribers for the topic will not receive a retained message.
+          this.clientManager.deleteRetainMessage(pubData.header.topicName);
+        }
+      }
+    } catch (err: any) {
+      // For inbound QoS2, surface application errors as PUBREC reason codes (not PUBACK).
+      if (err instanceof PubAckException) {
+        if (pubData.header.qosLevel === QoSType.QoS2) {
+          throw new PubRecException(err.code as any, err.code as any);
+        } else {
+          throw err;
+        }
+      } else {
+        throw err;
+      }
+    }
+    delete pubData.properties.topicAlias;
+    this.clientManager.publish(this.clientIdentifier, pubData.header.topicName, pubData);
+    if (pubData.header.qosLevel === QoSType.QoS1) {
+      const pubAckData: IPubAckData = {
+        header: {
+          packetType: PacketType.PUBACK,
+          packetIdentifier: pubData.header.packetIdentifier ?? 0,
+          received: 0x00,
+          reasonCode: 0x00,
+        },
+        properties: {},
+      };
+      await this.handlePubAck(pubAckData);
+      this.receiveCounter--;
+    } else if (pubData.header.qosLevel === QoSType.QoS2) {
+      const pubRecData: IPubRecData = {
+        header: {
+          packetType: PacketType.PUBREC,
+          packetIdentifier: pubData.header.packetIdentifier ?? 0,
+          received: 0x00,
+          reasonCode: 0x00,
+        },
+        properties: {},
+      };
+      await this.handlePubRec(pubRecData);
+    }
+  }
+  /**
+   * Encodes and sends a PUBLISH to a client, registering outbound QoS state for resends.
+   *
+   * @param pubData - Publish to deliver; mutated in place (a packet identifier is allocated for
+   * QoS 1/2, and `retain` is always cleared).
+   * @remarks
+   * QoS is downgraded to QoS 0 when the send quota is exhausted, per [MQTT-4.9.0-2]. Registering
+   * without `releaseIdentifier` means an outbound identifier whose retries ran out stays
+   * allocated in {@link MqttClient.packetIdentifierManager} until its TTL expires.
+   */
+  public async handlePublish(pubData: IPublishData, retain = false) {
+    try {
+      let targetPacketIdentifier: number | undefined;
+      if (pubData.properties.messageExpiryInterval && pubData.properties.messageExpiryInterval > 0 && pubData.properties.messageExpiryTimestamp) {
+        pubData.properties.messageExpiryInterval = Math.round(pubData.properties.messageExpiryTimestamp - Date.now() / 1000);
+      }
+      if (pubData.header.qosLevel > QoSType.QoS0) {
+        pubData.header.packetIdentifier = this.packetIdentifierManager.newPacketIdentifier();
+
+        // [MQTT-4.9.0-2] If the send quota reaches zero, the Client or Server MUST NOT send any more PUBLISH packets with QoS > 0.
+        if (pubData.header.packetIdentifier === 0) {
+          pubData.header.qosLevel = QoSType.QoS0;
+        }
+        targetPacketIdentifier = pubData.header.packetIdentifier;
+        pubData.header.dupFlag = false;
+      }
+      pubData.header.retain = retain;
+      const pubPacket = encodePacket(pubData, this.connData.header.protocolVersion);
+      const remainingLength = decodeVariableByteInteger({ buffer: pubPacket, index: 1 });
+      if (remainingLength > (this.connData?.properties?.receiveMaximum ?? this.options.maximumPacketSize)) {
+        return;
+      }
+      this.socket.write(pubPacket);
+      if (targetPacketIdentifier) {
+        this.publishQosRetry.registerPendingPacket(this, targetPacketIdentifier, pubPacket);
+      }
+    } catch (err) {
+      console.log(err);
+    }
+  }
+  /**
+   * Sends PUBACK to the connected client.
+   *
+   * @param pubAckData - PUBACK payload and reason.
+   */
+  async handlePubAck(pubAckData: IPubAckData) {
+    const pubAckPacket = encodePacket(pubAckData, this.connData.header.protocolVersion);
+    this.socket.write(pubAckPacket);
+  }
+  /**
+   * Sends PUBREC to the connected client.
+   *
+   * @param pubRecData - PUBREC payload and reason.
+   */
+  async handlePubRec(pubRecData: IPubRecData) {
+    const pubRecPacket = encodePacket(pubRecData, this.connData.header.protocolVersion);
+    this.receiveQos2Retry.registerPendingPacket(this, pubRecData.header.packetIdentifier, pubRecPacket);
+    this.socket.write(pubRecPacket);
+  }
+  /**
+   * Processes an inbound PUBACK from the client: validates id, frees identifier, drops outbound queue entry.
+   *
+   * @param pubAckData - Client PUBACK.
+   * @throws {@link DisconnectException} If the packet identifier is unknown.
+   */
+  public async pubAckHandle(pubAckData: IPubAckData) {
+    if (!this.packetIdentifierManager.has(pubAckData.header.packetIdentifier)) {
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'PUBACK contained unknown packet identifier!');
+    }
+    this.publishQosRetry.clearPendingPacket(this, pubAckData.header.packetIdentifier, true);
+  }
+  /**
+   * Finishes inbound QoS 2 after PUBREL: stops resending the PUBREC, frees the receive quota slot,
+   * sends PUBCOMP.
+   *
+   * @param pubRelData - Client PUBREL (same id as PUBREC).
+   */
+  public async pubRelHandle(pubRelData: IPubRelData) {
+    this.receiveQos2Retry.clearPendingPacket(this, pubRelData.header.packetIdentifier);
+    this.receiveCounter = Math.max(0, this.receiveCounter - 1);
+    await this.handlePubComp(pubRelData as any);
+  }
+  /**
+   * Sends PUBCOMP to the connected client (MQTT 5 includes property length when applicable).
+   *
+   * @param pubCompData - Packet id and reason for PUBCOMP.
+   */
+  async handlePubComp(pubCompData: IPubCompData) {
+    const properties = new EncoderProperties();
+    const compPacket = Buffer.from([
+      PacketType.PUBCOMP << 4,
+      ...encodeVariableByteInteger(3 + (this.connData.header.protocolVersion === ProtocolVersion.V5 ? properties.length : 0)),
+      ...encodeTwoByteInteger(pubCompData.header.packetIdentifier),
+      PubCompReasonCode.Success,
+      ...(this.connData.header.protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
+    ]);
+    this.socket.write(compPacket);
+  }
+  /**
+   * Handles inbound PUBREC from the client: transitions outbound queue to pubrel and sends PUBREL.
+   *
+   * @param pubRecData - Client PUBREC for a server-originated publish.
+   * @throws {@link DisconnectException} If the packet identifier is unknown.
+   */
+  public async pubRecHandle(pubRecData: IPubRecData) {
+    if (!this.packetIdentifierManager.has(pubRecData.header.packetIdentifier)) {
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'PUBREC contained unknown packet identifier!');
+    }
+    await this.handlePubRel(pubRecData);
+  }
+  /**
+   * Encodes PUBREL with flags bit 1 set and updates pending-packet tracking to the PUBREL frame.
+   *
+   * @param pubRecData - Uses packet identifier from the PUBREC leg.
+   */
+  private async handlePubRel(pubRecData: IPubRecData) {
+    const properties = new EncoderProperties();
+    const pubRelPacket = Buffer.from([
+      (PacketType.PUBREL << 4) | 0x02,
+      ...encodeVariableByteInteger(3 + properties.length),
+      ...encodeTwoByteInteger(pubRecData.header.packetIdentifier),
+      PubCompReasonCode.Success,
+      ...properties.buffer,
+    ]);
+    // [MQTT-4.3.3-6] MUST NOT re-send the PUBLISH once it has sent the corresponding PUBREL packet.
+    this.publishQosRetry.updatePacket(pubRecData.header.packetIdentifier, pubRelPacket);
+    this.socket.write(pubRelPacket);
+  }
+  /**
+   * Handles inbound PUBCOMP: frees packet identifier and removes outbound queue entry.
+   *
+   * @param pubCompData - Client PUBCOMP.
+   * @throws {@link DisconnectException} If the packet identifier is unknown.
+   */
+  public async pubCompHandle(pubCompData: IPubCompData) {
+    if (!this.packetIdentifierManager.has(pubCompData.header.packetIdentifier)) {
+      throw new DisconnectException(DisconnectReasonCode.ProtocolError, 'PUBCOMP contained unknown packet identifier!');
+    }
+    this.publishQosRetry.clearPendingPacket(this, pubCompData.header.packetIdentifier, true);
+  }
+  /**
+   * Applies SUBSCRIBE: validates options, may deliver retained messages, registers subscriptions, sends SUBACK.
+   *
+   * @param subData - Parsed SUBSCRIBE from the client.
+   * @throws {@link DisconnectException} When subscription identifiers are disabled but present, or on other policy errors from callees.
+   */
+  public async subscribeHandle(subData: ISubscribeData) {
+    if (this.options.subscriptionIdentifierAvailable === false) {
+      throw new DisconnectException(DisconnectReasonCode.SubscriptionIdentifiersNotSupported, 'Subscription Identifiers not supported.');
+    }
+    const payloads = subData.payloads?.length
+      ? subData.payloads
+      : [
+          {
+            topicFilter: subData.payload,
+            options: subData.options,
+          },
+        ];
+    const reasonCodes: SubscribeAckReasonCode[] = [];
+    for (const entry of payloads) {
+      let topicFilter = entry.topicFilter;
+      const options = entry.options;
+      let sharedGroup: string | undefined;
+      if (topicFilter.startsWith('$share/')) {
+        if (this.options.sharedSubscriptionAvailable === false) {
+          reasonCodes.push(SubscribeAckReasonCode.SharedSubscriptionsNotSupported);
+          continue;
+        }
+        const match = /^\$share\/([^/]+)\/(.+)$/.exec(topicFilter);
+        if (!match) {
+          reasonCodes.push(SubscribeAckReasonCode.TopicFilterInvalid);
+          continue;
+        }
+        sharedGroup = match[1];
+        topicFilter = match[2];
+      }
+      if (!this.options.wildcardSubscriptionAvailable && isWildcardTopic(topicFilter)) {
+        reasonCodes.push(SubscribeAckReasonCode.WildcardSubscriptionsNotSupported);
+        continue;
+      }
+      const topic = verifyTopic(topicFilter);
+      if (!topic) {
+        reasonCodes.push(SubscribeAckReasonCode.TopicFilterInvalid);
+        continue;
+      }
+      if (
+        this.options.retainAvailable !== false &&
+        (options.retainHandling == 0 || (options.retainHandling == 1 && !(await this.clientManager.isSubscribe(this.clientIdentifier, topicFilter))))
+      ) {
+        await this.clientManager.matchRetainMessage(topicFilter, async (data) => {
+          data.header.qosLevel = Math.min(data.header.qosLevel, options.qos);
+          await this.handlePublish(data, true);
+        });
+      }
+      await this.clientManager.subscribe(this.clientIdentifier, topicFilter, {
+        qos: options.qos,
+        date: Date.now(),
+        subscriptionIdentifier: subData.properties.subscriptionIdentifier,
+        noLocal: options.noLocal,
+        retainAsPublished: options.retainAsPublished,
+        protocolVersion: this.connData.header.protocolVersion,
+        sharedGroup,
+      });
+      reasonCodes.push(options.qos as unknown as SubscribeAckReasonCode);
+    }
+    const subAckData: ISubAckData = {
+      header: {
+        packetType: PacketType.SUBACK,
+        retain: 0x00,
+        packetIdentifier: subData.header.packetIdentifier,
+      },
+      properties: {},
+      reasonCode: reasonCodes[0] ?? SubscribeAckReasonCode.UnspecifiedError,
+      reasonCodes,
+    };
+    this.handleSubAck(subAckData);
+  }
+  /**
+   * Sends SUBACK to the connected client.
+   *
+   * @param subAckData - Per-subscription reason codes and packet id.
+   */
+  public async handleSubAck(subAckData: ISubAckData) {
+    const subAckPacket = encodePacket(subAckData, this.connData.header.protocolVersion);
+    this.socket.write(subAckPacket);
+  }
+  /**
+   * Handles UNSUBSCRIBE: removes subscriptions and sends UNSUBACK with per-topic reason codes.
+   *
+   * @param unsubscribeData - Parsed UNSUBSCRIBE from the client.
+   */
+  public async unsubscribeHandle(unsubscribeData: IUnsubscribeData) {
+    const payloads = unsubscribeData.payloads?.length ? unsubscribeData.payloads : [unsubscribeData.payload];
+    const reasonCodes: number[] = [];
+    for (const topicFilter of payloads) {
+      const topic = verifyTopic(topicFilter);
+      if (!topic) {
+        reasonCodes.push(SubscribeAckReasonCode.TopicFilterInvalid);
+        continue;
+      }
+      await this.clientManager.unsubscribe(this.clientIdentifier, topicFilter);
+      reasonCodes.push(UnsubscribeAckReasonCode.Success);
+    }
+    this.handleUnsubscribeAck(unsubscribeData, this.connData.header.protocolVersion, reasonCodes);
+  }
+  /**
+   * Encodes and sends UNSUBACK for a given unsubscribe request.
+   *
+   * @param unsubscribeData - Original UNSUBSCRIBE (for packet identifier).
+   * @param protocolVersion - MQTT protocol version (affects property encoding).
+   * @param reasonCodes - One reason byte per topic filter; defaults to success.
+   */
+  public async handleUnsubscribeAck(
+    unsubscribeData: IUnsubscribeData,
+    protocolVersion: ProtocolVersion,
+    reasonCodes: number[] = [UnsubscribeAckReasonCode.Success],
+  ) {
+    let remainingLength = reasonCodes.length;
+    const properties = new EncoderProperties();
+    remainingLength += (this.connData.header.protocolVersion === ProtocolVersion.V5 ? properties.length : 0) + 2;
+    const unsubscribePacket = Buffer.from([
+      PacketType.UNSUBACK << 4,
+      ...encodeVariableByteInteger(remainingLength),
+      ...encodeTwoByteInteger(unsubscribeData.header.packetIdentifier),
+      ...(protocolVersion === ProtocolVersion.V5 ? properties.buffer : []),
+      ...reasonCodes,
+    ]);
+    this.socket.write(unsubscribePacket);
+  }
+  /**
+   * Sends an AUTH control packet to continue or complete extended authentication.
+   *
+   * @param reasonCode - AUTH reason (e.g. continue or success).
+   * @param authenticationMethod - Optional method name echo.
+   * @param authenticationData - Optional opaque challenge/response payload.
+   */
+  private async handleAuthPacket(reasonCode: AuthenticateReasonCode, authenticationMethod?: string, authenticationData?: string) {
+    const properties = new EncoderProperties();
+    if (authenticationMethod) {
+      properties.push({ authenticationMethod });
+    }
+    if (authenticationData) {
+      properties.push({ authenticationData });
+    }
+    const packet = Buffer.from([PacketType.AUTH << 4, ...encodeVariableByteInteger(1 + properties.length), reasonCode, ...properties.buffer]);
+    this.socket.write(packet);
+  }
+  /**
+   * Handles an inbound AUTH from the client during extended authentication.
+   *
+   * @param authData - Parsed AUTH packet.
+   * @throws {@link AuthenticateException} When AUTH is not enabled or method mismatches.
+   */
+  public async authHandle(authData: IAuthData) {
+    if (!this.isAuth) {
+      throw new AuthenticateException(AuthenticateReasonCode.Reauthenticate, 'AUTH is not enabled for this connection.');
+    }
+    if (authData.properties.authenticationMethod && this.authMethod && authData.properties.authenticationMethod !== this.authMethod) {
+      throw new AuthenticateException(AuthenticateReasonCode.Reauthenticate, 'Authentication method mismatch.');
+    }
+    this.authDone = authData.header.reasonCode === AuthenticateReasonCode.Success;
+    if (!this.authDone) {
+      await this.handleAuthPacket(AuthenticateReasonCode.ContinueAuthentication, this.authMethod, authData.properties.authenticationData);
+    }
+  }
+}
