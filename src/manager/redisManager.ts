@@ -9,6 +9,12 @@ import { decodeUtf8String, encodeUTF8String } from '../dataRepresentations';
 
 const CLIENT_TAKEOVER_CHANNEL = 'mqtt-client-takeover';
 const CLIENT_OWNER_PREFIX = 'client-owner:';
+/** Session lease (seconds) while a client is connected; renewed on a timer so idle clients are kept alive. */
+const SESSION_LEASE_SECONDS = 24 * 60 * 60;
+/** Interval between lease renewals. One third of the lease leaves ample margin if a renewal is missed. */
+const SESSION_LEASE_RENEW_INTERVAL_MS = 8 * 60 * 60 * 1000;
+/** Number of clients whose leases are renewed per pipeline execution, so a large fleet renews in a handful of round trips. */
+const LEASE_RENEW_BATCH_SIZE = 500;
 
 class RedisSessionManager {
   private readonly redis: Redis;
@@ -105,6 +111,33 @@ class RedisSessionManager {
     }
     await this.redis.hset(this.sessionKey(identifier), this.sessionMarker, '1');
     this.sessionCache.connect(identifier, 0, true);
+
+    // Arm the liveness lease so a crash without a graceful disconnect still cleans this session up.
+    await this.refreshLease(identifier);
+  }
+
+  /**
+   * Sets the session key's liveness lease so that a server crash without a graceful
+   * disconnect lets Redis expire the session automatically after {@link SESSION_LEASE_SECONDS}.
+   */
+  async refreshLease(identifier: TIdentifier): Promise<void> {
+    await this.redis.expire(this.sessionKey(identifier), SESSION_LEASE_SECONDS);
+  }
+
+  /**
+   * Renews the liveness lease for many sessions in a single pipeline, avoiding one round trip per
+   * client when a large number of connections renew at once.
+   */
+  async refreshLeases(identifiers: TIdentifier[]): Promise<void> {
+    if (identifiers.length === 0) {
+      return;
+    }
+
+    const pipeline = this.redis.pipeline();
+    for (const identifier of identifiers) {
+      pipeline.expire(this.sessionKey(identifier), SESSION_LEASE_SECONDS);
+    }
+    await pipeline.exec();
   }
 
   /**
@@ -371,6 +404,9 @@ class ClientTakeoverManager {
   private readonly redis: Redis;
   private readonly subRedis: Redis;
 
+  private readonly expireIfOwnedScript =
+    "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], ARGV[2]) else return 0 end";
+
   constructor(redis: Redis, subRedis: Redis) {
     this.redis = redis;
     this.subRedis = subRedis;
@@ -383,7 +419,7 @@ class ClientTakeoverManager {
 
   /** Atomically claims ownership: last writer wins, matching MQTT "new connection takes over old connection" semantics. */
   async claim(identifier: TIdentifier, token: string): Promise<void> {
-    await this.redis.set(this.ownerKey(identifier), token);
+    await this.redis.set(this.ownerKey(identifier), token, 'EX', SESSION_LEASE_SECONDS);
   }
 
   /** Releases ownership: deletes the key only if still owned by the caller, avoiding deleting a new owner's key. */
@@ -394,6 +430,27 @@ class ClientTakeoverManager {
       this.ownerKey(identifier),
       token,
     );
+  }
+
+  /** Renews the ownership lease only while the key is still owned by `token`, so a crash leaves no orphaned owner key. */
+  async refreshLease(identifier: TIdentifier, token: string): Promise<void> {
+    await this.redis.eval(this.expireIfOwnedScript, 1, this.ownerKey(identifier), token, SESSION_LEASE_SECONDS);
+  }
+
+  /**
+   * Renews the ownership lease for many clients in a single pipeline, still guarded by the token so
+   * a client that no longer owns the key cannot keep it alive.
+   */
+  async refreshLeases(owners: { identifier: TIdentifier; token: string }[]): Promise<void> {
+    if (owners.length === 0) {
+      return;
+    }
+
+    const pipeline = this.redis.pipeline();
+    for (const { identifier, token } of owners) {
+      pipeline.eval(this.expireIfOwnedScript, 1, this.ownerKey(identifier), token, SESSION_LEASE_SECONDS);
+    }
+    await pipeline.exec();
   }
 
   /** Returns the current owner token, or null if there is none. */
@@ -438,6 +495,7 @@ export class RedisManager extends Manager {
 
   private pubRedis: Redis;
   private subRedis: Redis;
+  private readonly leaseRenewTimer: NodeJS.Timeout;
 
   constructor(options: RedisOptions) {
     super();
@@ -450,6 +508,13 @@ export class RedisManager extends Manager {
 
     this.messageManager.message(this.broadcastMessage.bind(this));
     this.clientTakeoverManager.message(this.handleRemoteTakeover.bind(this));
+
+    // Renew the session lease for every connected client on a fixed timer instead of on packet
+    // arrival, so an idle client that stops sending packets is not prematurely evicted. If this
+    // process crashes without a graceful disconnect, Redis expires the orphaned session once the
+    // 24-hour lease lapses.
+    this.leaseRenewTimer = setInterval(() => this.renewLeases(), SESSION_LEASE_RENEW_INTERVAL_MS);
+    this.leaseRenewTimer.unref();
   }
 
   /**
@@ -487,6 +552,16 @@ export class RedisManager extends Manager {
 
     for (const [topic, _data] of subscription) {
       this.topicManager.subscribe(topic, identifier);
+    }
+  }
+
+  /** Refreshes the session and ownership leases for every currently-connected client. */
+  private renewLeases(): void {
+    const clients = [...this.clientIdentifierManager.clientValues()];
+    for (let start = 0; start < clients.length; start += LEASE_RENEW_BATCH_SIZE) {
+      const batch = clients.slice(start, start + LEASE_RENEW_BATCH_SIZE);
+      void this.sessionStore.refreshLeases(batch.map((client) => client.clientIdentifier));
+      void this.clientTakeoverManager.refreshLeases(batch.map((client) => ({ identifier: client.clientIdentifier, token: client.connectionToken })));
     }
   }
 
@@ -555,6 +630,13 @@ export class RedisManager extends Manager {
 
   public async hasSession(identifier: TIdentifier): Promise<boolean> {
     return this.sessionStore.has(identifier);
+  }
+
+  /**
+   * Stops the session-lease renewal timer. Redis connections are closed by their owner.
+   */
+  public async dispose(): Promise<void> {
+    clearInterval(this.leaseRenewTimer);
   }
 
   public async addRetainMessage(topic: TTopic, pubData: IPublishData, retainTTL?: number): Promise<void> {
