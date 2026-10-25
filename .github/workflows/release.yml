@@ -1,0 +1,44 @@
+name: Release
+
+# 与 publish.yml 一样，由推送 vX.Y.Z 标签触发。
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write # 创建 Release + 回写 CHANGELOG.md 提交
+
+jobs:
+  changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: main # 在 main 上工作，便于回写 CHANGELOG.md
+          fetch-depth: 0 # 拉全量历史与 tag，git-cliff 需要
+          fetch-tags: true
+
+      - name: Generate CHANGELOG.md and create release
+        uses: orhun/git-cliff-action@v4
+        id: git-cliff
+        with:
+          config: cliff.toml
+          args: --verbose
+        env:
+          OUTPUT: CHANGELOG.md
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Commit CHANGELOG.md
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "CHANGELOG.md unchanged; nothing to commit."
+          else
+            git commit -m "chore(release): update changelog for ${{ github.ref_name }}"
+            git push origin main
+          fi

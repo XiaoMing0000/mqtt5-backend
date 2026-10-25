@@ -1,4 +1,4 @@
-import { context, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
+import { context, SpanKind, SpanStatusCode, trace, type Tracer } from '@opentelemetry/api';
 import { InstrumentationBase } from '@opentelemetry/instrumentation';
 import { MqttClient } from '../mqttClient';
 
@@ -11,6 +11,31 @@ const ATTR_MQTT_PROTOCOL_VERSION = 'mqtt.protocol_version';
 const ATTR_MQTT_REASON_CODE = 'mqtt.reason_code';
 
 type SpanAttributes = Record<string, string | number | boolean>;
+
+/** Create a span that wraps an MqttClient handler and keeps the active context. */
+function withSpan<T>(tracer: Tracer, name: string, kind: SpanKind, attributes: SpanAttributes, fn: () => Promise<T>): Promise<T> {
+  const span = tracer.startSpan(name, { kind });
+  span.setAttribute(ATTR_MESSAGING_SYSTEM, 'mqtt');
+  span.setAttributes(attributes);
+  // Make the MQTT span the active context so ioredis calls initiated inside the
+  // handler can treat it as the parent span (matching ioredis instrumentation's
+  // default `requireParentSpan: true`).
+  const activeContext = trace.setSpan(context.active(), span);
+  return context
+    .with(activeContext, () => fn())
+    .then(
+      (result) => {
+        span.end();
+        return result;
+      },
+      (err: unknown) => {
+        span.recordException(err as Error);
+        span.setStatus({ code: SpanStatusCode.ERROR });
+        span.end();
+        throw err;
+      },
+    );
+}
 
 /**
  * OpenTelemetry instrumentation for the {@link MqttClient} broker handlers.
@@ -69,34 +94,11 @@ export class MqttClientInstrumentation extends InstrumentationBase {
     this._unwrap(proto, 'unsubscribeHandle');
   }
 
-  private _withSpan<T>(name: string, kind: SpanKind, attributes: SpanAttributes, fn: () => Promise<T>): Promise<T> {
-    const span = this.tracer.startSpan(name, { kind });
-    span.setAttribute(ATTR_MESSAGING_SYSTEM, 'mqtt');
-    span.setAttributes(attributes);
-    // Make the MQTT span the active context so ioredis calls initiated inside the
-    // handler can treat it as the parent span (matching ioredis instrumentation's
-    // default `requireParentSpan: true`).
-    const activeContext = trace.setSpan(context.active(), span);
-    return context
-      .with(activeContext, () => fn())
-      .then(
-        (result) => {
-          span.end();
-          return result;
-        },
-        (err: unknown) => {
-          span.recordException(err as Error);
-          span.setStatus({ code: SpanStatusCode.ERROR });
-          span.end();
-          throw err;
-        },
-      );
-  }
-
   private _traceConnect(original: MqttClient['connectHandle']): MqttClient['connectHandle'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: MqttClient, connData, emitAsync) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'connect',
         SpanKind.SERVER,
         {
@@ -110,9 +112,10 @@ export class MqttClientInstrumentation extends InstrumentationBase {
   }
 
   private _traceDisconnect(original: MqttClient['disconnectHandle']): MqttClient['disconnectHandle'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: MqttClient, disconnectData) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'disconnect',
         SpanKind.SERVER,
         {
@@ -126,9 +129,10 @@ export class MqttClientInstrumentation extends InstrumentationBase {
   }
 
   private _tracePublish(original: MqttClient['publishHandle']): MqttClient['publishHandle'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: MqttClient, pubData, emitAsync) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'publish',
         SpanKind.SERVER,
         {
@@ -143,9 +147,10 @@ export class MqttClientInstrumentation extends InstrumentationBase {
   }
 
   private _tracePublishSend(original: MqttClient['handlePublish']): MqttClient['handlePublish'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: MqttClient, pubData, retain) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'publish.send',
         SpanKind.CLIENT,
         {
@@ -160,9 +165,10 @@ export class MqttClientInstrumentation extends InstrumentationBase {
   }
 
   private _traceSubscribe(original: MqttClient['subscribeHandle']): MqttClient['subscribeHandle'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: MqttClient, subData) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'subscribe',
         SpanKind.SERVER,
         {
@@ -176,9 +182,10 @@ export class MqttClientInstrumentation extends InstrumentationBase {
   }
 
   private _traceUnsubscribe(original: MqttClient['unsubscribeHandle']): MqttClient['unsubscribeHandle'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: MqttClient, unsubscribeData) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'unsubscribe',
         SpanKind.SERVER,
         {

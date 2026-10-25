@@ -1,6 +1,6 @@
 {
   "name": "@elfdream/mqtt5-backend",
-  "version": "1.5.1",
+  "version": "2.0.0",
   "description": "A cloud service based on the mqtt v5 protocol of nodejs.",
   "type": "module",
   "main": "./dist/index.js",
@@ -32,7 +32,7 @@
   },
   "lint-staged": {
     "*.{js,ts,jsx,tsx,json,jsonc}": [
-      "oxfmt",
+      "pnpm run fmt",
       "pnpm run lint:fix"
     ]
   },

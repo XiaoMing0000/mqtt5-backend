@@ -1,4 +1,4 @@
-import { context, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
+import { context, SpanKind, SpanStatusCode, trace, type Tracer } from '@opentelemetry/api';
 import { InstrumentationBase } from '@opentelemetry/instrumentation';
 import type { TIdentifier, TTopic } from '../interface';
 import { RedisManager } from '../manager/redisManager';
@@ -12,6 +12,28 @@ type SpanAttributes = Record<string, string | number | boolean>;
 
 /** `RedisManager.broadcastMessage` is private, so its type cannot be derived via `keyof`; declare its signature separately. */
 type TBroadcastMessage = (topic: TTopic, sourceIdentifier: TIdentifier, pubBuffer: Buffer) => Promise<void>;
+
+/** Create an INTERNAL span that wraps a RedisManager operation and keeps the active MQTT context. */
+function withSpan<T>(tracer: Tracer, name: string, attributes: SpanAttributes, fn: () => Promise<T>): Promise<T> {
+  const span = tracer.startSpan(name, { kind: SpanKind.INTERNAL });
+  span.setAttributes(attributes);
+  // Make the RedisManager span the active context so inner ioredis command spans can treat it as the parent span.
+  const activeContext = trace.setSpan(context.active(), span);
+  return context
+    .with(activeContext, () => fn())
+    .then(
+      (result) => {
+        span.end();
+        return result;
+      },
+      (err: unknown) => {
+        span.recordException(err as Error);
+        span.setStatus({ code: SpanStatusCode.ERROR });
+        span.end();
+        throw err;
+      },
+    );
+}
 
 /**
  * OpenTelemetry instrumentation for the {@link RedisManager} session/retain/publish operations.
@@ -86,31 +108,11 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
     this._unwrap(proto as any, 'broadcastMessage');
   }
 
-  private _withSpan<T>(name: string, attributes: SpanAttributes, fn: () => Promise<T>): Promise<T> {
-    const span = this.tracer.startSpan(name, { kind: SpanKind.INTERNAL });
-    span.setAttributes(attributes);
-    // Make the RedisManager span the active context so inner ioredis command spans can treat it as the parent span.
-    const activeContext = trace.setSpan(context.active(), span);
-    return context
-      .with(activeContext, () => fn())
-      .then(
-        (result) => {
-          span.end();
-          return result;
-        },
-        (err: unknown) => {
-          span.recordException(err as Error);
-          span.setStatus({ code: SpanStatusCode.ERROR });
-          span.end();
-          throw err;
-        },
-      );
-  }
-
   private _traceConnect(original: RedisManager['connect']): RedisManager['connect'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: RedisManager, identifier, client) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'mqtt.connect',
         {
           [ATTR_MESSAGING_SYSTEM]: 'mqtt',
@@ -123,9 +125,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
   }
 
   private _traceDisconnect(original: RedisManager['disconnect']): RedisManager['disconnect'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: RedisManager, identifier, disconnectData) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'mqtt.disconnect',
         {
           [ATTR_MESSAGING_SYSTEM]: 'mqtt',
@@ -138,9 +141,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
   }
 
   private _traceSubscribe(original: RedisManager['subscribe']): RedisManager['subscribe'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: RedisManager, identifier, topic, data) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'mqtt.subscribe',
         {
           [ATTR_MESSAGING_SYSTEM]: 'mqtt',
@@ -154,9 +158,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
   }
 
   private _traceIsSubscribe(original: RedisManager['isSubscribe']): RedisManager['isSubscribe'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: RedisManager, identifier, topic) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'mqtt.isSubscribe',
         {
           [ATTR_MESSAGING_SYSTEM]: 'mqtt',
@@ -170,9 +175,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
   }
 
   private _traceUnsubscribe(original: RedisManager['unsubscribe']): RedisManager['unsubscribe'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: RedisManager, identifier, topic) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'mqtt.unsubscribe',
         {
           [ATTR_MESSAGING_SYSTEM]: 'mqtt',
@@ -186,9 +192,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
   }
 
   private _traceClearSession(original: RedisManager['clearSession']): RedisManager['clearSession'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: RedisManager, identifier) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'mqtt.clearSession',
         {
           [ATTR_MESSAGING_SYSTEM]: 'mqtt',
@@ -201,9 +208,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
   }
 
   private _traceHasSession(original: RedisManager['hasSession']): RedisManager['hasSession'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: RedisManager, identifier) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'mqtt.hasSession',
         {
           [ATTR_MESSAGING_SYSTEM]: 'mqtt',
@@ -216,9 +224,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
   }
 
   private _traceAddRetainMessage(original: RedisManager['addRetainMessage']): RedisManager['addRetainMessage'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: RedisManager, topic, pubData, retainTTL) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'mqtt.retain.add',
         {
           [ATTR_MESSAGING_SYSTEM]: 'mqtt',
@@ -231,9 +240,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
   }
 
   private _traceDeleteRetainMessage(original: RedisManager['deleteRetainMessage']): RedisManager['deleteRetainMessage'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: RedisManager, topic) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'mqtt.retain.delete',
         {
           [ATTR_MESSAGING_SYSTEM]: 'mqtt',
@@ -246,9 +256,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
   }
 
   private _traceGetRetainMessage(original: RedisManager['getRetainMessage']): RedisManager['getRetainMessage'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: RedisManager, topic) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'mqtt.retain.get',
         {
           [ATTR_MESSAGING_SYSTEM]: 'mqtt',
@@ -261,9 +272,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
   }
 
   private _traceMatchRetainMessage(original: RedisManager['matchRetainMessage']): RedisManager['matchRetainMessage'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: RedisManager, topic, callbackfn) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'mqtt.retain.match',
         {
           [ATTR_MESSAGING_SYSTEM]: 'mqtt',
@@ -276,9 +288,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
   }
 
   private _tracePublish(original: RedisManager['publish']): RedisManager['publish'] {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: RedisManager, sourceIdentifier, topic, pubData) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'mqtt.publish',
         {
           [ATTR_MESSAGING_SYSTEM]: 'mqtt',
@@ -292,9 +305,10 @@ export class RedisManagerInstrumentation extends InstrumentationBase {
   }
 
   private _traceBroadcastMessage(original: TBroadcastMessage): TBroadcastMessage {
-    const instrumentation = this;
+    const tracer = this.tracer;
     return function (this: RedisManager, topic, sourceIdentifier, pubBuffer) {
-      return instrumentation._withSpan(
+      return withSpan(
+        tracer,
         'mqtt.broadcast',
         {
           [ATTR_MESSAGING_SYSTEM]: 'mqtt',
