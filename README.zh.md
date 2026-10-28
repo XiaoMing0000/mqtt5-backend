@@ -118,29 +118,14 @@ import { MemoryManager } from '@elfdream/mqtt5-backend';
 const clientManager = new MemoryManager();
 ```
 
-### Redis 单机存储 (RedisManager)
+### Redis 存储 (RedisManager)
 
-适用于单机 Redis 部署：
+基于 Redis 的共享状态后端，同时适用于单机与分布式（多实例）部署：
 
 ```typescript
 import { RedisManager } from '@elfdream/mqtt5-backend';
 
 const clientManager = new RedisManager({
-  host: '127.0.0.1',
-  port: 6379,
-  password: 'your_password',
-  db: 0,
-});
-```
-
-### Redis 分布式存储 (Redis2Manager)
-
-适用于分布式部署和水平扩展：
-
-```typescript
-import { Redis2Manager } from '@elfdream/mqtt5-backend';
-
-const clientManager = new Redis2Manager({
   host: '127.0.0.1',
   port: 6379,
   username: 'your_username',
@@ -149,16 +134,18 @@ const clientManager = new Redis2Manager({
 });
 ```
 
+会话、保留消息与订阅均持久化到 Redis，多个指向同一 Redis 的 `MqttServer` 实例共享这些状态。参见[分布式部署](#分布式部署)。
+
 ## 📋 API 文档
 
 ### 核心类型
 
-| 类型                      | 作用                                                                  |
-| ------------------------- | --------------------------------------------------------------------- |
-| `TSocket`                 | 传输层 socket（TCP / WebSocket 适配），带类型化 MQTT `on` / `once`    |
-| `MqttClient`              | 单连接 MQTT 会话与报文处理（由原 `MqttManager` 重命名）               |
-| `Manager`                 | 会话/订阅后端抽象（`MemoryManager`、`RedisManager`、`Redis2Manager`） |
-| `ClientIdentifierManager` | client id → 在线 `MqttClient` 映射；`getClient(id)`、`geTSocket(id)`  |
+| 类型                      | 作用                                                                 |
+| ------------------------- | -------------------------------------------------------------------- |
+| `TSocket`                 | 传输层 socket（TCP / WebSocket 适配），带类型化 MQTT `on` / `once`   |
+| `MqttClient`              | 单连接 MQTT 会话与报文处理（由原 `MqttManager` 重命名）              |
+| `Manager`                 | 会话/订阅后端抽象（`MemoryManager`、`RedisManager`）                 |
+| `ClientIdentifierManager` | client id → 在线 `MqttClient` 映射；`getClient(id)`、`geTSocket(id)` |
 
 ### MqttServer
 
@@ -558,14 +545,21 @@ await clientManager.forEachRetainMessage(async (topic, data) => {
 
 ## 🌐 分布式部署
 
-### Redis 配置
+`RedisManager` 是支持水平扩展的共享状态后端。运行多个 `MqttServer` 实例，让它们都连接到**同一个 Redis**，并在前面放置 TCP 负载均衡器来分发客户端连接。
 
-确保 Redis 配置了键空间通知：
+### 工作原理
 
-```redis
-# redis.conf
-notify-keyspace-events Ex
-```
+- **共享状态**：会话（`session:*` 哈希）、保留消息（`retain:*` 键）和客户端所有权（`client-owner:*` 键）存储在 Redis 中，所有实例可见。
+- **跨实例消息投递**：每次发布都会通过 Redis Pub/Sub 频道 `mqtt-message` 广播，各实例再投递给本地连接的订阅者。
+- **会话接管**：相同 client id 连接到另一实例时，会广播 `mqtt-client-takeover` 通知，原实例以 `SessionTakenOver` 断开旧连接。
+- **崩溃恢复**：会话与所有权键带有 24 小时租约（每 8 小时续期），崩溃实例的状态会被自动过期清理。
+
+协调基于 Redis Pub/Sub，因此**无需配置 `notify-keyspace-events`**。
+
+### 前置条件
+
+- 所有实例**必须连接同一个 Redis 数据库**——共享的 Redis 是它们构成集群的关键。
+- Redis 需允许 Lua `EVAL`（默认开启），用于原子化的所有权校验。
 
 ### 环境变量
 
@@ -583,20 +577,30 @@ REDIS_DB=0
 ### 多实例部署
 
 ```typescript
-// 实例 1
-const clientManager1 = new Redis2Manager({
-  host: 'redis-cluster-1.example.com',
-  port: 6379,
+// 每个实例运行相同代码，均指向同一个 Redis。
+// 通过负载均衡器（nginx / HAProxy / Kubernetes Service）
+// 将 TCP 1883 连接分发到各实例。
+
+import { MqttServer, RedisManager } from '@elfdream/mqtt5-backend';
+
+const clientManager = new RedisManager({
+  host: process.env.REDIS_HOST,
+  port: Number(process.env.REDIS_PORT),
+  username: process.env.REDIS_USERNAME,
+  password: process.env.REDIS_PASSWORD,
+  db: Number(process.env.REDIS_DB),
 });
 
-// 实例 2
-const clientManager2 = new Redis2Manager({
-  host: 'redis-cluster-2.example.com',
-  port: 6379,
-});
+const mqttServer = new MqttServer(clientManager);
 
-// 两个实例可以共享订阅和消息
+mqttServer.listen(Number(process.env.MQTT_PORT), process.env.MQTT_HOST, () => {
+  console.log(`MQTT server listening on port ${process.env.MQTT_PORT}`);
+});
 ```
+
+所有实例共享会话、保留消息与订阅，因此连接任意实例的客户端都能收到其他实例客户端发布的消息。
+
+> **注意**：共享订阅（`$share/...`）目前尚不支持跨实例。
 
 ## 🧪 测试
 
@@ -613,19 +617,16 @@ npm run build:prod
 
 ## 📊 性能测试
 
-### 基准测试结果
+完整基准测试位于 [benchmarks.md](benchmarks.md)，包含同主机/局域网吞吐、连接数上限，以及与 Mochi / Mosquitto / EMQX / Rumqtt 的对比。
 
-我们对 MQTT5 后端服务进行了全面的性能测试。测试结果显示出色的性能特征：
+核心结果（单实例，1 核 / 512MB，`mqtt-stresser`）：
 
-- **连接处理能力**: 960 cps (每秒连接数)
-- **订阅处理能力**: 923 cps (每秒订阅数)
-- **消息推送能力**: 12,124 qps (每秒消息数)
-- **最大连接数**: 28,232 个并发连接
-- **资源效率**: 低 CPU 占用 (空闲时 0.14%) 和内存消耗 (< 21%)
+- **发布吞吐**: 中位 256k ~ 494k msg/s（同主机）
+- **接收吞吐**: 中位 45k ~ 78k msg/s（同主机）
+- **最大连接数**: 28,232 并发连接（emqtt-bench）
+- **可靠性**: 所有完成测试 100% 收发、0 错误
 
-📋 **[查看完整性能测试报告](simple-test.md)**
-
-测试报告包含详细分析、与其他 MQTT Broker 的对比以及优化建议。
+📋 **[查看完整基准测试报告](benchmarks.md)**
 
 ## 📊 性能优化
 
@@ -634,7 +635,7 @@ npm run build:prod
 1. **连接池配置**：
 
 ```typescript
-const clientManager = new Redis2Manager({
+const clientManager = new RedisManager({
   host: '127.0.0.1',
   port: 6379,
   lazyConnect: true,
@@ -717,7 +718,7 @@ server.on('error', (err) => {
 - [MQTT v5 规范](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html)
 - [项目主页](https://gitlab.soraharu.com/xiaoming0000/mqtt5-backend)
 - [GitHub 仓库](https://github.com/XiaoMing0000/mqtt5-backend.git)
-- [性能测试报告](simple-test.md)
+- [性能测试报告](benchmarks.md)
 
 ## 📞 支持
 

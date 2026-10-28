@@ -118,29 +118,14 @@ import { MemoryManager } from '@elfdream/mqtt5-backend';
 const clientManager = new MemoryManager();
 ```
 
-### Redis Single-Instance Storage (RedisManager)
+### Redis Storage (RedisManager)
 
-Suitable for single-instance Redis deployment:
+Redis-backed shared state, suitable for both single-instance and distributed (multi-instance) deployment:
 
 ```typescript
 import { RedisManager } from '@elfdream/mqtt5-backend';
 
 const clientManager = new RedisManager({
-  host: '127.0.0.1',
-  port: 6379,
-  password: 'your_password',
-  db: 0,
-});
-```
-
-### Redis Distributed Storage (Redis2Manager)
-
-Suitable for distributed deployment and horizontal scaling:
-
-```typescript
-import { Redis2Manager } from '@elfdream/mqtt5-backend';
-
-const clientManager = new Redis2Manager({
   host: '127.0.0.1',
   port: 6379,
   username: 'your_username',
@@ -149,16 +134,18 @@ const clientManager = new Redis2Manager({
 });
 ```
 
+Sessions, retained messages and subscriptions are persisted in Redis, and multiple `MqttServer` instances pointed at the same Redis share them. See [Distributed Deployment](#distributed-deployment).
+
 ## 📋 API Documentation
 
 ### Core Types
 
-| Type                      | Role                                                                                     |
-| ------------------------- | ---------------------------------------------------------------------------------------- |
-| `TSocket`                 | Transport socket (TCP / WebSocket adapter) with typed MQTT `on` / `once`                 |
-| `MqttClient`              | Per-connection MQTT session and packet handlers (renamed from `MqttManager`)             |
-| `Manager`                 | Abstract session/subscription backend (`MemoryManager`, `RedisManager`, `Redis2Manager`) |
-| `ClientIdentifierManager` | Maps MQTT client id → live `MqttClient`; `getClient(id)`, `geTSocket(id)`                |
+| Type                      | Role                                                                         |
+| ------------------------- | ---------------------------------------------------------------------------- |
+| `TSocket`                 | Transport socket (TCP / WebSocket adapter) with typed MQTT `on` / `once`     |
+| `MqttClient`              | Per-connection MQTT session and packet handlers (renamed from `MqttManager`) |
+| `Manager`                 | Abstract session/subscription backend (`MemoryManager`, `RedisManager`)      |
+| `ClientIdentifierManager` | Maps MQTT client id → live `MqttClient`; `getClient(id)`, `geTSocket(id)`    |
 
 ### MqttServer
 
@@ -558,14 +545,21 @@ await clientManager.forEachRetainMessage(async (topic, data) => {
 
 ## 🌐 Distributed Deployment
 
-### Redis Configuration
+`RedisManager` is the shared-state backend that enables horizontal scaling. Run multiple `MqttServer` instances that all connect to the **same Redis**, and place a TCP load balancer in front of them to distribute client connections.
 
-Ensure Redis is configured with keyspace notifications:
+### How It Works
 
-```redis
-# redis.conf
-notify-keyspace-events Ex
-```
+- **Shared state**: sessions (`session:*` hashes), retained messages (`retain:*` keys) and client ownership (`client-owner:*` keys) live in Redis and are visible to every instance.
+- **Cross-instance message delivery**: each publish is broadcast over the Redis Pub/Sub channel `mqtt-message`; every instance delivers it to its locally connected subscribers.
+- **Session takeover**: connecting with an already-used client id to another instance broadcasts a `mqtt-client-takeover` notice, and the previous instance disconnects the old connection with `SessionTakenOver`.
+- **Crash recovery**: session and ownership keys carry a 24-hour lease (renewed every 8 hours), so a crashed instance's state is expired automatically.
+
+Coordination uses Redis Pub/Sub, so **no `notify-keyspace-events` configuration is required**.
+
+### Requirements
+
+- All instances **must connect to the same Redis database** — the shared Redis is what turns them into a cluster.
+- Redis must allow Lua `EVAL` (enabled by default), used for atomic ownership checks.
 
 ### Environment Variables
 
@@ -583,20 +577,30 @@ REDIS_DB=0
 ### Multi-Instance Deployment
 
 ```typescript
-// Instance 1
-const clientManager1 = new Redis2Manager({
-  host: 'redis-cluster-1.example.com',
-  port: 6379,
+// Run this on every instance; each points to the same Redis.
+// A load balancer (nginx / HAProxy / Kubernetes Service) spreads
+// TCP 1883 connections across the instances.
+
+import { MqttServer, RedisManager } from '@elfdream/mqtt5-backend';
+
+const clientManager = new RedisManager({
+  host: process.env.REDIS_HOST,
+  port: Number(process.env.REDIS_PORT),
+  username: process.env.REDIS_USERNAME,
+  password: process.env.REDIS_PASSWORD,
+  db: Number(process.env.REDIS_DB),
 });
 
-// Instance 2
-const clientManager2 = new Redis2Manager({
-  host: 'redis-cluster-2.example.com',
-  port: 6379,
-});
+const mqttServer = new MqttServer(clientManager);
 
-// Both instances can share subscriptions and messages
+mqttServer.listen(Number(process.env.MQTT_PORT), process.env.MQTT_HOST, () => {
+  console.log(`MQTT server listening on port ${process.env.MQTT_PORT}`);
+});
 ```
+
+All instances share sessions, retained messages and subscriptions, so a client connected to any instance receives messages published by clients on other instances.
+
+> **Note**: shared subscriptions (`$share/...`) are not yet supported across instances.
 
 ## 🧪 Testing
 
@@ -613,19 +617,16 @@ npm run build:prod
 
 ## 📊 Performance Testing
 
-### Benchmark Results
+Comprehensive benchmarks live in [benchmarks.md](benchmarks.md) — same-host and LAN throughput, connection limits, and a comparison against Mochi / Mosquitto / EMQX / Rumqtt.
 
-We have conducted comprehensive performance testing on the MQTT5 backend service. The test results show excellent performance characteristics:
+Headline results (single instance, 1 vCPU / 512 MB, `mqtt-stresser`):
 
-- **Connection Handling**: 960 cps (connections per second)
-- **Subscription Processing**: 923 cps (subscriptions per second)
-- **Message Publishing**: 12,124 qps (messages per second)
-- **Maximum Connections**: 28,232 concurrent connections
-- **Resource Efficiency**: Low CPU usage (0.14% idle) and memory consumption (< 21%)
+- **Publish throughput**: 256k ~ 494k msg/s median (same-host)
+- **Receive throughput**: 45k ~ 78k msg/s median (same-host)
+- **Maximum connections**: 28,232 concurrent connections (emqtt-bench)
+- **Reliability**: 100% delivered, 0 errors across all completed runs
 
-📋 **[View Complete Performance Test Report](simple-test.md)**
-
-The test report includes detailed analysis, comparison with other MQTT brokers, and optimization recommendations.
+📋 **[View the full benchmark report](benchmarks.md)**
 
 ## 📊 Performance Optimization
 
@@ -634,7 +635,7 @@ The test report includes detailed analysis, comparison with other MQTT brokers, 
 1. **Connection Pool Configuration**:
 
 ```typescript
-const clientManager = new Redis2Manager({
+const clientManager = new RedisManager({
   host: '127.0.0.1',
   port: 6379,
   lazyConnect: true,
@@ -717,7 +718,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [MQTT v5 Specification](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html)
 - [Project Homepage](https://gitlab.soraharu.com/xiaoming0000/mqtt5-backend)
 - [GitHub Repository](https://github.com/XiaoMing0000/mqtt5-backend.git)
-- [Performance Test Report](simple-test.md)
+- [Performance Test Report](benchmarks.md)
 
 ## 📞 Support
 
