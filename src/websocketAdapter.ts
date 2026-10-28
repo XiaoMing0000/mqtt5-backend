@@ -45,8 +45,12 @@ export class WebSocketAdapter extends net.Socket {
     });
 
     this.ws.on('close', () => {
-      this.emit('close');
-      this.emit('end');
+      // Tear down the base net.Socket so `destroyed` becomes true and the keep-alive
+      // `kTimeout` is cleared. `destroy()` also emits 'close' (driving session cleanup in
+      // `mqttConnection`) exactly once, and leaves `handleDisconnect`'s
+      // `writableEnded || destroyed` guard able to reject late writes to this handleless
+      // socket instead of letting them fall through to `_write` and throw ERR_SOCKET_CLOSED.
+      super.destroy();
     });
 
     this.ws.on('error', (err: Error) => {
