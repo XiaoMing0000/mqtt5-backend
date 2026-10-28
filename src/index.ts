@@ -469,11 +469,11 @@ class MqttEvent {
                 console.log('Unhandled packet type:', data);
             }
           } catch (error: any) {
+            console.error('Capture Event Error:', (error.message ?? error.msg ?? error._msg) || 'Unknown error');
             if (!this.options.sendReasonMessage) {
               delete (error as any).msg;
             }
             await catchMqttError(error, client, data);
-            console.error('Capture Event Error:', (error.message ?? error.msg ?? error._msg) || 'Unknown error');
             break;
           }
         }
@@ -494,16 +494,14 @@ class MqttEvent {
       // console.log('Client disconnected');
     });
 
-    socket.on('error', (err) => {
-      client.handleDisconnect({
-        header: {
-          packetType: PacketType.DISCONNECT,
-          received: 0,
-          remainingLength: 0,
-          reasonCode: DisconnectReasonCode.UnspecifiedError,
-        },
-        properties: { reasonString: err.message },
-      });
+    socket.on('error', (err: Error) => {
+      // A socket-level error does not mean the MQTT session is dead. Node emits
+      // ERR_SOCKET_CLOSED ("Socket is closed") when a write lands on a socket whose
+      // handle is already gone — e.g. a half-closed/WebSocket-adapted transport or a
+      // stale connection being torn down. Sending a DISCONNECT from here re-writes to
+      // that same socket (client.handleDisconnect -> socket.end) and re-triggers the
+      // error, while doing nothing to the live transport. Session cleanup belongs to
+      // the 'close' handler below, which Node always fires after a fatal error.
       console.error('Client error:', err.message);
     });
 

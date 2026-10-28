@@ -174,7 +174,7 @@ class QosRetry {
  * @remarks
  * **Handler naming**
  * - Server receives from client: `{packetType}Handle` (e.g. {@link MqttClient.connectHandle}, {@link MqttClient.publishHandle}).
- * - Server sends to client: `handle{PacketType}` (e.g. {@link MqttClient.handleConnAck}, {@link MqttClient.handleDisconnect}, {@link MqttClient.handlePublish}).
+ * - Server sends to client: `handle{PacketType}` (e.g. {@link MqttClient.handleConnAck}, {@link MqttClient.handlePublish}).
  *
  * **QoS 1/2 recovery**
  * Retry state lives on the connection: `publishQosRetry` resends outbound PUBLISH frames the
@@ -449,6 +449,12 @@ export class MqttClient {
    * @param properties - MQTT 5 disconnect properties.
    */
   public async handleDisconnect(disconnectData: IDisconnectData) {
+    // The socket may already be closing (e.g. this is reached from the 'close'
+    // handler). Writing to an ended/destroyed socket raises "write after end" or
+    // ERR_SOCKET_CLOSED, so bail out instead of re-writing to a dead transport.
+    if (this.socket.writableEnded || this.socket.destroyed) {
+      return;
+    }
     const disconnectPacket = encodePacket(disconnectData, this.connData.header.protocolVersion);
     this.socket.end(Buffer.from(disconnectPacket));
   }
