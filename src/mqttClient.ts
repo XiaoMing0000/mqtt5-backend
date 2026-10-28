@@ -232,6 +232,8 @@ export class MqttClient {
   private errorDisconnect = true;
   /** Timer for a delayed will message; kept so it can be `.unref()`'d and cleared. */
   private willTimer?: NodeJS.Timeout;
+  /** Keep-alive timeout handler, stored so it can be detached on teardown (see {@link clearKeepAlive}). */
+  private keepAliveTimeoutHandler?: (...args: any[]) => void;
   /**
    * @param socket - Underlying transport used to read and write MQTT frames.
    * @param clientManager - Broker-side registry for sessions, subscriptions, and identifiers.
@@ -263,6 +265,24 @@ export class MqttClient {
   public clearPendingRetries() {
     this.publishQosRetry.clearPendingClient(this);
     this.receiveQos2Retry.clearPendingClient(this);
+  }
+
+  /**
+   * Cancels the keep-alive timeout and detaches its handler.
+   *
+   * @remarks
+   * The keep-alive timer created by {@link MqttClient.connectHandle} via
+   * `socket.setTimeout()` is an unref'd timer, but its callback still references the
+   * socket, which in turn references this client through its `timeout` listener. Leaving
+   * it armed after teardown keeps the socket and this client reachable until it fires —
+   * especially on WebSocket, where the adapter's base `net.Socket` is never destroyed.
+   */
+  public clearKeepAlive() {
+    this.socket.setTimeout(0);
+    if (this.keepAliveTimeoutHandler) {
+      this.socket.removeListener('timeout', this.keepAliveTimeoutHandler);
+      this.keepAliveTimeoutHandler = undefined;
+    }
   }
 
   /**
@@ -403,10 +423,9 @@ export class MqttClient {
       });
     }
     if (this.connData.header.keepAlive) {
-      this.socket.setTimeout(this.connData.header.keepAlive * 1000);
-      this.socket.on('timeout', () => {
+      this.keepAliveTimeoutHandler = async () => {
         if (Date.now() > this.expire) {
-          this.handleDisconnect({
+          await this.handleDisconnect({
             header: {
               packetType: PacketType.DISCONNECT,
               received: 0,
@@ -418,7 +437,9 @@ export class MqttClient {
         } else {
           this.socket.setTimeout(this.connData.header.keepAlive * 1000);
         }
-      });
+      };
+      this.socket.setTimeout(this.connData.header.keepAlive * 1000);
+      this.socket.on('timeout', this.keepAliveTimeoutHandler);
     }
     await this.clientManager.connect(this.clientIdentifier, this);
     await this.handleConnAck(this.connData);

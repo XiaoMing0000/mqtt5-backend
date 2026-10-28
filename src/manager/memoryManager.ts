@@ -94,7 +94,8 @@ export class MemoryManager extends Manager {
     if (client && !client.isDisconnect) {
       client.isDisconnect = true;
       client.clearPendingRetries();
-      client.handleDisconnect(
+      client.clearKeepAlive();
+      await client.handleDisconnect(
         disconnectData ?? {
           header: {
             packetType: PacketType.DISCONNECT,

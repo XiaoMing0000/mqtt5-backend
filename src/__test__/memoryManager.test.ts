@@ -34,7 +34,9 @@ interface ClientFixture {
 function createClient(manager: MemoryManager, id: string, sessionExpiryInterval = 0): ClientFixture {
   const write = vi.fn((_buf: Buffer) => true);
   const end = vi.fn();
-  const socket = { write, end } as unknown as TSocket;
+  const setTimeout = vi.fn();
+  const removeListener = vi.fn();
+  const socket = { write, end, setTimeout, removeListener } as unknown as TSocket;
   const client = new MqttClient(socket, manager, mqttDefaultOptions);
   client.clientIdentifier = id;
   client.packetIdentifierManager.receiveMaximum = mqttDefaultOptions.receiveMaximum;

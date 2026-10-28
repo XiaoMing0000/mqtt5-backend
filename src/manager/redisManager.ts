@@ -575,11 +575,12 @@ export class RedisManager extends Manager {
 
     client.isDisconnect = true;
     client.clearPendingRetries();
+    client.clearKeepAlive();
 
     // Release ownership (only if still held) so a later connection can take over cleanly.
     void this.clientTakeoverManager.release(identifier, client.connectionToken);
 
-    client.handleDisconnect(
+    await client.handleDisconnect(
       disconnectData ?? {
         header: {
           packetType: PacketType.DISCONNECT,
