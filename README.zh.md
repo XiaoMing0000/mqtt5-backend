@@ -272,8 +272,8 @@ MQTT v5.0 在 v3.1.1 基础上新增了以下特性：
 - ✅ 主题别名（Topic Alias）
 - ✅ 订阅标识符（Subscription Identifier）
 - ✅ 会话过期时间（Session Expiry Interval）
-- ✅ 共享订阅（Shared Subscription）
-- ✅ 增强认证（Enhanced Authentication）
+- ❌ 共享订阅（Shared Subscription）
+- ❌ 增强认证（Enhanced Authentication）
 - ✅ 服务器保持连接（Server Keep Alive）
 - ✅ 请求/响应信息（Request/Response Information）
 

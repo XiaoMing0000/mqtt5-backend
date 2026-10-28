@@ -272,8 +272,8 @@ MQTT v5.0 adds the following features on top of v3.1.1:
 - ✅ Topic Alias
 - ✅ Subscription Identifier
 - ✅ Session Expiry Interval
-- ✅ Shared Subscription
-- ✅ Enhanced Authentication
+- ❌ Shared Subscription
+- ❌ Enhanced Authentication
 - ✅ Server Keep Alive
 - ✅ Request/Response Information
 
