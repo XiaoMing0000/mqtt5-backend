@@ -575,8 +575,65 @@ function encodeProperties<K extends keyof PropertyDataMap>(id: K, data: Property
  * Accumulates MQTT 5 property bytes and builds the prefixed property length + payload for the wire format.
  */
 export class EncoderProperties {
+  /** Number of encoded property bytes accumulated so far (also the write cursor into `buf`). */
   private propertyLength: number = 0;
-  private properties: number[][] = [];
+  /** Scratch buffer that grows geometrically on demand. */
+  private buf: Buffer = Buffer.allocUnsafe(256);
+
+  /** Grows `buf` so it can hold `extra` more bytes at the current write position. */
+  private ensure(extra: number) {
+    if (this.propertyLength + extra <= this.buf.length) {
+      return;
+    }
+    let size = this.buf.length * 2;
+    while (size < this.propertyLength + extra) {
+      size *= 2;
+    }
+    const next = Buffer.allocUnsafe(size);
+    this.buf.copy(next, 0, 0, this.propertyLength);
+    this.buf = next;
+  }
+
+  private writeByte(value: number) {
+    this.ensure(1);
+    this.buf[this.propertyLength++] = value;
+  }
+
+  private writeUInt16(value: number) {
+    this.ensure(2);
+    this.buf.writeUInt16BE(value & 0xffff, this.propertyLength);
+    this.propertyLength += 2;
+  }
+
+  private writeUInt32(value: number) {
+    this.ensure(4);
+    this.buf.writeUInt32BE(value >>> 0, this.propertyLength);
+    this.propertyLength += 4;
+  }
+
+  private writeVariableByteInteger(value: number) {
+    const bytes = encodeVariableByteInteger(value);
+    this.ensure(bytes.length);
+    this.buf.set(bytes, this.propertyLength);
+    this.propertyLength += bytes.length;
+  }
+
+  private writeUtf8(value: string) {
+    const length = Buffer.byteLength(value);
+    this.ensure(2 + length);
+    this.buf.writeUInt16BE(length, this.propertyLength);
+    this.propertyLength += 2;
+    this.buf.write(value, this.propertyLength, 'utf8');
+    this.propertyLength += length;
+  }
+
+  private writeBinary(value: Buffer) {
+    this.ensure(2 + value.length);
+    this.buf.writeUInt16BE(value.length, this.propertyLength);
+    this.propertyLength += 2;
+    value.copy(this.buf, this.propertyLength);
+    this.propertyLength += value.length;
+  }
 
   /**
    * Appends one property (identifier + value) using the shared encoder from `property.ts`.
@@ -585,20 +642,136 @@ export class EncoderProperties {
    */
   add<K extends TPropertyIdentifier>(identifier: K, data: PropertyDataMap[K]) {
     const list = encodeProperties(identifier, data);
-    this.properties.push(list);
+    this.ensure(list.length);
+    this.buf.set(list, this.propertyLength);
     this.propertyLength += list.length;
   }
-
   /**
-   * Adds all defined entries from a properties object (skips `undefined` fields).
+   * Adds all defined entries from a properties object in property-identifier order (skips `undefined` fields).
    * @param properties - Partial property bag keyed by logical names.
    */
   push(properties: IProperties) {
-    for (const key in properties) {
-      if (properties[key as keyof IProperties] === undefined) {
-        continue;
+    if (properties.payloadFormatIndicator !== undefined) {
+      this.writeByte(PropertyIdentifier.payloadFormatIndicator);
+      this.writeByte(encodeOneByteInteger(properties.payloadFormatIndicator));
+    }
+    if (properties.messageExpiryInterval !== undefined) {
+      this.writeByte(PropertyIdentifier.messageExpiryInterval);
+      this.writeUInt32(properties.messageExpiryInterval);
+    }
+    if (properties.contentType !== undefined) {
+      this.writeByte(PropertyIdentifier.contentType);
+      this.writeUtf8(properties.contentType);
+    }
+    if (properties.responseTopic !== undefined) {
+      this.writeByte(PropertyIdentifier.responseTopic);
+      this.writeUtf8(properties.responseTopic);
+    }
+    if (properties.correlationData !== undefined) {
+      this.writeByte(PropertyIdentifier.correlationData);
+      this.writeBinary(properties.correlationData);
+    }
+    if (properties.subscriptionIdentifier !== undefined) {
+      for (const item of properties.subscriptionIdentifier) {
+        this.writeByte(PropertyIdentifier.subscriptionIdentifier);
+        this.writeVariableByteInteger(item);
       }
-      this.add(PropertyIdentifier[key as keyof typeof PropertyIdentifier], properties[key as keyof IProperties] as any);
+    }
+    if (properties.sessionExpiryInterval !== undefined) {
+      this.writeByte(PropertyIdentifier.sessionExpiryInterval);
+      this.writeUInt32(properties.sessionExpiryInterval);
+    }
+    if (properties.assignedClientIdentifier !== undefined) {
+      this.writeByte(PropertyIdentifier.assignedClientIdentifier);
+      this.writeUtf8(properties.assignedClientIdentifier);
+    }
+    if (properties.serverKeepAlive !== undefined) {
+      this.writeByte(PropertyIdentifier.serverKeepAlive);
+      this.writeUInt16(properties.serverKeepAlive);
+    }
+    if (properties.authenticationMethod !== undefined) {
+      this.writeByte(PropertyIdentifier.authenticationMethod);
+      this.writeUtf8(properties.authenticationMethod);
+    }
+    if (properties.authenticationData !== undefined) {
+      this.writeByte(PropertyIdentifier.authenticationData);
+      this.writeUtf8(properties.authenticationData);
+    }
+    if (properties.requestProblemInformation !== undefined) {
+      this.writeByte(PropertyIdentifier.requestProblemInformation);
+      this.writeByte(properties.requestProblemInformation ? 1 : 0);
+    }
+    if (properties.willDelayInterval !== undefined) {
+      this.writeByte(PropertyIdentifier.willDelayInterval);
+      this.writeUInt32(properties.willDelayInterval);
+    }
+    if (properties.requestResponseInformation !== undefined) {
+      this.writeByte(PropertyIdentifier.requestResponseInformation);
+      this.writeByte(properties.requestResponseInformation ? 1 : 0);
+    }
+    if (properties.responseInformation !== undefined) {
+      this.writeByte(PropertyIdentifier.responseInformation);
+      this.writeUtf8(properties.responseInformation);
+    }
+    if (properties.serverReference !== undefined) {
+      this.writeByte(PropertyIdentifier.serverReference);
+      this.writeUtf8(properties.serverReference);
+    }
+    if (properties.reasonString !== undefined) {
+      this.writeByte(PropertyIdentifier.reasonString);
+      this.writeUtf8(properties.reasonString);
+    }
+    if (properties.receiveMaximum !== undefined) {
+      this.writeByte(PropertyIdentifier.receiveMaximum);
+      this.writeUInt16(properties.receiveMaximum);
+    }
+    if (properties.topicAliasMaximum !== undefined) {
+      this.writeByte(PropertyIdentifier.topicAliasMaximum);
+      this.writeUInt16(properties.topicAliasMaximum);
+    }
+    if (properties.topicAlias !== undefined) {
+      this.writeByte(PropertyIdentifier.topicAlias);
+      this.writeUInt16(properties.topicAlias);
+    }
+    if (properties.maximumQoS !== undefined) {
+      this.writeByte(PropertyIdentifier.maximumQoS);
+      this.writeByte(properties.maximumQoS ? 1 : 0);
+    }
+    if (properties.retainAvailable !== undefined) {
+      this.writeByte(PropertyIdentifier.retainAvailable);
+      this.writeByte(properties.retainAvailable ? 1 : 0);
+    }
+    if (properties.userProperty !== undefined) {
+      for (const key in properties.userProperty) {
+        const value = properties.userProperty[key];
+        if (typeof value === 'string') {
+          this.writeByte(PropertyIdentifier.userProperty);
+          this.writeUtf8(key);
+          this.writeUtf8(value);
+        } else if (Array.isArray(value)) {
+          for (const item of value) {
+            this.writeByte(PropertyIdentifier.userProperty);
+            this.writeUtf8(key);
+            this.writeUtf8(item);
+          }
+        }
+      }
+    }
+    if (properties.maximumPacketSize !== undefined) {
+      this.writeByte(PropertyIdentifier.maximumPacketSize);
+      this.writeUInt32(properties.maximumPacketSize);
+    }
+    if (properties.wildcardSubscriptionAvailable !== undefined) {
+      this.writeByte(PropertyIdentifier.wildcardSubscriptionAvailable);
+      this.writeByte(properties.wildcardSubscriptionAvailable ? 1 : 0);
+    }
+    if (properties.subscriptionIdentifierAvailable !== undefined) {
+      this.writeByte(PropertyIdentifier.subscriptionIdentifierAvailable);
+      this.writeByte(properties.subscriptionIdentifierAvailable ? 1 : 0);
+    }
+    if (properties.sharedSubscriptionAvailable !== undefined) {
+      this.writeByte(PropertyIdentifier.sharedSubscriptionAvailable);
+      this.writeByte(properties.sharedSubscriptionAvailable ? 1 : 0);
     }
   }
 
@@ -607,7 +780,11 @@ export class EncoderProperties {
    * @returns A `Buffer` ready to append after fixed header / other fields as required by the packet type.
    */
   get buffer() {
-    return Buffer.concat([Buffer.from(encodeVariableByteInteger(this.propertyLength)), Buffer.from(this.properties.flat())]);
+    const prefix = encodeVariableByteInteger(this.propertyLength);
+    const out = Buffer.allocUnsafe(prefix.length + this.propertyLength);
+    out.set(prefix, 0);
+    this.buf.copy(out, prefix.length, 0, this.propertyLength);
+    return out;
   }
 
   /**
