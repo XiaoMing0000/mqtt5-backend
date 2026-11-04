@@ -685,7 +685,6 @@ export class RedisManager extends Manager {
    * @param pubData - PUBLISH payload and headers.
    */
   public async publish(sourceIdentifier: TIdentifier, topic: TTopic, pubData: IPublishData) {
-    console.log('publish: ', Buffer.concat([encodeUTF8String(sourceIdentifier), encodeUTF8String(topic), encodePacket(pubData, ProtocolVersion.V5)]));
     this.messageManager.publish(topic, sourceIdentifier, pubData);
   }
 

@@ -37,7 +37,7 @@ export function verifyTopic(topic: string) {
   // check #
   const multiIndex = topic.indexOf(MULTI_LEVEL_WILDCARD);
   if (multiIndex >= 0) {
-    if (multiIndex !== topic.length - 1 || (topic[multiIndex - 1] !== TOPIC_LEVEL_SEPARATOR && topic[multiIndex - 1] !== undefined)) {
+    if (multiIndex !== topic.length - 1 || (multiIndex > 0 && topic[multiIndex - 1] !== TOPIC_LEVEL_SEPARATOR)) {
       return false;
     }
   }
